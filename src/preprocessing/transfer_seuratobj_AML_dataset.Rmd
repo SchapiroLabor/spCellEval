@@ -1,0 +1,35 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
+
+Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Cmd+Shift+Enter*. 
+
+```{r}
+library(Seurat)
+library(dplyr)
+library(data.table)
+```
+
+```{r}
+obj1 <- readRDS("/Volumes/Lukas_SSD/phenotyping_benchmark/datasets/aml_bm/quantification/Normal_Bone_Marrow_CODEX_Atlas_Seurat_v2.rds")
+obj2 <- readRDS("/Volumes/Lukas_SSD/phenotyping_benchmark/datasets/aml_bm/quantification/AML_NSM_RefMap_Seurat_v2.rds")
+```
+
+```{r}
+expr_data1 <- t(as.data.frame(GetAssayData(obj1)))
+meta_data1 <- as.data.frame(obj1@meta.data)
+df1 <- cbind(expr_data1, meta_data1)
+```
+```{r}
+expr_data2 <- t(as.data.frame(GetAssayData(obj2)))
+meta_data2 <- as.data.frame(obj2@meta.data)
+df2 <- cbind(expr_data2, meta_data2)
+```
+```{r}
+write.csv(df1, file = "normal_bone_marrow.csv", row.names = FALSE)
+write.csv(df2, file= "AML_csv", row.names = FALSE)
+```
+
