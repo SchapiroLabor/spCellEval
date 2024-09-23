@@ -2,7 +2,7 @@ import os
 import json
 import numpy as np
 import pandas as pd
-from sklearn.model_selection import GroupKFold, KFold
+from sklearn.model_selection import StratifiedGroupKFold, KFold
 from sklearn.preprocessing import LabelEncoder
 
 class DataSetHandler:
@@ -42,13 +42,15 @@ class DataSetHandler:
             'label': range(len(label_encoder.classes_)),
             'phenotype': label_encoder.classes_
             })
-        self.X = self.data.drop(columns=[phenotype_column])
         if group_identifier_column is not None:
             self.group_identifier = self.data[group_identifier_column]
+            self.X = self.data.drop(columns=[phenotype_column, group_identifier_column])
+        else:
+            self.X = self.data.drop(columns=[phenotype_column])
 
         print("Data successfully preprocessed")
     
-    def save_labels(self, save_path: str) -> None:
+    def save_labels(self, save_path: str = None) -> None:
         if self.labels is None:
             raise ValueError("No labels have been created. Call preprocess first.")
         
@@ -67,9 +69,11 @@ class DataSetHandler:
             raise TypeError("k must be an integer")
         
         if self.group_identifier is not None:
-            self.kfolds = GroupKFold(n_splits=k)
+            print("Group identifier column specified, StratifiedGroupKFold will be used")
+            self.kfolds = StratifiedGroupKFold(n_splits=k)
             fold_generator = self.kfolds.split(self.X, self.Y, self.group_identifier)
         else:
+            print("No group identifier column specified, KFold will be used")
             self.kfolds = KFold(n_splits=k, shuffle=True, random_state=self.random_state)
             fold_generator = self.kfolds.split(self.X)
 
@@ -91,7 +95,7 @@ class DataSetHandler:
         print(f"{k} folds created. To save the folds, call save_folds method.")
 
 
-    def save_folds(self, save_path: str) -> None:
+    def save_folds(self, save_path: str = None) -> None:
 
         if self.fold_indices is None:
             raise ValueError("No folds have been created. Call createKfold first.")
