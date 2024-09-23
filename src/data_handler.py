@@ -111,15 +111,32 @@ class DataSetHandler:
             'folds': [{'train': train.tolist(), 'test': test.tolist()} for train, test in self.fold_indices]
         }
 
+
         with open(os.path.join(kfolds_dir, 'fold_indices.json'), 'w') as f:
             json.dump(fold_data, f)
 
-        for i, (train_index, test_index) in enumerate(self.fold_indices):
-            train_data = self.data.iloc[train_index]
-            test_data = self.data.iloc[test_index]
+        for i, fold in enumerate(self.fold_data):
+            X_train, X_test = fold['X_train'], fold['X_test']
+            Y_train, Y_test = fold['Y_train'], fold['Y_test']
+
+            train_data = pd.concat([X_train.reset_index(drop=True), pd.Series(Y_train, name='encoded_phenotype').reset_index(drop=True)], axis=1)
+            test_data = pd.concat([X_test.reset_index(drop=True), pd.Series(Y_test, name='encoded_phenotype').reset_index(drop=True)], axis=1)
             
             train_data.to_csv(os.path.join(kfolds_dir, f'fold_{i+1}_train.csv'), index=False)
             test_data.to_csv(os.path.join(kfolds_dir, f'fold_{i+1}_test.csv'), index=False)
+        # with open(os.path.join(kfolds_dir, 'fold_indices.json'), 'w') as f:
+        #     json.dump(fold_data, f)
+
+        # for i, (train_index, test_index) in enumerate(self.fold_indices):
+        #     X_train = self.X.iloc[train_index].reset_index(drop=True)
+        #     Y_train = pd.Series(self.Y[train_index], name='encoded_phenotype').reset_index(drop=True)
+        #     train_data = pd.concat([X_train, Y_train], axis=1)
+        #     X_test = self.X.iloc[test_index].reset_index(drop=True)
+        #     Y_test = pd.Series(self.Y[test_index], name='encoded_phenotype').reset_index(drop=True)
+        #     test_data = pd.concat([X_test, Y_test], axis=1)
+            
+        #     train_data.to_csv(os.path.join(kfolds_dir, f'fold_{i+1}_train.csv'), index=False)
+        #     test_data.to_csv(os.path.join(kfolds_dir, f'fold_{i+1}_test.csv'), index=False)
 
         print(f"Folds saved in: {kfolds_dir}")
 
