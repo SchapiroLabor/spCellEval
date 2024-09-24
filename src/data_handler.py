@@ -127,42 +127,6 @@ class DataSetHandler:
             
             train_data.to_csv(os.path.join(kfolds_dir, f'fold_{i+1}_train.csv'), index=False)
             test_data.to_csv(os.path.join(kfolds_dir, f'fold_{i+1}_test.csv'), index=False)
-        # with open(os.path.join(kfolds_dir, 'fold_indices.json'), 'w') as f:
-        #     json.dump(fold_data, f)
-
-        # for i, (train_index, test_index) in enumerate(self.fold_indices):
-        #     X_train = self.X.iloc[train_index].reset_index(drop=True)
-        #     Y_train = pd.Series(self.Y[train_index], name='encoded_phenotype').reset_index(drop=True)
-        #     train_data = pd.concat([X_train, Y_train], axis=1)
-        #     X_test = self.X.iloc[test_index].reset_index(drop=True)
-        #     Y_test = pd.Series(self.Y[test_index], name='encoded_phenotype').reset_index(drop=True)
-        #     test_data = pd.concat([X_test, Y_test], axis=1)
-            
-        #     train_data.to_csv(os.path.join(kfolds_dir, f'fold_{i+1}_train.csv'), index=False)
-        #     test_data.to_csv(os.path.join(kfolds_dir, f'fold_{i+1}_test.csv'), index=False)
 
         print(f"Folds saved in: {kfolds_dir}")
-
-            
-    @classmethod
-    def load_folds(cls, load_path: str = None, data_path: str = None) -> 'DataSetHandler':
-        if load_path is None:
-            load_path = os.getcwd()
-        
-        kfolds_dir = os.path.join(load_path, 'kfolds')
-        
-        with open(os.path.join(kfolds_dir, 'fold_indices.json'), 'r') as f:
-            fold_data = json.load(f)
-        
-        if data_path is None:
-            first_fold_file = [f for f in os.listdir(kfolds_dir) if f.startswith('fold_1_train_')][0]
-            data_path = os.path.join(kfolds_dir, first_fold_file.replace('fold_1_train_', ''))
-        
-        handler = cls(data_path, fold_data['random_state'])
-        handler.data = pd.read_csv(data_path)
-        handler.fold_indices = [(np.array(fold['train']), np.array(fold['test'])) for fold in fold_data['folds']]
-        handler.kfolds = KFold(n_splits=len(handler.fold_indices), shuffle=True, random_state=handler.random_state)
-        
-        return handler
-
 
