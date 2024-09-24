@@ -1,23 +1,57 @@
 import os
 import numpy as np
 import pandas as pd
-from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import confusion_matrix, accuracy_score, classification_report, f1_score, precision_score, recall_score
 from sklearn.preprocessing import StandardScaler
 import json
-import io
 import csv
 import pickle
+from sklearn.ensemble import RandomForestClassifier as rfc
 
-class MultinomialLogisticRegression:
-    def __init__(self, random_state: int, max_iter: int = 1000, c: float = 1.0, penalty: str = 'elasticnet', n_jobs: int = 2, l1_ratio: float = None, verbose: int = 0, tol: float = 0.0001) -> None:
-        if penalty not in ['l1', 'l2', 'elasticnet', 'none']:
-            raise ValueError("Penalty must be one of 'l1', 'l2', 'elasticnet', or 'none'")
+class MultiClassRandomForestClassifier:
+    def __init__(self,
+                 n_estimators: int = 100,
+                 criterion: str = 'log_loss',
+                 max_depth: int = None,
+                 min_samples_split: int = 2,
+                 min_samples_leaf: int = 1,
+                 min_weight_fraction_leaf: float = 0.0,
+                 max_features: str = 'sqrt',
+                 max_leaf_nodes: int = None,
+                 min_impurity_decrease: float = 0.0,
+                 bootstrap: bool = True,
+                 oob_score: bool = False,
+                 n_jobs: int = 2,
+                 random_state: int = None,
+                 verbose: int = 0,
+                 warm_start: bool = False,
+                 class_weight: dict = None,
+                 ccp_alpha: float = 0.0,
+                 max_samples: float = None) -> None:
+        
+        if criterion not in ['gini', 'entropy', 'log_loss']:
+            raise ValueError("Criterion must be 'gini', 'log_loss or 'entropy'.")
         
         self.random_state = random_state
         self.data_handler = None
-        self.model = LogisticRegression(multi_class='multinomial',n_jobs=n_jobs, max_iter=max_iter, random_state=random_state, C=c, penalty=penalty, 
-                                        l1_ratio=l1_ratio, solver='saga' if penalty in ['l1', 'elasticnet'] else 'lbfgs', tol=tol, verbose=verbose)
+        self.model = rfc(n_estimators=n_estimators,
+                         criterion=criterion,
+                         max_depth=max_depth,
+                         min_samples_split=min_samples_split,
+                         min_samples_leaf=min_samples_leaf,
+                         min_weight_fraction_leaf=min_weight_fraction_leaf,
+                         max_features=max_features,
+                         max_leaf_nodes=max_leaf_nodes,
+                         min_impurity_decrease=min_impurity_decrease,
+                         bootstrap=bootstrap,
+                         oob_score=oob_score,
+                         n_jobs=n_jobs,
+                         random_state=random_state,
+                         verbose=verbose,
+                         warm_start=warm_start,
+                         class_weight=class_weight,
+                         ccp_alpha=ccp_alpha,
+                         max_samples=max_samples)
         self.scaler = StandardScaler()
         self.fold_accuracies = []
         self.fold_f1_scores = []
@@ -32,18 +66,29 @@ class MultinomialLogisticRegression:
         self.average_precision = None
         self.average_recall = None
 
-        print(f'MultinomialLogisticRegression class initialized successfully with the following parameters:')
-        print(f'  Random State: {self.random_state}')
-        print(f'  Max Iterations: {self.model.max_iter}')
-        print(f'  C (Inverse of Regularization Strength): {self.model.C}')
-        print(f'  Penalty: {self.model.penalty}')
-        print(f'  L1 Ratio: {self.model.l1_ratio}')
-        print(f'  Solver: {self.model.solver}')
-        print(f'  Number of Jobs: {self.model.n_jobs}')
+        print('MultiClassRandomForestClassifier class initialized successfully with the following parameters:')
+        print(f'  n_estimators: {n_estimators}')
+        print(f'  criterion: {criterion}')
+        print(f'  max_depth: {max_depth}')
+        print(f'  min_samples_split: {min_samples_split}')
+        print(f'  min_samples_leaf: {min_samples_leaf}')
+        print(f'  min_weight_fraction_leaf: {min_weight_fraction_leaf}')
+        print(f'  max_features: {max_features}')
+        print(f'  max_leaf_nodes: {max_leaf_nodes}')
+        print(f'  min_impurity_decrease: {min_impurity_decrease}')
+        print(f'  bootstrap: {bootstrap}')
+        print(f'  oob_score: {oob_score}')
+        print(f'  n_jobs: {n_jobs}')
+        print(f'  random_state: {random_state}')
+        print(f'  verbose: {verbose}')
+        print(f'  warm_start: {warm_start}')
+        print(f'  class_weight: {class_weight}')
+        print(f'  ccp_alpha: {ccp_alpha}')
+        print(f'  max_samples: {max_samples}')
 
     def train_and_evaluate(self, datahandler) -> None:
         """
-        This function trains and evaluates the logistic regression model. Input is the .folds_data attribute from the DataSetHandler class. 
+        This function trains and evaluates the rfc model. Input is the .folds_data attribute from the DataSetHandler class. 
         """
         self.data_handler = datahandler
         if self.data_handler.fold_data is None:
@@ -54,7 +99,8 @@ class MultinomialLogisticRegression:
                 raise ValueError("NaN values found in the fold data. Please handle missing values before training.")
             else:
                 print(f"Data in fold {i+1} is clean.")
-                
+
+        for i, fold in enumerate(self.data_handler.fold_data):
             X_train = self.scaler.fit_transform(fold['X_train'])
             X_test = self.scaler.transform(fold['X_test'])
             Y_train = fold['Y_train']
@@ -102,7 +148,7 @@ class MultinomialLogisticRegression:
 
     def train_and_evaluate_manual(self, path: str) -> None:
         """
-        This function trains and evaluates the logistic regression model for multiclasses. Input is the path pointing to the folder containing the train and test csv kfold files.
+        This function trains and evaluates the rfc model. Input is the path pointing to the folder containing the train and test csv kfold files.
         """
 
         if not os.path.exists(path):
@@ -138,7 +184,6 @@ class MultinomialLogisticRegression:
         for i, (train_file, test_file) in enumerate(zip(fold_dict['train'], fold_dict['test'])):
             train_data = pd.read_csv(os.path.join(path, train_file))
             test_data = pd.read_csv(os.path.join(path, test_file))
-            print(f"Taking data from {train_file} and {test_file} for fold {i+1}.")
 
             X_train = train_data.drop(columns='encoded_phenotype')
             Y_train = train_data['encoded_phenotype']
@@ -214,7 +259,7 @@ class MultinomialLogisticRegression:
         }
 
         print("Saving average results...")
-        with open(os.path.join(save_path, 'average_logistic_regression_results.json'), 'w') as f:
+        with open(os.path.join(save_path, 'average_rfc_results.json'), 'w') as f:
             json.dump(avg_results, f, indent=4)
 
 
@@ -274,7 +319,7 @@ class MultinomialLogisticRegression:
         # This part saves the model
         if save_model:
             print("Saving model...")
-            model_filename = os.path.join(save_path, 'logistic_regression_model.pkl')
+            model_filename = os.path.join(save_path, 'rfc_model.pkl')
             with open(model_filename, 'wb') as f:
                 pickle.dump(self.model, f)
             print(f"Results and model saved successfully in {save_path}.")

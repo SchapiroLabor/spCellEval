@@ -2,9 +2,9 @@ import os
 import json
 import numpy as np
 import pandas as pd
-from sklearn.model_selection import StratifiedGroupKFold, KFold
+from sklearn.model_selection import StratifiedGroupKFold, StratifiedKFold
 from sklearn.preprocessing import LabelEncoder
-from typing import Union, List
+from typing import List
 
 class DataSetHandler:
     def __init__(self, path, random_state):
@@ -48,8 +48,10 @@ class DataSetHandler:
         if group_identifier_column is not None:
             self.group_identifier = self.data[group_identifier_column]
             self.X = self.data.drop(columns=[phenotype_column, group_identifier_column])
+            self.X = self.X.select_dtypes(include=[np.number])
         else:
             self.X = self.data.drop(columns=[phenotype_column])
+            self.X = self.X.select_dtypes(include=[np.number])
 
         print("Data successfully preprocessed")
     
@@ -65,7 +67,7 @@ class DataSetHandler:
 
     def createKfold(self, k: int) -> None:
         """
-        Creates folds, depending if the user has specified a group identifier or not. If a group identifier is present, StratifiedGroupKFold is used, otherwise KFold is used.
+        Creates folds, depending if the user has specified a group identifier or not. If a group identifier is present, StratifiedGroupKFold is used, otherwise StratifiedKFold is used.
         Folds will be carried by the fold_data attribute.
         """
         if not isinstance(k, int):
@@ -73,12 +75,12 @@ class DataSetHandler:
         
         if self.group_identifier is not None:
             print("Group identifier column specified, StratifiedGroupKFold will be used")
-            self.kfolds = StratifiedGroupKFold(n_splits=k)
+            self.kfolds = StratifiedGroupKFold(n_splits=k, shuffle=True, random_state=self.random_state)
             fold_generator = self.kfolds.split(self.X, self.Y, self.group_identifier)
         else:
             print("No group identifier column specified, KFold will be used")
-            self.kfolds = KFold(n_splits=k, shuffle=True, random_state=self.random_state)
-            fold_generator = self.kfolds.split(self.X)
+            self.kfolds = StratifiedKFold(n_splits=k, random_state=self.random_state, shuffle=True)
+            fold_generator = self.kfolds.split(self.X, self.Y)
 
         self.fold_indices = list(fold_generator)
         
