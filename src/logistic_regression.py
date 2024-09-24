@@ -4,6 +4,10 @@ import pandas as pd
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import confusion_matrix, accuracy_score, classification_report, f1_score, precision_score, recall_score
 from sklearn.preprocessing import StandardScaler
+import json
+import io
+import csv
+import pickle
 
 class MultinomialLogisticRegression:
     def __init__(self, random_state: int, max_iter: int = 1000, c: float = 1.0, penalty: str = 'elasticnet', n_jobs: int = 2, l1_ratio: float = None, verbose: int = 0, tol: float = 1e4) -> None:
@@ -186,4 +190,95 @@ class MultinomialLogisticRegression:
         print(f"Average Precision across all folds: {self.average_precision}")
         print(f"Average Recall across all folds: {self.average_recall}")
 
+    def save_results(self, save_path: str, label_path: str, save_model: bool = True) -> None:
+        """
+        This function saves the results of the model and translates the labels to their respective phenotypes.
+        """
+        if label_path is None:
+            raise ValueError("Please provide the path to the label file.")
+        
+        if not os.path.exists(save_path):
+            print(f"The path {save_path} does not exist. Creating directory 'results' in the current working directory.")
+            save_path = os.path.join(os.getcwd(), 'results')
+            os.makedirs(save_path, exist_ok=True)
+        else:
+            print(f"The path {save_path} exists. Saving results in the specified directory.")
+
+        # This part saves the average results in a .json file
+        avg_results = {
+            'average_accuracy': self.average_accuracy,
+            'average_f1_score': self.average_f1_score,
+            'average_weighted_f1_score': self.average_weighted_f1_score,
+            'average_precision': self.average_precision,
+            'average_recall': self.average_recall,
+        }
+
+        print("Saving average results...")
+        with open(os.path.join(save_path, 'average_logistic_regression_results.json'), 'w') as f:
+            json.dump(avg_results, f, indent=4)
+
+
+        labels = pd.read_csv(label_path)
+        label_dict = dict(zip(labels['label'], labels['phenotype']))
+
+        # This part saves the confusion matrices
+        def __create_labeled_cm(cm, label_dict):
+            df = pd.DataFrame(cm, columns=label_dict.values(), index=label_dict.values())
+            df.index.name = 'Actual'
+            df.columns.name = 'Predicted'
+            return df
+
+        print("Saving confusion matrices...")
+
+        for fold, cm in enumerate(self.confusion_matrices, 1):
+            labeled_cm = __create_labeled_cm(cm, label_dict)
+            csv_filename = f'confusion_matrix_fold_{fold}.csv'
+            labeled_cm.to_csv(os.path.join(save_path, csv_filename))
+        
+        # This part saves the classification reports
+        def __translate_and_save_report(report_str, label_dict, fold):
+            lines = report_str.strip().split('\n')
+
+            header = lines[0].split()
+            header.insert(0, 'label')
+
+            data_rows = []
+            for line in lines[2:]:  # Skip the header and the empty line
+                if line.strip() and not line.startswith('accuracy') and not line.startswith('macro avg') and not line.startswith('weighted avg'):
+                    parts = line.split()
+                    if len(parts) == 5:  # Ensure it's a data row
+                        label_num = int(parts[0])
+                        label_name = label_dict.get(label_num, str(label_num))
+                        data_rows.append([label_name] + parts[1:])
+
+            summary_rows = []
+            for line in lines[-3:]:
+                parts = line.split()
+                if parts[0] == 'accuracy':
+                    summary_rows.append(['accuracy', '', '', parts[1], parts[2]])  # Add an empty field for alignment
+                elif parts[0] == 'macro' or parts[0] == 'weighted':
+                    summary_rows.append([f"{parts[0]}avg", parts[2], parts[3], parts[4], parts[5]])
+
+            all_rows = data_rows + summary_rows
+
+            output_file = os.path.join(save_path, f'classification_report_fold_{fold}.csv')
+            with open(output_file, 'w', newline='') as csvfile:
+                writer = csv.writer(csvfile)
+                writer.writerow(header)
+                writer.writerows(all_rows)
+
+        print("Saving classification reports...")
+        for i, cr in enumerate(self.classification_reports, 1):
+            __translate_and_save_report(cr, label_dict, i)
+
+        # This part saves the model
+        if save_model:
+            print("Saving model...")
+            model_filename = os.path.join(save_path, 'logistic_regression_model.pkl')
+            with open(model_filename, 'wb') as f:
+                pickle.dump(self.model, f)
+            print(f"Results and model saved successfully in {save_path}.")
+        else:
+            print("Results saved successfully in {save_path}. Model not saved.")
+        
         
