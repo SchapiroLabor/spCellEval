@@ -4,6 +4,7 @@ import numpy as np
 import pandas as pd
 from sklearn.model_selection import StratifiedGroupKFold, KFold
 from sklearn.preprocessing import LabelEncoder
+from typing import Union, List
 
 class DataSetHandler:
     def __init__(self, path, random_state):
@@ -20,7 +21,7 @@ class DataSetHandler:
         print("DataSetHandler initialized successfully")
     
     
-    def preprocess(self, dropna: bool, impute_value: float = None, phenotype_column: str = 'cell_type', group_identifier_column: str = None) -> None:
+    def preprocess(self, dropna: bool, impute_value: float = None, phenotype_column: str = 'cell_type', group_identifier_column: str = None, drop_columns: List[str] = None) -> None:
         """
         This function processes the laoded dataframe. If NA values are present, they can be dropped or imputed with a specified value. A group identifier can be
         specified so the kfolds are created with the group identifier in mind. The phenotype column is encoded and the data is split into X and Y. 
@@ -35,6 +36,8 @@ class DataSetHandler:
             self.data.dropna(inplace=True)
         if impute_value is not None:
             self.data.fillna(impute_value, inplace=True)
+        if drop_columns is not None:
+            self.data.drop(columns=drop_columns, inplace=True)
 
         label_encoder = LabelEncoder()
         self.Y = label_encoder.fit_transform(self.data[phenotype_column])
@@ -62,7 +65,7 @@ class DataSetHandler:
 
     def createKfold(self, k: int) -> None:
         """
-        Creates folds, depending if the user has specified a group identifier or not. If a group identifier is present, GroupKFold is used, otherwise KFold is used.
+        Creates folds, depending if the user has specified a group identifier or not. If a group identifier is present, StratifiedGroupKFold is used, otherwise KFold is used.
         Folds will be carried by the fold_data attribute.
         """
         if not isinstance(k, int):

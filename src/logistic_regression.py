@@ -6,10 +6,14 @@ from sklearn.metrics import confusion_matrix, accuracy_score, classification_rep
 from sklearn.preprocessing import StandardScaler
 
 class MultinomialLogisticRegression:
-    def __init__(self, random_state: int, max_iter: int = 1000) -> None:
+    def __init__(self, random_state: int, max_iter: int = 1000, c: float = 1.0, penalty: str = 'elasticnet', n_jobs: int = 2, l1_ratio: float = None, verbose: int = 0, tol: float = 1e4) -> None:
+        if penalty not in ['l1', 'l2', 'elasticnet', 'none']:
+            raise ValueError("Penalty must be one of 'l1', 'l2', 'elasticnet', or 'none'")
+        
         self.random_state = random_state
         self.data_handler = None
-        self.model = LogisticRegression(multi_class='multinomial', max_iter=max_iter, random_state=random_state)
+        self.model = LogisticRegression(multi_class='multinomial',n_jobs=n_jobs, max_iter=max_iter, random_state=random_state, C=c, penalty=penalty, 
+                                        l1_ratio=l1_ratio, solver='saga' if penalty in ['l1', 'elasticnet'] else 'lbfgs', tol=tol, verbose=verbose)
         self.scaler = StandardScaler()
         self.fold_accuracies = []
         self.fold_f1_scores = []
@@ -24,6 +28,15 @@ class MultinomialLogisticRegression:
         self.average_precision = None
         self.average_recall = None
 
+        print(f'MultinomialLogisticRegression class initialized successfully with the following parameters:')
+        print(f'  Random State: {self.random_state}')
+        print(f'  Max Iterations: {self.model.max_iter}')
+        print(f'  C (Inverse of Regularization Strength): {self.model.C}')
+        print(f'  Penalty: {self.model.penalty}')
+        print(f'  L1 Ratio: {self.model.l1_ratio}')
+        print(f'  Solver: {self.model.solver}')
+        print(f'  Number of Jobs: {self.model.n_jobs}')
+
     def train_and_evaluate(self, datahandler) -> None:
         """
         This function trains and evaluates the logistic regression model. Input is the .folds_data attribute from the DataSetHandler class. 
@@ -32,12 +45,19 @@ class MultinomialLogisticRegression:
         if self.data_handler.fold_data is None:
             raise ValueError("No fold data found. Call create_folds on the DataSetHandler first.")
         
+        for fold in self.data_handler.fold_data:
+            if fold['X_train'].isnull().values.any() or fold['X_test'].isnull().values.any() or fold['Y_train'].isnull().values.any() or fold['Y_test'].isnull().values.any():
+                raise ValueError("NaN values found in the fold data. Please handle missing values before training.")
+            else:
+                print(f"Data in fold {i+1} is clean.")
+
         for i, fold in enumerate(self.data_handler.fold_data):
             X_train = self.scaler.fit_transform(fold['X_train'])
             X_test = self.scaler.transform(fold['X_test'])
             Y_train = fold['Y_train']
             Y_test = fold['Y_test']
             
+            print(f"Training fold {i+1}...")
             self.model.fit(X_train, Y_train)
             predictions = self.model.predict(X_test)
 
@@ -75,10 +95,6 @@ class MultinomialLogisticRegression:
         print(f"Average Precision across all folds: {self.average_precision}")
         print(f"Average Recall across all folds: {self.average_recall}")
 
-
-            
-            
-# NEEEEDS TO BE ADJUSTED, currently its just a copy of the above function
     def train_and_evaluate_manual(self, path: str) -> None:
         """
         This function trains and evaluates the logistic regression model for multiclasses. Input is the path pointing to the folder containing the train and test csv kfold files.
@@ -91,21 +107,46 @@ class MultinomialLogisticRegression:
             'train': [],
             'test': []
         }
-        for fold in os.listdir(path):
-            if fold.endswith('.csv') and 'train' in fold:
-                fold_dict['train'].append(fold)
-            elif fold.endswith('.csv') and 'test' in fold:
-                fold_dict['test'].append(fold)
-        # Check that we always match the correct test and train fold, furhter we need to create X_train, X_test, Y_train, Y_test from the fold csv tab;es
-        ##....
-        for i, fold in enumerate(fold_data):
-            X_train = self.scaler.fit_transform(fold['X_train'])
-            X_test = self.scaler.transform(fold['X_test'])
-            Y_train = fold['Y_train']
-            Y_test = fold['Y_test']
+        for file in os.listdir(path):
+            if file.endswith('.csv'):
+                if 'train' in file:
+                    fold_dict['train'].append(file)
+                elif 'test' in file:
+                    fold_dict['test'].append(file)
+                else:
+                    print(f"skipping {file}")
+
+        fold_dict['train'].sort()
+        fold_dict['test'].sort()
+
+        if len(fold_dict['train']) != len(fold_dict['test']):
+            raise ValueError("The number of train and test files do not match.")
+        
+        for train_file, test_file in zip(fold_dict['train'], fold_dict['test']):
+            train_data = pd.read_csv(os.path.join(path, train_file))
+            test_data = pd.read_csv(os.path.join(path, test_file))
+            if train_data.isnull().values.any() or test_data.isnull().values.any():
+                raise ValueError("NaN values found in the fold data. Please handle missing values before training.")
+            else:
+                print(f"Data in {train_file} and {test_file} is clean.")
+
+        for i, (train_file, test_file) in enumerate(zip(fold_dict['train'], fold_dict['test'])):
+            train_data = pd.read_csv(os.path.join(path, train_file))
+            test_data = pd.read_csv(os.path.join(path, test_file))
+
+            X_train = train_data.drop(columns='encoded_phenotype')
+            Y_train = train_data['encoded_phenotype']
+            X_test = test_data.drop(columns='encoded_phenotype')
+            Y_test = test_data['encoded_phenotype']
+
+
+            X_train_scaled = self.scaler.fit_transform(X_train)
+            X_test_scaled = self.scaler.transform(X_test)
             
-            self.model.fit(X_train, Y_train)
-            predictions = self.model.predict(X_test)
+            print(f"Training fold {i+1}...")
+
+            self.model.fit(X_train_scaled, Y_train)
+            predictions = self.model.predict(X_test_scaled)
 
             accuracy = accuracy_score(Y_test, predictions)
             f1 = f1_score(Y_test, predictions, average='macro')
