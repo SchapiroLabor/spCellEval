@@ -74,6 +74,8 @@ class MultinomialLogisticRegression:
             self.fold_weighted_f1_scores.append(weighted_f1)
             self.confusion_matrices.append(cm)
             self.classification_reports.append(cr)
+            self.fold_precisions.append(precision)
+            self.fold_recalls.append(recall)
 
             print(f"Fold {i+1} results:")
             print(f"Precision: {precision}")
@@ -81,7 +83,7 @@ class MultinomialLogisticRegression:
             print("Accuracy:", accuracy)
             print("F1 Score:", f1)
             print("Weighted F1 Score:", weighted_f1)
-            print("="*30)
+            print("="*50)
         
         self.average_accuracy = np.mean(self.fold_accuracies)
         self.average_f1_score = np.mean(self.fold_f1_scores)
@@ -161,6 +163,8 @@ class MultinomialLogisticRegression:
             self.fold_weighted_f1_scores.append(weighted_f1)
             self.confusion_matrices.append(cm)
             self.classification_reports.append(cr)
+            self.fold_precisions.append(precision)
+            self.fold_recalls.append(recall)
 
             print(f"Fold {i+1} results:")
             print(f"Precision: {precision}")
@@ -168,7 +172,7 @@ class MultinomialLogisticRegression:
             print("Accuracy:", accuracy)
             print("F1 Score:", f1)
             print("Weighted F1 Score:", weighted_f1)
-            print("="*30)
+            print("="*50)
         
         self.average_accuracy = np.mean(self.fold_accuracies)
         self.average_f1_score = np.mean(self.fold_f1_scores)
