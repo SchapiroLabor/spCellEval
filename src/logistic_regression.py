@@ -5,19 +5,22 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import confusion_matrix, accuracy_score, classification_report, f1_score, precision_score, recall_score
 from sklearn.preprocessing import StandardScaler
 import json
-import io
+from typing import Union
 import csv
 import pickle
 
 class MultinomialLogisticRegression:
-    def __init__(self, random_state: int, max_iter: int = 1000, c: float = 1.0, penalty: str = 'l2', n_jobs: int = 2, l1_ratio: float = None, verbose: int = 0, tol: float = 0.0001) -> None:
+    def __init__(self, random_state: int, max_iter: int = 1000, c: float = 1.0, penalty: str = 'l2', n_jobs: int = 2, l1_ratio: float = None, verbose: int = 0, tol: float = 0.0001, class_weight: Union[str, dict] = None) -> None:
         if penalty not in ['l1', 'l2', 'elasticnet', 'none']:
             raise ValueError("Penalty must be one of 'l1', 'l2', 'elasticnet', or 'none'")
         
+        if class_weight is not None and not (isinstance(class_weight, str) or isinstance(class_weight, dict)):
+            raise ValueError("class_weight must be either a string or a dictionary with weights")
+        
         self.random_state = random_state
         self.data_handler = None
-        self.model = LogisticRegression(multi_class='multinomial',n_jobs=n_jobs, max_iter=max_iter, random_state=random_state, C=c, penalty=penalty, 
-                                        l1_ratio=l1_ratio, solver='saga' if penalty in ['l1', 'elasticnet'] else 'lbfgs', tol=tol, verbose=verbose)
+        self.model = LogisticRegression(multi_class='multinomial', n_jobs=n_jobs, max_iter=max_iter, random_state=random_state, C=c, penalty=penalty, 
+                                        l1_ratio=l1_ratio, solver='saga' if penalty in ['l1', 'elasticnet'] else 'lbfgs', tol=tol, verbose=verbose, class_weight=class_weight)
         self.scaler = StandardScaler()
         self.fold_accuracies = []
         self.fold_f1_scores = []
@@ -40,6 +43,7 @@ class MultinomialLogisticRegression:
         print(f'  L1 Ratio: {self.model.l1_ratio}')
         print(f'  Solver: {self.model.solver}')
         print(f'  Number of Jobs: {self.model.n_jobs}')
+        print(f'  Class Weight: {self.model.class_weight}')
 
     def train_and_evaluate(self, datahandler) -> None:
         """
