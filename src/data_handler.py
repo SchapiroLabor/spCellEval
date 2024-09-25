@@ -78,7 +78,7 @@ class DataSetHandler:
             self.kfolds = StratifiedGroupKFold(n_splits=k, shuffle=True, random_state=self.random_state)
             fold_generator = self.kfolds.split(self.X, self.Y, self.group_identifier)
         else:
-            print("No group identifier column specified, KFold will be used")
+            print("No group identifier column specified, StratifiedKFold will be used")
             self.kfolds = StratifiedKFold(n_splits=k, random_state=self.random_state, shuffle=True)
             fold_generator = self.kfolds.split(self.X, self.Y)
 
