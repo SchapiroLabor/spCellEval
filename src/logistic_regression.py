@@ -10,7 +10,7 @@ import csv
 import pickle
 
 class MultinomialLogisticRegression:
-    def __init__(self, random_state: int, max_iter: int = 1000, c: float = 1.0, penalty: str = 'elasticnet', n_jobs: int = 2, l1_ratio: float = None, verbose: int = 0, tol: float = 0.0001) -> None:
+    def __init__(self, random_state: int, max_iter: int = 1000, c: float = 1.0, penalty: str = 'l2', n_jobs: int = 2, l1_ratio: float = None, verbose: int = 0, tol: float = 0.0001) -> None:
         if penalty not in ['l1', 'l2', 'elasticnet', 'none']:
             raise ValueError("Penalty must be one of 'l1', 'l2', 'elasticnet', or 'none'")
         
