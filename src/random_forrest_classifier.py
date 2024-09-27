@@ -65,6 +65,10 @@ class MultiClassRandomForestClassifier:
         self.average_weighted_f1_score = None
         self.average_precision = None
         self.average_recall = None
+        self.fold_accuracies_train = []
+        self.fold_weighted_f1_scores_train = []
+        self.average_accuracy_train = None
+        self.average_weighted_f1_score_train = None
 
         print('MultiClassRandomForestClassifier class initialized successfully with the following parameters:')
         print(f'  n_estimators: {n_estimators}')
@@ -109,6 +113,7 @@ class MultiClassRandomForestClassifier:
             print(f"Training fold {i+1}...")
             self.model.fit(X_train, Y_train)
             predictions = self.model.predict(X_test)
+            predictions_train = self.model.predict(X_train)
 
             accuracy = accuracy_score(Y_test, predictions)
             f1 = f1_score(Y_test, predictions, average='macro')
@@ -118,6 +123,10 @@ class MultiClassRandomForestClassifier:
             recall = recall_score(Y_test, predictions, average='weighted')
             cr = classification_report(Y_test, predictions)
 
+            # Also tracking performance on train data to check for overfitting
+            accuracy_train = accuracy_score(Y_train, predictions_train)
+            weighted_f1_train = f1_score(Y_train, predictions_train, average='weighted')
+
             self.fold_accuracies.append(accuracy)
             self.fold_f1_scores.append(f1)
             self.fold_weighted_f1_scores.append(weighted_f1)
@@ -125,6 +134,9 @@ class MultiClassRandomForestClassifier:
             self.classification_reports.append(cr)
             self.fold_precisions.append(precision)
             self.fold_recalls.append(recall)
+
+            self.fold_accuracies_train.append(accuracy_train)
+            self.fold_weighted_f1_scores_train.append(weighted_f1_train)
 
             print(f"Fold {i+1} results:")
             print(f"Precision: {precision}")
@@ -139,6 +151,9 @@ class MultiClassRandomForestClassifier:
         self.average_weighted_f1_score = np.mean(self.fold_weighted_f1_scores)
         self.average_precision = np.mean(self.fold_precisions)
         self.average_recall = np.mean(self.fold_recalls)
+
+        self.average_accuracy_train = np.mean(self.fold_accuracies_train)
+        self.average_weighted_f1_score_train = np.mean(self.fold_weighted_f1_scores_train)
 
         print(f"Average Accuracy across all folds: {self.average_accuracy}")
         print(f"Average F1 Score across all folds: {self.average_f1_score}")
@@ -198,6 +213,7 @@ class MultiClassRandomForestClassifier:
 
             self.model.fit(X_train_scaled, Y_train)
             predictions = self.model.predict(X_test_scaled)
+            predictions_train = self.model.predict(X_train_scaled)
 
             accuracy = accuracy_score(Y_test, predictions)
             f1 = f1_score(Y_test, predictions, average='macro')
@@ -207,6 +223,10 @@ class MultiClassRandomForestClassifier:
             recall = recall_score(Y_test, predictions, average='weighted')
             cr = classification_report(Y_test, predictions)
 
+            # Also tracking performance on train data to check for overfitting
+            accuracy_train = accuracy_score(Y_train, predictions_train)
+            weighted_f1_train = f1_score(Y_train, predictions_train, average='weighted')
+
             self.fold_accuracies.append(accuracy)
             self.fold_f1_scores.append(f1)
             self.fold_weighted_f1_scores.append(weighted_f1)
@@ -214,6 +234,9 @@ class MultiClassRandomForestClassifier:
             self.classification_reports.append(cr)
             self.fold_precisions.append(precision)
             self.fold_recalls.append(recall)
+
+            self.fold_accuracies_train.append(accuracy_train)
+            self.fold_weighted_f1_scores_train.append(weighted_f1_train)
 
             print(f"Fold {i+1} results:")
             print(f"Precision: {precision}")
@@ -228,6 +251,9 @@ class MultiClassRandomForestClassifier:
         self.average_weighted_f1_score = np.mean(self.fold_weighted_f1_scores)
         self.average_precision = np.mean(self.fold_precisions)
         self.average_recall = np.mean(self.fold_recalls)
+
+        self.average_accuracy_train = np.mean(self.fold_accuracies_train)
+        self.average_weighted_f1_score_train = np.mean(self.fold_weighted_f1_scores_train)
 
         print(f"Average Accuracy across all folds: {self.average_accuracy}")
         print(f"Average F1 Score across all folds: {self.average_f1_score}")
