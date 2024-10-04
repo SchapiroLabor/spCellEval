@@ -5,19 +5,22 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import confusion_matrix, accuracy_score, classification_report, f1_score, precision_score, recall_score
 from sklearn.model_selection import GridSearchCV, StratifiedKFold
 from sklearn.preprocessing import StandardScaler
+from sklearn.ensemble import RandomForestClassifier as rfc
 import json
-from typing import Union
 import csv
 import pickle
 
-class GirdSearchLogisticRegression:
-    def __init__(self, random_state: int, n_jobs: str = -1, penalty: str = 'l2') -> None:
-        if penalty not in ['l1', 'l2', 'elasticnet', 'none']:
-            raise ValueError("Penalty must be one of 'l1', 'l2', 'elasticnet', or 'none'")
-        
+class GridSearcher:
+    def __init__(self, random_state: int, model: str, n_jobs: str = -1) -> None:
+        if model == 'logistic_regression':
+            self.model = LogisticRegression(n_jobs=n_jobs, random_state=random_state, penalty='l2')
+        elif model == 'random_forest':
+            self.model = rfc(n_jobs=n_jobs, random_state=random_state, criterion='log_loss')
+        else:
+            raise ValueError("Invalid model. Please choose either 'logistic_regression' or 'random_forest' as model parameter.")
+         
         self.random_state = random_state
         self.data_handler = None
-        self.model = LogisticRegression(n_jobs=n_jobs, solver='saga' if penalty in ['l1', 'elasticnet'] else 'lbfgs')
         self.scaler = StandardScaler()
         self.fold_accuracies = []
         self.fold_f1_scores = []
@@ -33,15 +36,10 @@ class GirdSearchLogisticRegression:
         self.average_recall = None
         self.best_models = []
 
-        print('GirdSearchLogisticRegressionn class initialized successfully with the following model parameters:')
-        print(f'  Random State: {self.random_state}')
-        print(f'  Max Iterations: {self.model.max_iter}')
-        print(f'  C (Inverse of Regularization Strength): {self.model.C}')
-        print(f'  Penalty: {self.model.penalty}')
-        print(f'  L1 Ratio: {self.model.l1_ratio}')
-        print(f'  Solver: {self.model.solver}')
-        print(f'  Number of Jobs: {self.model.n_jobs}')
-        print(f'  Class Weight: {self.model.class_weight}')
+        print('GirdSearcher class initialized successfully with the following model parameters:')
+        print(f'Random State: {self.random_state}')
+        print(f'Model: {self.model}')
+
 
     def train_tune_evaluate(self, path: str, param_grid: dict, scoring: str = 'accuracy', cv_inner: int = 5, n_jobs: int = -1) -> None:
         """
