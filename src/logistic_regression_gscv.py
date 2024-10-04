@@ -218,7 +218,7 @@ class GirdSearchLogisticRegression:
                     model_filename = os.path.join(models_path, f'logistic_regression_model_fold_{i+1}.pkl')
                     with open(model_filename, 'wb') as f:
                         pickle.dump(model, f)
-                    print(f"Best models for all folds saved successfully in {models_path}.")
+                print(f"Best models for all folds saved successfully in {models_path}.")
             else:
                 print(f"Results saved successfully in {save_path}. Models not saved.")
             
