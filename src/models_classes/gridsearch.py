@@ -11,11 +11,11 @@ import csv
 import pickle
 
 class GridSearcher:
-    def __init__(self, random_state: int, model: str, n_jobs: str = -1) -> None:
+    def __init__(self, random_state: int, model: str, n_jobs: str = -1, class_weight: dict = None) -> None:
         if model == 'logistic_regression':
             self.model = LogisticRegression(n_jobs=n_jobs, random_state=random_state, penalty='l2')
         elif model == 'random_forest':
-            self.model = rfc(n_jobs=n_jobs, random_state=random_state, criterion='log_loss')
+            self.model = rfc(n_jobs=n_jobs, random_state=random_state, criterion='log_loss', class_weight=class_weight)
         else:
             raise ValueError("Invalid model. Please choose either 'logistic_regression' or 'random_forest' as model parameter.")
          
