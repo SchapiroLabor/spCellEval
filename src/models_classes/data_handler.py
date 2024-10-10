@@ -21,7 +21,7 @@ class DataSetHandler:
         print("DataSetHandler initialized successfully")
     
     
-    def preprocess(self, dropna: bool, impute_value: float = None, phenotype_column: str = 'cell_type', group_identifier_column: str = None, drop_columns: List[str] = None, drop_non_numerical: bool = False) -> None:
+    def preprocess(self, dropna: bool, impute_value: float = None, phenotype_column: str = 'cell_type', group_identifier_columns: list = None, drop_columns: List[str] = None, drop_non_numerical: bool = False) -> None:
         """
         This function processes the laoded dataframe. If NA values are present, they can be dropped or imputed with a specified value. A group identifier can be
         specified so which will be kept even if non-numerical columns are dropped. The phenotype column is encoded and the data is split into X and Y. 
@@ -48,10 +48,10 @@ class DataSetHandler:
         
         # If group identifier is selected but is a non-numerical and user selects to drop non-numericals, it is stored in a separate variable and re-inserted to preserve it
         if drop_non_numerical:
-            if group_identifier_column is not None and self.data[group_identifier_column].dtype is not np.number:
-                self.group_identifier = self.data[group_identifier_column]
+            if group_identifier_columns is not None and self.data[group_identifier_columns].select_dtypes(include=[np.number]).empty:
+                self.group_identifier = self.data[group_identifier_columns]
                 self.X = self.data.select_dtypes(include=[np.number])
-                self.X.insert(len(self.X.columns), group_identifier_column, self.group_identifier)
+                self.X.insert(len(self.X.columns), group_identifier_columns, self.group_identifier)
             else:
                 self.X  = self.data.select_dtypes(include=[np.number])
         else:
@@ -147,7 +147,7 @@ class DataSetHandler:
             train_data, validation_data = train_test_split(train_data_original, test_size=percentage_validation, random_state=self.random_state, stratify=train_data_original['encoded_phenotype'])
             print(f"Overwriting 'fold_{i+1}_train.csv'... and saving validation")
             train_file_path = os.path.join(save_path, f'fold_{i+1}_train.csv')
-            validation_file_path = train_file_path.replace('train', 'validation')
+            validation_file_path = train_file_path.replace('train.', 'validation.')
             validation_data.to_csv(validation_file_path, index=False)
             train_data.to_csv(train_file_path, index=False)
 

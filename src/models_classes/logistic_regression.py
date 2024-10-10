@@ -45,72 +45,15 @@ class MultinomialLogisticRegression:
         print(f'  Number of Jobs: {self.model.n_jobs}')
         print(f'  Class Weight: {self.model.class_weight}')
 
-    def train_and_evaluate(self, datahandler) -> None:
-        """
-        This function trains and evaluates the logistic regression model. Input is the .folds_data attribute from the DataSetHandler class. 
-        """
-        self.data_handler = datahandler
-        if self.data_handler.fold_data is None:
-            raise ValueError("No fold data found. Call create_folds on the DataSetHandler first.")
-        
-        for i, fold in enumerate(self.data_handler.fold_data):
-            if fold['X_train'].isnull().values.any() or fold['X_test'].isnull().values.any() or fold['Y_train'].isnull().values.any() or fold['Y_test'].isnull().values.any():
-                raise ValueError("NaN values found in the fold data. Please handle missing values before training.")
-            else:
-                print(f"Data in fold {i+1} is clean.")
-                
-            X_train = self.scaler.fit_transform(fold['X_train'])
-            X_test = self.scaler.transform(fold['X_test'])
-            Y_train = fold['Y_train']
-            Y_test = fold['Y_test']
-            
-            print(f"Training fold {i+1}...")
-            self.model.fit(X_train, Y_train)
-            predictions = self.model.predict(X_test)
 
-            accuracy = accuracy_score(Y_test, predictions)
-            f1 = f1_score(Y_test, predictions, average='macro')
-            weighted_f1 = f1_score(Y_test, predictions, average='weighted')
-            cm = confusion_matrix(Y_test, predictions)
-            precision = precision_score(Y_test, predictions, average='weighted')
-            recall = recall_score(Y_test, predictions, average='weighted')
-            cr = classification_report(Y_test, predictions)
-
-            self.fold_accuracies.append(accuracy)
-            self.fold_f1_scores.append(f1)
-            self.fold_weighted_f1_scores.append(weighted_f1)
-            self.confusion_matrices.append(cm)
-            self.classification_reports.append(cr)
-            self.fold_precisions.append(precision)
-            self.fold_recalls.append(recall)
-
-            print(f"Fold {i+1} results:")
-            print(f"Precision: {precision}")
-            print(f"Recall: {recall}")
-            print("Accuracy:", accuracy)
-            print("F1 Score:", f1)
-            print("Weighted F1 Score:", weighted_f1)
-            print("="*50)
-        
-        self.average_accuracy = np.mean(self.fold_accuracies)
-        self.average_f1_score = np.mean(self.fold_f1_scores)
-        self.average_weighted_f1_score = np.mean(self.fold_weighted_f1_scores)
-        self.average_precision = np.mean(self.fold_precisions)
-        self.average_recall = np.mean(self.fold_recalls)
-
-        print(f"Average Accuracy across all folds: {self.average_accuracy}")
-        print(f"Average F1 Score across all folds: {self.average_f1_score}")
-        print(f"Average Weighted F1 Score across all folds: {self.average_weighted_f1_score}")
-        print(f"Average Precision across all folds: {self.average_precision}")
-        print(f"Average Recall across all folds: {self.average_recall}")
-
-    def train_and_evaluate_manual(self, path: str) -> None:
+    def train_and_evaluate_manual(self, path: str, drop_col: list=None, ) -> None:
         """
         This function trains and evaluates the logistic regression model for multiclasses. Input is the path pointing to the folder containing the train and test csv kfold files.
         """
 
         if not os.path.exists(path):
             raise FileNotFoundError(f"The path {path} does not exist.")
+        
         
         fold_dict = {
             'train': [],
@@ -131,18 +74,21 @@ class MultinomialLogisticRegression:
         if len(fold_dict['train']) != len(fold_dict['test']):
             raise ValueError("The number of train and test files do not match.")
         
-        for train_file, test_file in zip(fold_dict['train'], fold_dict['test']):
-            train_data = pd.read_csv(os.path.join(path, train_file))
-            test_data = pd.read_csv(os.path.join(path, test_file))
-            if train_data.isnull().values.any() or test_data.isnull().values.any():
-                raise ValueError("NaN values found in the fold data. Please handle missing values before training.")
-            else:
-                print(f"Data in {train_file} and {test_file} is clean.")
-
         for i, (train_file, test_file) in enumerate(zip(fold_dict['train'], fold_dict['test'])):
             train_data = pd.read_csv(os.path.join(path, train_file))
             test_data = pd.read_csv(os.path.join(path, test_file))
-            print(f"Taking data from {train_file} and {test_file} for fold {i+1}.")
+            
+            # Checking for NANs and non-numerical columns
+            if train_data.isnull().values.any() or test_data.isnull().values.any():
+                raise ValueError("NaN values found in the fold data. Please handle missing values before training.")
+            
+            non_numeric_columns_train = train_data.select_dtypes(exclude=[np.number]).columns
+            non_numeric_columns_test = test_data.select_dtypes(exclude=[np.number]).columns
+            
+            if len(non_numeric_columns_train) > 0 or len(non_numeric_columns_test) > 0:
+                raise ValueError(f"Non-numeric columns found in the folds. Please ensure all columns are numeric before training. Non-numeric columns in train data: {non_numeric_columns_train}, Non-numeric columns in test data: {non_numeric_columns_test}")
+            else:
+                print(f"Data in {train_file} and {test_file} is clean. Proceeding with fold {i+1}.")
 
             X_train = train_data.drop(columns='encoded_phenotype')
             Y_train = train_data['encoded_phenotype']

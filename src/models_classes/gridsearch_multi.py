@@ -5,17 +5,20 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import confusion_matrix, accuracy_score, classification_report, f1_score, precision_score, recall_score
 from sklearn.preprocessing import StandardScaler
 from sklearn.ensemble import RandomForestClassifier as rfc
+from joblib import Parallel, delayed
+from tqdm import tqdm
 import json
 import csv
 import pickle
 import itertools
 
 class Tune_Eval:
-    def __init__(self, random_state: int, model: str, n_jobs: str = -1, class_weight: dict = None) -> None:
+    def __init__(self, random_state: int, model: str, class_weight: dict = None) -> None:
         if model == 'logistic_regression':
-            self.model = LogisticRegression(n_jobs=n_jobs, random_state=random_state, penalty='l2')
+            self.model = LogisticRegression(random_state=random_state, penalty='l2')
         elif model == 'random_forest':
-            self.model = rfc(n_jobs=n_jobs, random_state=random_state, criterion='log_loss', class_weight=class_weight)
+            self.model = rfc(random_state=random_state, criterion='log_loss', class_weight=class_weight, n_jobs=-1)
+
         else:
             raise ValueError("Invalid model. Please choose either 'logistic_regression' or 'random_forest' as model parameter.")
          
@@ -40,19 +43,20 @@ class Tune_Eval:
         print(f'Random State: {self.random_state}')
         print(f'Model: {self.model}')
 
-
-    def train_tune_evaluate(self, path: str, param_grid: dict, dumb_nonnumericals: bool = True) -> None:
+    @staticmethod
+    def evaluate_params(args):
+        model, X_train, y_train, X_val, y_val, params = args
+        model.set_params(**params)
+        model.fit(X_train, y_train)
+        y_pred = model.predict(X_val)
+        accuracy = accuracy_score(y_val, y_pred)
+        return accuracy, model, params
+    
+    def train_tune_evaluate(self, path: str, param_grid: dict, dumb_nonnumericals: bool = True, n_processes: int = 1, drop_xy: bool = True) -> None:
         """
         This function implements manual kfold cross-validation using a custom parameter grid and evaluates the models based on predefined and saved kfolds. 
         Input is the path pointing to the folder containing the train, validation and test csv kfold files.
         """
-
-        def __evaluate_model(X_train, y_train, X_val, params):
-                model = self.model.set_params(**params)
-                model.fit(X_train, y_train)
-                y_pred = model.predict(X_val)
-                return y_pred, model
-
 
         if not os.path.exists(path):
             raise FileNotFoundError(f"The path {path} does not exist.")
@@ -99,6 +103,11 @@ class Tune_Eval:
                 raise ValueError(f"Non-numeric values found in the fold data. Please encode the non-numeric values before training. Found columns: {non_numeric_df.columns}")
             else:
                 print(f"Taking data from {train_file} and {test_file} for fold {i+1}. No NANs found")
+            
+            if drop_xy:
+                train_data.drop(columns=['x', 'y'], inplace=True)
+                validation_data.drop(columns=['x', 'y'], inplace=True)
+                test_data.drop(columns=['x', 'y'], inplace=True)
 
             X_train = train_data.drop(columns='encoded_phenotype')
             y_train = train_data['encoded_phenotype']
@@ -110,19 +119,21 @@ class Tune_Eval:
             X_val_scaled = self.scaler.transform(X_val)
             X_test_scaled = self.scaler.transform(X_test)
 
-
             # Perform manual Hyperparameter tuning 
             best_score = 0
             best_model = None
+            best_params = None
             param_combinations = [dict(zip(param_grid.keys(), v)) for v in itertools.product(*param_grid.values())]
-
-            for param in param_combinations:
-                print(f"Training model with parameters: {param}")
-                y_pred, model = __evaluate_model(X_train_scaled, y_train, X_val_scaled, param)
-                accuracy= accuracy_score(y_val, y_pred)
+            args = [(self.model, X_train_scaled, y_train, X_val_scaled, y_val, param) for param in param_combinations]
+            results = Parallel(n_jobs=n_processes)(
+                delayed(self.evaluate_params)(arg) for arg in tqdm(args, desc=f"Fold {i+1}")
+                )
+            
+            for accuracy, model, params in results:
                 if accuracy > best_score:
                     best_score = accuracy
                     best_model = model
+                    best_params = params
 
             y_pred_test = best_model.predict(X_test_scaled)              
             accuracy = accuracy_score(y_test, y_pred_test)
@@ -142,6 +153,7 @@ class Tune_Eval:
             self.classification_reports.append(cr)
             self.best_models.append(best_model)
             print(f"Outer Fold {i+1} completed")
+            print(f"Best parameters for Fold {i+1}: {best_params}")
             print(f"classification report: {cr}")
 
         print('Calculating average results...')
