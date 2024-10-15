@@ -5,7 +5,7 @@ import pandas as pd
 from sklearn.utils.class_weight import compute_class_weight
 import numpy as np
 
-base_path = '/gpfs/bwfor/work/ws/hd_bm327-phenotyping_benchmark/phenotyping_benchmark/datasets
+base_path = '/gpfs/bwfor/work/ws/hd_bm327-phenotyping_benchmark/phenotyping_benchmark/datasets'
 rs = 20240925
 n = 32
 param_grid = {
