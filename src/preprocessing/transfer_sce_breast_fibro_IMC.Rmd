@@ -1,0 +1,30 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
+
+Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Cmd+Shift+Enter*. 
+
+```{r}
+library(SingleCellExperiment)
+library(dplyr)
+library(data.table)
+```
+
+```{r}
+obj <- readRDS("/Users/lukashat/Downloads/breast_fibro_IMC/7540604/IMC/all_cells_annotated_final.rds")
+```
+
+```{r}
+cell_data <- as.data.frame(colData(obj))
+expression_matrix <- assay(obj, 'c_counts_asinh')
+```
+```{r}
+df <- cbind(cell_data, t(expression_matrix))
+```
+```{r}
+write.csv(df, file = "/Users/lukashat/Downloads/breast_fibro_IMC/7540604/IMC/beast_fibro_IMC.csv", row.names = FALSE)
+```
+

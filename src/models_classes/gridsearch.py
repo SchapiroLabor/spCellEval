@@ -35,6 +35,7 @@ class Tune_Eval:
         self.average_precision = None
         self.average_recall = None
         self.best_models = []
+        self.best_params = []
 
         print('GirdSearcher class initialized successfully with the following model parameters:')
         print(f'Random State: {self.random_state}')
@@ -114,6 +115,7 @@ class Tune_Eval:
             # Perform manual Hyperparameter tuning 
             best_score = 0
             best_model = None
+            best_model_params = None
             param_combinations = [dict(zip(param_grid.keys(), v)) for v in itertools.product(*param_grid.values())]
 
             for param in param_combinations:
@@ -123,6 +125,7 @@ class Tune_Eval:
                 if accuracy > best_score:
                     best_score = accuracy
                     best_model = model
+                    best_model_params = param
 
             y_pred_test = best_model.predict(X_test_scaled)              
             accuracy = accuracy_score(y_test, y_pred_test)
@@ -141,6 +144,7 @@ class Tune_Eval:
             self.confusion_matrices.append(cm)
             self.classification_reports.append(cr)
             self.best_models.append(best_model)
+            self.best_params.append(best_model_params)
             print(f"Outer Fold {i+1} completed")
             print(f"classification report: {cr}")
 
@@ -177,6 +181,7 @@ class Tune_Eval:
                 'average_weighted_f1_score': self.average_weighted_f1_score,
                 'average_precision': self.average_precision,
                 'average_recall': self.average_recall,
+                'best_params': self.best_params
             }
 
             print("Saving average results...")
@@ -243,7 +248,7 @@ class Tune_Eval:
                 os.makedirs(models_path, exist_ok=True)
                 print(f"Saving models in {models_path}...")
                 for i, model in enumerate(self.best_models):
-                    model_filename = os.path.join(models_path, f'logistic_regression_model_fold_{i+1}.pkl')
+                    model_filename = os.path.join(models_path, f'model_fold_{i+1}.pkl')
                     with open(model_filename, 'wb') as f:
                         pickle.dump(model, f)
                 print(f"Best models for all folds saved successfully in {models_path}.")
