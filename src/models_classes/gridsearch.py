@@ -13,8 +13,10 @@ import itertools
 class Tune_Eval:
     def __init__(self, random_state: int, model: str, n_jobs: str = -1, class_weight: dict = None) -> None:
         if model == 'logistic_regression':
+            self.model_name = 'logistic_regression'
             self.model = LogisticRegression(n_jobs=n_jobs, random_state=random_state, penalty='l2')
         elif model == 'random_forest':
+            self.model_name = 'random_forest'
             self.model = rfc(n_jobs=n_jobs, random_state=random_state, criterion='log_loss', class_weight=class_weight)
         else:
             raise ValueError("Invalid model. Please choose either 'logistic_regression' or 'random_forest' as model parameter.")
@@ -185,7 +187,11 @@ class Tune_Eval:
             }
 
             print("Saving average results...")
-            with open(os.path.join(save_path, 'average_logistic_regression_results.json'), 'w') as f:
+            if self.model_name == 'random_forest':
+                json_name = 'average_rfc_results.json'
+            elif self.model_name == 'logistic_regression':
+                json_name = 'average_logreg_results.json'
+            with open(os.path.join(save_path, json_name), 'w') as f:
                 json.dump(avg_results, f, indent=4)
 
 
@@ -248,7 +254,7 @@ class Tune_Eval:
                 os.makedirs(models_path, exist_ok=True)
                 print(f"Saving models in {models_path}...")
                 for i, model in enumerate(self.best_models):
-                    model_filename = os.path.join(models_path, f'model_fold_{i+1}.pkl')
+                    model_filename = os.path.join(models_path, f'{self.model_name}_model_fold_{i+1}.pkl')
                     with open(model_filename, 'wb') as f:
                         pickle.dump(model, f)
                 print(f"Best models for all folds saved successfully in {models_path}.")
