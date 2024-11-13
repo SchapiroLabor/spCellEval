@@ -19,7 +19,7 @@ class Tune_Eval:
             self.model = LogisticRegression(random_state=random_state, penalty='l2')
         elif model == 'random_forest':
             self.model_name = 'random_forest'
-            self.model = rfc(random_state=random_state, criterion='log_loss', class_weight=class_weight, n_jobs= 2)
+            self.model = rfc(random_state=random_state, criterion='log_loss', class_weight=class_weight, n_jobs= 1)
 
         else:
             raise ValueError("Invalid model. Please choose either 'logistic_regression' or 'random_forest' as model parameter.")
@@ -247,7 +247,6 @@ class Tune_Eval:
                         summary_rows.append([f"{parts[0]}avg", parts[2], parts[3], parts[4], parts[5]])
 
                 all_rows = data_rows + summary_rows
-                if self.mode
                 output_file = os.path.join(save_path, f'classification_report_fold_{fold}.csv')
                 with open(output_file, 'w', newline='') as csvfile:
                     writer = csv.writer(csvfile)
