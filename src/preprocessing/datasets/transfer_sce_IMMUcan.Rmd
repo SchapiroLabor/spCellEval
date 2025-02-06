@@ -1,0 +1,31 @@
+---
+title: "Transfer_IMMUcan"
+output: html_notebook
+---
+```{r}
+library(SingleCellExperiment)
+library(dplyr)
+library(data.table)
+```
+
+```{r}
+V1 <- readRDS("/Volumes/Lukas_SSD/phenotyping_benchmark/datasets/IMMUcan/quantification/sce_labelled_V1.rds")
+V3 <- readRDS("/Volumes/Lukas_SSD/phenotyping_benchmark/datasets/IMMUcan/quantification/sce_labelled_V3.rds")
+```
+
+```{r}
+cell_data <- as.data.frame(colData(V1))
+expression_matrix <- assay(V1, 'exprs')
+df_V1 <- cbind(t(expression_matrix), cell_data)
+cell_data <- as.data.frame(colData(V3))
+expression_matrix <- assay(V3, 'exprs')
+df_V3 <- cbind(t(expression_matrix), cell_data)
+```
+
+```{r}
+df <- rbind(df_V1, df_V3)
+```
+```{r}
+write.csv(df, file = "/Volumes/Lukas_SSD/phenotyping_benchmark/datasets/IMMUcan/quantification/IMMUcan_combined.csv", row.names = TRUE)
+```
+
