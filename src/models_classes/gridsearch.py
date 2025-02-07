@@ -12,11 +12,11 @@ import json
 import csv
 import pickle
 
-class Tune_Eval:
+class ModelTunerEvaluator:
     def __init__(self, random_state: int, model: str, n_jobs: str = 1, **kwargs) -> None:
         if model == 'logistic_regression':
             self.model_name = 'logistic_regression'
-            self.model = LogisticRegression(n_jobs=n_jobs, random_state=random_state, penalty='l2', **kwargs)
+            self.model = LogisticRegression(n_jobs=n_jobs, random_state=random_state, **kwargs)
         elif model == 'random_forest':
             self.model_name = 'random_forest'
             self.model = rfc(n_jobs=n_jobs, random_state=random_state, criterion='log_loss', **kwargs)
