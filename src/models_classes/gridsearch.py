@@ -12,7 +12,7 @@ import json
 import csv
 import pickle
 
-class ModelTunerEvaluator:
+class ClassicMLTuner:
     def __init__(self, random_state: int, model: str, n_jobs: str = 1, **kwargs) -> None:
         if model == 'logistic_regression':
             self.model_name = 'logistic_regression'

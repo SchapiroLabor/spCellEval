@@ -1,6 +1,6 @@
 import pandas as pd
 import numpy as np
-from models_classes.gridsearch import ModelTunerEvaluator
+from models_classes.gridsearch import ClassicMLTuner
 import argparse
 import os
 import json
@@ -53,7 +53,7 @@ def run_on_datasets(main_dir, model, param_grid, random_state, n_jobs_model, n_j
         os.makedirs(save_dir, exist_ok=True)
         label_dir = os.path.join(datasets_path, 'quantification/processed/labels.csv')
 
-        data_object = ModelTunerEvaluator(random_state=random_state, model = model, n_jobs = n_jobs_model, **model_kwargs_dict)
+        data_object = ClassicMLTuner(random_state=random_state, model = model, n_jobs = n_jobs_model, **model_kwargs_dict)
         data_object.train_tune_evaluate(kfold_dir, param_grid_dict, n_jobs_gridsearch, verbose, scoring,
                                         scaling, sample_weight = sample_weight, early_stopping_rounds=xgb_earlystopping)
         data_object.save_results(save_dir, label_dir, kfold_dir)
