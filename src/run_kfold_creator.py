@@ -83,7 +83,7 @@ def main():
     parser.add_argument(
         '--drop_columns',
         type = str,
-        help = 'columns to drop from the data. Comma-seperated strings. Example: column1, column2',
+        help = 'columns to drop from the data. Comma-seperated strings. Example: column1,column2',
         default = None,
     )
     parser.add_argument(
