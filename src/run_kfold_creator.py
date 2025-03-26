@@ -53,8 +53,7 @@ def main():
         '--main_dir',
         type = str,
         help = """ Path to the main directory holding the folders 'datasets' and 'results'.
-        . An explicit directory structure is required. If mode=batch, needs to be the main directory holding directories 
-         'datasets' and 'results. If mode=single, needs to point to the specific dataset. See README for more information""",
+        . An explicit directory structure is required. See README for more information""",
         required = True,
     )
     parser.add_argument(
