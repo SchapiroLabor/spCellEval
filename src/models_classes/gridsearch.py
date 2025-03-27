@@ -51,7 +51,7 @@ class ClassicMLTuner:
         print(f'Model: {self.model}')
 
 
-    def train_tune_evaluate(self, path: str, param_grid: dict, n_jobs:int = -1, verbose:int = 2, scoring:str = 'accuracy', scaling:bool = True, dumb_nonnumericals: bool = True, sample_weight: str | dict = None, early_stopping_rounds = 10) -> None:
+    def train_tune_evaluate(self, path: str, param_grid: dict, n_jobs:int = -1, verbose:int = 2, scoring:str = 'accuracy', scaling:bool = True, dumb_columns: str | list = None, dumb_nonnumericals: bool = True, sample_weight: str | dict = None, early_stopping_rounds = 10) -> None:
         """
         This function implements manual kfold cross-validation using a custom parameter grid and evaluates the models based on predefined and saved kfolds. 
         Input is the path pointing to the folder containing the train, validation and test csv kfold files.
@@ -90,13 +90,15 @@ class ClassicMLTuner:
 
         print('Starting the integration of the predefined Kfolds...')
         for i, (train_file, validation_file) in enumerate(zip(fold_dict['train'], fold_dict['validation'])):
-            
-            if dumb_nonnumericals:
-                train_data = pd.read_csv(os.path.join(path, train_file)).select_dtypes(include=[np.number]) 
-                validation_data = pd.read_csv(os.path.join(path, validation_file)).select_dtypes(include=[np.number])
+            if dumb_columns is not None:
+                train_data = pd.read_csv(os.path.join(path, train_file)).drop(columns=dumb_columns)
+                validation_data = pd.read_csv(os.path.join(path, validation_file)).drop(columns=dumb_columns)
             else:
                 train_data = pd.read_csv(os.path.join(path, train_file))
                 validation_data = pd.read_csv(os.path.join(path, validation_file))
+            if dumb_nonnumericals:
+                train_data = train_data.select_dtypes(include=[np.number]) 
+                validation_data = validation_data.select_dtypes(include=[np.number])
 
             non_numeric_df = train_data.select_dtypes(exclude=[np.number])
             if train_data.isnull().values.any() or validation_data.isnull().values.any():
@@ -160,10 +162,13 @@ class ClassicMLTuner:
         del X_all, y_all,  X_train, X_val, y_train, y_val, valid_fold, ps, grid_search
 
         for i, test_file in enumerate(fold_dict['test']):
-            if dumb_nonnumericals:
-                test_data = pd.read_csv(os.path.join(path, test_file)).select_dtypes(include=[np.number])
+            if dumb_columns is not None:
+                test_data = pd.read_csv(os.path.join(path, test_file)).drop(columns=dumb_columns)
             else:
                 test_data = pd.read_csv(os.path.join(path, test_file))
+            
+            if dumb_nonnumericals:
+                test_data = test_data.select_dtypes(include=[np.number])
 
             X_test = test_data.drop(columns='encoded_phenotype')
             y_test = test_data['encoded_phenotype']

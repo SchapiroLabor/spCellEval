@@ -18,9 +18,12 @@ def run_kfold_creation(main_dir, dataset_name, dropna, impute_value, phenotype_c
 
     # Loop through datasets
     if dataset_name is None:
-        for dataset in os.path.join(main_dir, 'datasets'):
-            if not os.path.isdir(dataset):
+        for dataset in os.listdir(os.path.join(main_dir, 'datasets')):
+            if dataset.startswith('.'):
                 continue
+            if not os.path.isdir(os.path.join(main_dir,'datasets',dataset)):
+                continue
+
             print(f"Processing dataset {dataset}")
             dataset_path = os.path.join(main_dir, 'datasets', dataset, f'quantification/processed/{dataset}_quantification.csv')
             save_dir = os.path.join(main_dir, 'datasets', dataset, 'quantification/processed')
