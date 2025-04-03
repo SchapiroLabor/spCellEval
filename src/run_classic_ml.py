@@ -153,7 +153,8 @@ def main():
     parser.add_argument(
         "--sample_weight",
         type=str,
-        help=" Either 'balanced' or path to the json sample weight dictionary"
+        help=" Either 'balanced' or path to the json sample weight dictionary",
+        default=None
         )
     parser.add_argument(
         "--xgb_earlystopping",
