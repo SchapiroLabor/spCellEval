@@ -12,8 +12,8 @@ import json
 import csv
 import pickle
 
-class ClassicMLTuner:
-    def __init__(self, random_state: int, model: str, n_jobs: str = 1, **kwargs) -> None:
+class ClassicMLDefault:
+    def __init__(self, random_state: int, model: str, n_jobs: str = -1, **kwargs) -> None:
         if model == 'logistic_regression':
             self.model_name = 'logistic_regression'
             self.model = LogisticRegression(n_jobs=n_jobs, random_state=random_state, **kwargs)
@@ -51,7 +51,7 @@ class ClassicMLTuner:
         print(f'Model: {self.model}')
 
 
-    def train_tune_evaluate(self, path: str, param_grid: dict, n_jobs:int = -1, verbose:int = 2, scoring:str = 'accuracy', scaling:bool = True, dumb_columns: str | list = None, dumb_nonnumericals: bool = True, sample_weight: str | dict = None, early_stopping_rounds = 10) -> None:
+    def train_tune_evaluate(self, path: str, verbose:int = 2, scaling:bool = True, dumb_columns: str | list = None, dumb_nonnumericals: bool = True) -> None:
         """
         This function implements manual kfold cross-validation using a custom parameter grid and evaluates the models based on predefined and saved kfolds. 
         Input is the path pointing to the folder containing the train, validation and test csv kfold files.
@@ -83,10 +83,7 @@ class ClassicMLTuner:
         if len(fold_dict['train']) != len(fold_dict['test']) or len(fold_dict['train']) != len(fold_dict['validation']):
             raise ValueError("The number of train, validation and test files do not match.")
         
-        # Preparing for PredefinedSplit. 
-        X_list = []
-        y_list = []
-        valid_fold = []
+
 
         print('Starting the integration of the predefined Kfolds...')
         for i, (train_file, validation_file) in enumerate(zip(fold_dict['train'], fold_dict['validation'])):
@@ -118,48 +115,15 @@ class ClassicMLTuner:
                 X_train = pd.DataFrame(X_train_scaled, columns=train_data.drop(columns='encoded_phenotype').columns)
                 X_val = pd.DataFrame(X_val_scaled, columns=validation_data.drop(columns='encoded_phenotype').columns)
             # appending the training data and using negative integer for PredefinedSplit identification
-            X_list.append(X_train)
-            y_list.append(y_train)
-            valid_fold.extend([-1]*len(X_train))
-
-            # appending the validation data and using positive integer for PredefinedSplit identification
-            X_list.append(X_val)
-            y_list.append(y_val)
-            valid_fold.extend([i+1]*len(X_val))
 
             print(f"Fold {i+1} integrated successfully")
-        # Combining the data
-        X_all = pd.concat(X_list, axis=0)
-        y_all = np.concatenate(y_list, axis=0)
-        valid_fold = np.array(valid_fold) # This will be used in GridSearchCV as cv parameter
 
-        ps = PredefinedSplit(test_fold=valid_fold)
-        print('PredefinedSplit created successfully')
+            if self.model_name == 'xgboost':
+                self.model.fit(X_train, y_train, eval_set=[(X_val, y_val)], verbose=verbose)
+            else:
+                self.model.fit(X_train, y_train)
 
-        del X_list, y_list
-        # Performing Hyperparameter tuning with GridsearchCV
-
-        print('Starting GridSearchCV with the following grid parameters:')
-        print(param_grid)
-
-        if sample_weight is not None:
-            sample_weight = compute_sample_weight(sample_weight, y_all)
-        grid_search = GridSearchCV(estimator=self.model, param_grid=param_grid, cv=ps, n_jobs=n_jobs, scoring=scoring, verbose=verbose)
-        grid_search.fit(X_all, y_all, sample_weight=sample_weight)
-        self.best_params = grid_search.best_params_
-        
-        # in case of xgboost, we might try out early stopping with the best params we got from gridsearch on one fold
-        if self.model_name == 'xgboost':
-            self.best_model = XGBClassifier(objective = 'multi:softmax', eval_metric = 'mlogloss', n_jobs=n_jobs, random_state=self.random_state, early_stopping_rounds = early_stopping_rounds, **self.best_params, **self.kwargs)
-            self.best_model.fit(X_train, y_train, eval_set=[(X_val, y_val)], verbose=verbose)
-        else:
-            self.best_model = grid_search.best_estimator_
-        
-        print('GridSearchCV completed successfully')
-        print(f'Best parameters found: {self.best_params}')
-        print('Starting prediction on test data...')
-
-        del X_all, y_all,  X_train, X_val, y_train, y_val, valid_fold, ps, grid_search
+        del X_train, X_val, y_train, y_val
 
         for i, test_file in enumerate(fold_dict['test']):
             if dumb_columns is not None:
@@ -174,7 +138,7 @@ class ClassicMLTuner:
             y_test = test_data['encoded_phenotype']
             if scaling:
                 X_test = self.scaler.transform(X_test)
-            y_pred_test = self.best_model.predict(X_test)
+            y_pred_test = self.model.predict(X_test)
 
            
             accuracy = accuracy_score(y_test, y_pred_test)
@@ -305,14 +269,12 @@ class ClassicMLTuner:
                 test_data.drop(columns='encoded_phenotype', inplace=True)
                 test_data.to_csv(os.path.join(save_path, f'predictions_fold_{i}.csv'), index=False)
 
-
-
             # This part saves the model
             if save_model:
                 models_path = os.path.join(save_path, 'model')
                 os.makedirs(models_path, exist_ok=True)
                 print(f"Saving model in {models_path}...")
-                model_filename = os.path.join(models_path, f'{self.model_name}_model_gridsearch.pkl')
+                model_filename = os.path.join(models_path, f'{self.model_name}_default_model.pkl')
                 with open(model_filename, 'wb') as f:
                     pickle.dump(self.best_model, f)
                 print(f"Best models for all folds saved successfully in {models_path}.")
