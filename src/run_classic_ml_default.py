@@ -1,4 +1,4 @@
-from models_classes.defaul_classic_ml_models_kfolds import ClassicMLDefault
+from models_classes.default_classic_ml_models_kfolds import ClassicMLDefault
 import argparse
 import os
 import json

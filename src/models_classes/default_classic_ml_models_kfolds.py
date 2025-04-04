@@ -87,9 +87,14 @@ class ClassicMLDefault:
         print('Starting the integration of the predefined Kfolds...')
         for i, (train_file, validation_file, test_file) in enumerate(zip(fold_dict['train'], fold_dict['validation'], fold_dict['test'])):
             if dumb_columns is not None:
-                train_data = pd.read_csv(os.path.join(path, train_file)).drop(columns=dumb_columns)
-                validation_data = pd.read_csv(os.path.join(path, validation_file)).drop(columns=dumb_columns)
-                test_data = pd.read_csv(os.path.join(path, test_file)).drop(columns=dumb_columns)
+                train_data = pd.read_csv(os.path.join(path, train_file))
+                validation_data = pd.read_csv(os.path.join(path, validation_file))
+                test_data = pd.read_csv(os.path.join(path, test_file))
+                #check if columns in dumb_columns are in the dataframes
+                dumb_columns = [col for col in dumb_columns if col in train_data.columns]
+                train_data = train_data.drop(columns=dumb_columns)
+                validation_data = validation_data.drop(columns=dumb_columns)
+                test_data = test_data.drop(columns=dumb_columns)
             else:
                 train_data = pd.read_csv(os.path.join(path, train_file))
                 validation_data = pd.read_csv(os.path.join(path, validation_file))
