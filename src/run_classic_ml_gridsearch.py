@@ -31,16 +31,15 @@ def run_on_datasets(main_dir, model, param_grid, random_state, n_jobs_model, n_j
         else:
             dumb_columns = dumb_columns_clean
     
-    if sample_weight == 'balanced':
-        sample_weight = 'balanced'
-    elif os.path.isfile(sample_weight):
-        try:
-            with open(sample_weight, 'r') as f:
-                sample_weight = json.load(f)
-        except Exception as e:
-            raise ValueError(f"Could not load the sample weight file. Error: {e}")
-    else:
-        sample_weight = None
+    if sample_weight is not None:
+        if sample_weight == 'balanced':
+            sample_weight = 'balanced'
+        elif os.path.isfile(sample_weight):
+            try:
+                with open(sample_weight, 'r') as f:
+                    sample_weight = json.load(f)
+            except Exception as e:
+                raise ValueError(f"Could not load the sample weight file. Error: {e}")
     
     if isinstance(scoring, str):
         scoring_clean = scoring.strip()
