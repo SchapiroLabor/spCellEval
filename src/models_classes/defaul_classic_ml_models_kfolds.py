@@ -6,14 +6,13 @@ from sklearn.metrics import confusion_matrix, accuracy_score, classification_rep
 from sklearn.preprocessing import StandardScaler
 from sklearn.ensemble import RandomForestClassifier as rfc
 from xgboost import XGBClassifier
-from sklearn.model_selection import PredefinedSplit, GridSearchCV
 from sklearn.utils.class_weight import compute_sample_weight
 import json
 import csv
 import pickle
 
 class ClassicMLDefault:
-    def __init__(self, random_state: int, model: str, n_jobs: str = -1, **kwargs) -> None:
+    def __init__(self, random_state: int, model: str, n_jobs: str, **kwargs) -> None:
         if model == 'logistic_regression':
             self.model_name = 'logistic_regression'
             self.model = LogisticRegression(n_jobs=n_jobs, random_state=random_state, **kwargs)
@@ -21,6 +20,7 @@ class ClassicMLDefault:
             self.model_name = 'random_forest'
             self.model = rfc(n_jobs=n_jobs, random_state=random_state, criterion='log_loss', **kwargs)
         elif model == 'xgboost':
+            self.class_weight = kwargs.pop('class_weight', None)
             self.model_name = 'xgboost'
             self.model = XGBClassifier(objective = 'multi:softmax', eval_metric = 'mlogloss', booster = 'gbtree', n_jobs=n_jobs, random_state=random_state, **kwargs)
         else:
@@ -42,11 +42,10 @@ class ClassicMLDefault:
         self.average_weighted_f1_score = None
         self.average_precision = None
         self.average_recall = None
-        self.best_model = None
-        self.best_params = None
+        self.best_models = []
         self.predictions = {}
 
-        print('GirdSearcher class initialized successfully with the following model parameters:')
+        print('Class initialized successfully with the following model parameters:')
         print(f'Random State: {self.random_state}')
         print(f'Model: {self.model}')
 
@@ -86,16 +85,19 @@ class ClassicMLDefault:
 
 
         print('Starting the integration of the predefined Kfolds...')
-        for i, (train_file, validation_file) in enumerate(zip(fold_dict['train'], fold_dict['validation'])):
+        for i, (train_file, validation_file, test_file) in enumerate(zip(fold_dict['train'], fold_dict['validation'], fold_dict['test'])):
             if dumb_columns is not None:
                 train_data = pd.read_csv(os.path.join(path, train_file)).drop(columns=dumb_columns)
                 validation_data = pd.read_csv(os.path.join(path, validation_file)).drop(columns=dumb_columns)
+                test_data = pd.read_csv(os.path.join(path, test_file)).drop(columns=dumb_columns)
             else:
                 train_data = pd.read_csv(os.path.join(path, train_file))
                 validation_data = pd.read_csv(os.path.join(path, validation_file))
+                test_data = pd.read_csv(os.path.join(path, test_file))
             if dumb_nonnumericals:
                 train_data = train_data.select_dtypes(include=[np.number]) 
                 validation_data = validation_data.select_dtypes(include=[np.number])
+                test_data = test_data.select_dtypes(include=[np.number])
 
             non_numeric_df = train_data.select_dtypes(exclude=[np.number])
             if train_data.isnull().values.any() or validation_data.isnull().values.any():
@@ -109,38 +111,30 @@ class ClassicMLDefault:
             y_train = train_data['encoded_phenotype'].values
             X_val = validation_data.drop(columns='encoded_phenotype')
             y_val = validation_data['encoded_phenotype'].values
+            X_test = test_data.drop(columns='encoded_phenotype')
+            y_test = test_data['encoded_phenotype'].values
             if scaling:
                 X_train_scaled = self.scaler.fit_transform(X_train)
                 X_val_scaled = self.scaler.transform(X_val)
+                X_test_scaled = self.scaler.transform(X_test)
                 X_train = pd.DataFrame(X_train_scaled, columns=train_data.drop(columns='encoded_phenotype').columns)
                 X_val = pd.DataFrame(X_val_scaled, columns=validation_data.drop(columns='encoded_phenotype').columns)
-            # appending the training data and using negative integer for PredefinedSplit identification
+                X_test = pd.DataFrame(X_test_scaled, columns=test_data.drop(columns='encoded_phenotype').columns)
+
 
             print(f"Fold {i+1} integrated successfully")
 
             if self.model_name == 'xgboost':
-                self.model.fit(X_train, y_train, eval_set=[(X_val, y_val)], verbose=verbose)
+                if self.class_weight is not None:
+                    sample_weights = compute_sample_weight(class_weight=self.class_weight,y=y_train)
+                    self.model.fit(X_train, y_train, eval_set=[(X_val, y_val)], verbose=verbose, sample_weight=sample_weights)
+                else:
+                    self.model.fit(X_train, y_train, eval_set=[(X_val, y_val)], verbose=verbose)
             else:
                 self.model.fit(X_train, y_train)
 
-        del X_train, X_val, y_train, y_val
-
-        for i, test_file in enumerate(fold_dict['test']):
-            if dumb_columns is not None:
-                test_data = pd.read_csv(os.path.join(path, test_file)).drop(columns=dumb_columns)
-            else:
-                test_data = pd.read_csv(os.path.join(path, test_file))
-            
-            if dumb_nonnumericals:
-                test_data = test_data.select_dtypes(include=[np.number])
-
-            X_test = test_data.drop(columns='encoded_phenotype')
-            y_test = test_data['encoded_phenotype']
-            if scaling:
-                X_test = self.scaler.transform(X_test)
             y_pred_test = self.model.predict(X_test)
 
-           
             accuracy = accuracy_score(y_test, y_pred_test)
             f1 = f1_score(y_test, y_pred_test, average='macro')
             weighted_f1 = f1_score(y_test, y_pred_test, average='weighted')
@@ -157,8 +151,14 @@ class ClassicMLDefault:
             self.fold_recalls.append(recall)
             self.confusion_matrices.append(cm)
             self.classification_reports.append(cr)
+            self.best_models.append(self.model)
             print(f"Test Fold {i+1} completed")
             print(f"classification report: {cr}")
+
+            del X_train, X_val, y_train, y_val, X_test, y_test
+
+           
+
 
         print('Calculating average results...')
         self.average_accuracy = np.mean(self.fold_accuracies)
@@ -193,7 +193,6 @@ class ClassicMLDefault:
                 'average_weighted_f1_score': self.average_weighted_f1_score,
                 'average_precision': self.average_precision,
                 'average_recall': self.average_recall,
-                'best_params': self.best_params
             }
 
             print("Saving average results...")
@@ -274,9 +273,11 @@ class ClassicMLDefault:
                 models_path = os.path.join(save_path, 'model')
                 os.makedirs(models_path, exist_ok=True)
                 print(f"Saving model in {models_path}...")
-                model_filename = os.path.join(models_path, f'{self.model_name}_default_model.pkl')
-                with open(model_filename, 'wb') as f:
-                    pickle.dump(self.best_model, f)
+                # Save the best model for each fold
+                for i, model in enumerate(self.best_models):
+                    model_filename = os.path.join(models_path, f'{self.model_name}_fold_{i+1}_model_default.pkl')
+                    with open(model_filename, 'wb') as f:
+                        pickle.dump(model, f)
                 print(f"Best models for all folds saved successfully in {models_path}.")
             else:
                 print(f"Results saved successfully in {save_path}. Models not saved.")

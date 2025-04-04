@@ -76,11 +76,13 @@ def main():
     parser.add_argument(
         "--model_kwargs",
         type=str,
-        help="""Path to the json file containing the model kwargs, otherwise standard values are used. Example:
+        help="""Path to the json file containing the model kwargs, otherwise standard values are used. please consider using class_weight parameter as 'balanced, also for xgboost. Example:
         {
         "min_child_weight": 2,
         "learning_rate": 0.05,
+        "class_weight": "balanced",
         }
+        In XGBoost, the class_weight parameter is not directly available. We implemented it with compute_sample_weight parameter from sklearn. In Logistic Regression and Random Forest, the class_weight parameter is directly available.
         """
         )
     parser.add_argument(
