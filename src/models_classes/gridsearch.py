@@ -168,7 +168,7 @@ class ClassicMLTuner:
         for i, test_file in enumerate(fold_dict['test']):
             if dumb_columns is not None:
                 test_data = pd.read_csv(os.path.join(path, test_file))
-                dumb_columns = [col for col in dumb_columns if col in train_data.columns]
+                dumb_columns = [col for col in dumb_columns if col in test_data.columns]
                 test_data = test_data.drop(columns=dumb_columns)
             else:
                 test_data = pd.read_csv(os.path.join(path, test_file))
