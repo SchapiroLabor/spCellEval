@@ -2,7 +2,7 @@ import os
 import json
 import numpy as np
 import pandas as pd
-from sklearn.model_selection import StratifiedGroupKFold, StratifiedKFold, train_test_split, GroupShuffleSplit
+from sklearn.model_selection import StratifiedGroupKFold, StratifiedKFold, train_test_split, GroupShuffleSplit, ShuffleSplit
 from sklearn.preprocessing import LabelEncoder
 from typing import List
 
@@ -72,7 +72,7 @@ class DataSetHandler:
         
         print(f'{method} method selected for creating folds')
         if method == 'StratifiedGroupKFold':
-            if batch_identifier_column is None:
+            if (batch_identifier_column is None) or (batch_identifier_column not in self.X.columns):
                 print("batch_identifier_column not specified, reverting to StratifiedKFold")
                 self.kfolds = StratifiedKFold(n_splits=k, random_state=self.random_state, shuffle=True)
                 fold_generator = self.kfolds.split(self.X, self.Y)
@@ -85,8 +85,10 @@ class DataSetHandler:
             fold_generator = self.kfolds.split(self.X, self.Y)
         
         elif method == 'GroupShuffleSplit':
-            if batch_identifier_column is None:
-                raise ValueError("batch_identifier_column must be specified for GroupShuffleSplit")
+            if (batch_identifier_column is None) or (batch_identifier_column not in self.X.columns):
+                print("batch_identifier_column not specified, reverting to ShuffleSplit")
+                self.kfolds = ShuffleSplit(n_splits=k, test_size=group_shuffle_split_size, random_state=self.random_state)
+                fold_generator = self.kfolds.split(self.X, self.Y)
             else:
                 splitter = GroupShuffleSplit(n_splits=k, test_size=group_shuffle_split_size, random_state=self.random_state)
                 groups = self.X[batch_identifier_column]

@@ -35,7 +35,7 @@ def run_on_datasets(main_dir, model, kfold_method, random_state, n_jobs_model, m
         print(f"Processing dataset {dataset_dir}")
         datasets_path = os.path.join(main_dir, "datasets", dataset_dir)
         kfold_dir = os.path.join(datasets_path, f'quantification/processed/kfolds_{kfold_method}')
-        save_dir = os.path.join(main_dir, 'results', dataset_dir, f'{model}_default')
+        save_dir = os.path.join(main_dir, 'results', dataset_dir, f'{model}_default_{kfold_method}')
         os.makedirs(save_dir, exist_ok=True)
         label_dir = os.path.join(datasets_path, f'quantification/processed/labels_{kfold_method}.csv')
 
