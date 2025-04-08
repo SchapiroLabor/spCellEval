@@ -2,7 +2,7 @@ import os
 import json
 import numpy as np
 import pandas as pd
-from sklearn.model_selection import StratifiedKFold, train_test_split
+from sklearn.model_selection import StratifiedGroupKFold, StratifiedKFold, train_test_split, GroupShuffleSplit
 from sklearn.preprocessing import LabelEncoder
 from typing import List
 
@@ -14,14 +14,15 @@ class DataSetHandler:
         self.X = None
         self.Y = None
         self.labels = None
-        self.group_identifier = None
+        self.method = None
+        self.batch_identifier = None
         self.kfolds = None
         self.fold_indices = None
         self.fold_data = None
         print("DataSetHandler initialized successfully")
     
     
-    def preprocess(self, dropna: bool, impute_value: float = None, phenotype_column: str = 'cell_type', group_identifier_columns: list = None, drop_columns: List[str] = None, drop_non_numerical: bool = False) -> None:
+    def preprocess(self, dropna: bool, impute_value: float = None, phenotype_column: str = 'cell_type', batch_identifier_column: str = None, drop_columns: List[str] = None, drop_non_numerical: bool = False) -> None:
         """
         This function processes the laoded dataframe. If NA values are present, they can be dropped or imputed with a specified value. A group identifier can be
         specified so which will be kept even if non-numerical columns are dropped. The phenotype column is encoded and the data is split into X and Y. 
@@ -48,10 +49,10 @@ class DataSetHandler:
         
         # If group identifier is selected but is a non-numerical and user selects to drop non-numericals, it is stored in a separate variable and re-inserted to preserve it
         if drop_non_numerical:
-            if group_identifier_columns is not None and self.data[group_identifier_columns].select_dtypes(include=[np.number]).empty:
-                self.group_identifier = self.data[group_identifier_columns]
+            if batch_identifier_column is not None and self.data[batch_identifier_column].select_dtypes(include=[np.number]).empty:
+                self.batch_identifier = self.data[batch_identifier_column]
                 self.X = self.data.select_dtypes(include=[np.number])
-                self.X.insert(len(self.X.columns), group_identifier_columns, self.group_identifier)
+                self.X.insert(len(self.X.columns), batch_identifier_column, self.batch_identifier)
             else:
                 self.X  = self.data.select_dtypes(include=[np.number])
         else:
@@ -59,27 +60,40 @@ class DataSetHandler:
 
         print("Data successfully preprocessed")
     
-    def save_labels(self, save_path: str = None) -> None:
-        if self.labels is None:
-            raise ValueError("No labels have been created. Call preprocess first.")
-        
-        if save_path is None:
-            save_path = os.getcwd()
-        
-        self.labels.to_csv(os.path.join(save_path, 'labels.csv'), index=False)
-        print(f"Labels saved in: {save_path} as labels.csv")
 
-    def createKfold(self, k: int) -> None:
+    def createFolds(self, k: int, method:str, batch_identifier_column:str = None, group_shuffle_split_size:float = 0.5) -> None:
         """
         Creates StratifiedKfolds.
         Folds will be carried by the fold_data attribute.
         """
+        self.method = method
         if not isinstance(k, int):
             raise TypeError("k must be an integer")
         
-        self.kfolds = StratifiedKFold(n_splits=k, random_state=self.random_state, shuffle=True)
-        fold_generator = self.kfolds.split(self.X, self.Y)
-
+        print(f'{method} method selected for creating folds')
+        if method == 'StratifiedGroupKFold':
+            if batch_identifier_column is None:
+                print("batch_identifier_column not specified, reverting to StratifiedKFold")
+                self.kfolds = StratifiedKFold(n_splits=k, random_state=self.random_state, shuffle=True)
+                fold_generator = self.kfolds.split(self.X, self.Y)
+            else:
+                groups = self.X[batch_identifier_column]
+                self.kfolds = StratifiedGroupKFold(n_splits=k, random_state=self.random_state, shuffle=True)
+                fold_generator = self.kfolds.split(self.X, self.Y, groups)
+        elif method == 'StratifiedKFold':
+            self.kfolds = StratifiedKFold(n_splits=k, random_state=self.random_state, shuffle=True)
+            fold_generator = self.kfolds.split(self.X, self.Y)
+        
+        elif method == 'GroupShuffleSplit':
+            if batch_identifier_column is None:
+                raise ValueError("batch_identifier_column must be specified for GroupShuffleSplit")
+            else:
+                splitter = GroupShuffleSplit(n_splits=k, test_size=group_shuffle_split_size, random_state=self.random_state)
+                groups = self.X[batch_identifier_column]
+                fold_generator = splitter.split(self.X, self.Y, groups)
+        else:
+            raise ValueError("Invalid method specified. Use 'StratifiedGroupKFold', 'StratifiedKFold', or 'GroupShuffleSplit'.")
+            
         self.fold_indices = list(fold_generator)
         
         self.fold_data = []
@@ -97,16 +111,25 @@ class DataSetHandler:
         
         print(f"{k} folds created. To save the folds, call save_folds method.")
 
+    def save_labels(self, save_path: str = None) -> None:
+        if self.labels is None:
+            raise ValueError("No labels have been created. Call preprocess first.")
+        
+        if save_path is None:
+            save_path = os.getcwd()
+        
+        self.labels.to_csv(os.path.join(save_path, f'labels_{self.method}.csv'), index=False)
+        print(f"Labels saved in: {save_path} as labels.csv")
 
     def save_folds(self, save_path: str = None) -> None:
 
         if self.fold_indices is None:
-            raise ValueError("No folds have been created. Call createKfold first.")
+            raise ValueError("No folds have been created. Call createFolds first.")
         
         if save_path is None:
             save_path = os.getcwd()
 
-        kfolds_dir = os.path.join(save_path, 'kfolds')
+        kfolds_dir = os.path.join(save_path, f'kfolds_{self.method}')
         os.makedirs(kfolds_dir, exist_ok=True)
 
         fold_data = {
