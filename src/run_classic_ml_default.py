@@ -3,7 +3,7 @@ import argparse
 import os
 import json
 
-def run_on_datasets(main_dir, model, random_state, n_jobs_model, model_kwargs, verbose, scaling, dumb_columns):
+def run_on_datasets(main_dir, model, kfold_method, random_state, n_jobs_model, model_kwargs, verbose, scaling, dumb_columns):
     """
     This function runs the selected model on all datasets in the main directory using the argparse arguments.
     """
@@ -34,10 +34,10 @@ def run_on_datasets(main_dir, model, random_state, n_jobs_model, model_kwargs, v
             continue
         print(f"Processing dataset {dataset_dir}")
         datasets_path = os.path.join(main_dir, "datasets", dataset_dir)
-        kfold_dir = os.path.join(datasets_path, 'quantification/processed/kfolds')
+        kfold_dir = os.path.join(datasets_path, f'quantification/processed/kfolds_{kfold_method}')
         save_dir = os.path.join(main_dir, 'results', dataset_dir, f'{model}_default')
         os.makedirs(save_dir, exist_ok=True)
-        label_dir = os.path.join(datasets_path, 'quantification/processed/labels.csv')
+        label_dir = os.path.join(datasets_path, f'quantification/processed/labels_{kfold_method}.csv')
 
         data_object = ClassicMLDefault(random_state=random_state, model = model, n_jobs = n_jobs_model, **model_kwargs_dict)
         data_object.train_tune_evaluate(kfold_dir, verbose, scaling, dumb_columns)
@@ -60,6 +60,13 @@ def main():
         type=str,
         choices=['logistic_regression', 'random_forest', 'xgboost'],
         help="Select a model to run, either 'logistic_regression', 'random_forest' or 'xgboost'", required=True
+        )
+    parser.add_argument(
+        "--kfold_method",
+        type=str,
+        choices=['StratifiedGroupKFold', 'StratifiedKFold', 'GroupShuffleSplit'],
+        default='StratifiedGroupKFold',
+        help="Which fold creation method was used. Default is StratifiedGroupKFold."
         )
     parser.add_argument(
         "--random_state",
@@ -109,8 +116,7 @@ def main():
     
     print(f"Selected model: {args.model}")
     
-    run_on_datasets(args.main_dir, args.model, args.random_state, args.n_jobs_model, args.model_kwargs,
-                    args.verbose, args.scaling, args.dumb_columns)
+    run_on_datasets(args.main_dir, args.model, args.kfold_method, args.random_state, args.n_jobs_model, args.model_kwargs, args.verbose, args.scaling, args.dumb_columns)
 
 if __name__ == '__main__':
     main()
