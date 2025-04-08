@@ -40,7 +40,7 @@ def run_on_datasets(main_dir, model, kfold_method, random_state, n_jobs_model, m
         label_dir = os.path.join(datasets_path, f'quantification/processed/labels_{kfold_method}.csv')
 
         data_object = ClassicMLDefault(random_state=random_state, model = model, n_jobs = n_jobs_model, **model_kwargs_dict)
-        data_object.train_tune_evaluate(kfold_dir, verbose, scaling, dumb_columns)
+        data_object.train_tune_evaluate(kfold_dir, label_dir, verbose, scaling, dumb_columns)
         data_object.save_results(save_dir, label_dir, kfold_dir)
 
 

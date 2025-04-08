@@ -63,7 +63,7 @@ def run_on_datasets(main_dir, model, kfold_method, param_grid, random_state, n_j
         label_dir = os.path.join(datasets_path, f'quantification/processed/labels_{kfold_method}.csv')
 
         data_object = ClassicMLTuner(random_state=random_state, model = model, n_jobs = n_jobs_model, **model_kwargs_dict)
-        data_object.train_tune_evaluate(kfold_dir, param_grid_dict, n_jobs_gridsearch, verbose, scoring,
+        data_object.train_tune_evaluate(kfold_dir, label_dir, param_grid_dict, n_jobs_gridsearch, verbose, scoring,
                                         scaling, dumb_columns, sample_weight = sample_weight, early_stopping_rounds=xgb_earlystopping)
         data_object.save_results(save_dir, label_dir, kfold_dir)
 

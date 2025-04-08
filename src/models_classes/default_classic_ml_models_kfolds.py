@@ -50,7 +50,7 @@ class ClassicMLDefault:
         print(f'Model: {self.model}')
 
 
-    def train_tune_evaluate(self, path: str, verbose:int = 2, scaling:bool = True, dumb_columns: str | list = None, dumb_nonnumericals: bool = True) -> None:
+    def train_tune_evaluate(self, path: str, label_path:str, verbose:int = 2, scaling:bool = True, dumb_columns: str | list = None, dumb_nonnumericals: bool = True) -> None:
         """
         This function implements manual kfold cross-validation using a custom parameter grid and evaluates the models based on predefined and saved kfolds. 
         Input is the path pointing to the folder containing the train, validation and test csv kfold files.
@@ -82,7 +82,10 @@ class ClassicMLDefault:
         if len(fold_dict['train']) != len(fold_dict['test']) or len(fold_dict['train']) != len(fold_dict['validation']):
             raise ValueError("The number of train, validation and test files do not match.")
         
-
+        labels = pd.read_csv(label_path)
+        label_dict = dict(zip(labels['label'], labels['phenotype']))
+        all_labels = list(label_dict.keys())
+        
 
         print('Starting the integration of the predefined Kfolds...')
         for i, (train_file, validation_file, test_file) in enumerate(zip(fold_dict['train'], fold_dict['validation'], fold_dict['test'])):
@@ -145,7 +148,7 @@ class ClassicMLDefault:
             weighted_f1 = f1_score(y_test, y_pred_test, average='weighted')
             precision = precision_score(y_test, y_pred_test, average='macro')
             recall = recall_score(y_test, y_pred_test, average='macro')
-            cm = confusion_matrix(y_test, y_pred_test)
+            cm = confusion_matrix(y_test, y_pred_test, labels=all_labels)
             cr = classification_report(y_test, y_pred_test, output_dict=False)
 
             self.predictions[f'fold_{i+1}'] = y_pred_test
