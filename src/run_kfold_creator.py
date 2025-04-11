@@ -16,6 +16,13 @@ def run_fold_creation(main_dir, dataset_name, dropna, impute_value, phenotype_co
         else:
             drop_columns = drop_columns_clean
 
+    if phenotype_column == 'cell_type':
+        granularity_level = 'level3'
+    elif phenotype_column == 'level_2_cell_type':
+        granularity_level = 'level2'
+    elif phenotype_column == 'level_1_cell_type':
+        granularity_level = 'level1'
+
     # Loop through datasets
     if dataset_name is None:
         for dataset in os.listdir(os.path.join(main_dir, 'datasets')):
@@ -32,7 +39,7 @@ def run_fold_creation(main_dir, dataset_name, dropna, impute_value, phenotype_co
             data_handler.createFolds(n_splits, method, batch_identifier_column, group_shuffle_split_size)
             data_handler.save_labels(save_dir)
             data_handler.save_folds(save_dir)
-            data_handler.create_validation_set_from_fold(save_path=os.path.join(save_dir, f'kfolds_{method}'), percentage_validation=percentage_validation)
+            data_handler.create_validation_set_from_fold(save_path=os.path.join(save_dir, f'kfolds_{method}_{granularity_level}'), percentage_validation=percentage_validation)
     else:
         if os.path.isdir(os.path.join(main_dir, 'datasets', dataset_name)):
             print(f"Processing {dataset_name}")
@@ -43,7 +50,7 @@ def run_fold_creation(main_dir, dataset_name, dropna, impute_value, phenotype_co
             data_handler.createFolds(n_splits, method, batch_identifier_column, group_shuffle_split_size)
             data_handler.save_labels(save_dir)
             data_handler.save_folds(save_dir)
-            data_handler.create_validation_set_from_fold(save_path=os.path.join(save_dir, 'kfolds'), percentage_validation=percentage_validation)
+            data_handler.create_validation_set_from_fold(save_path=os.path.join(save_dir, f'kfolds_{method}_{granularity_level}'), percentage_validation=percentage_validation)
         else:
             raise ValueError(f"{dataset_name} is not present among the datasets")
 def main():
@@ -79,7 +86,7 @@ def main():
     parser.add_argument(
         '--phenotype_column',
         type=str,
-        help="""name of the column containing the target variable. Default is cell_type, which corresponds to level1 granularity.
+        help="""name of the column containing the target variable. Default is cell_type, which corresponds to level3 granularity.
         """,
         choices=['cell_type', 'level_2_cell_type', 'level_1_cell_type'],
         default='cell_type',
