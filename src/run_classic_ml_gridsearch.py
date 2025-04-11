@@ -5,7 +5,7 @@ import argparse
 import os
 import json
 
-def run_on_datasets(main_dir, model, kfold_method, param_grid, random_state, n_jobs_model, n_jobs_gridsearch, model_kwargs, verbose, scoring, scaling, dumb_columns,  sample_weight, xgb_earlystopping):
+def run_on_datasets(main_dir, model, kfold_method, granularity_level, param_grid, random_state, n_jobs_model, n_jobs_gridsearch, model_kwargs, verbose, scoring, scaling, dumb_columns,  sample_weight, xgb_earlystopping):
     """
     This function runs the selected model on all datasets in the main directory using the argparse arguments.
     """
@@ -57,10 +57,10 @@ def run_on_datasets(main_dir, model, kfold_method, param_grid, random_state, n_j
             continue
         print(f"Processing dataset {dataset_dir}")
         datasets_path = os.path.join(main_dir, "datasets", dataset_dir)
-        kfold_dir = os.path.join(datasets_path, f'quantification/processed/kfolds_{kfold_method}')
-        save_dir = os.path.join(main_dir, 'results', dataset_dir, model)
+        kfold_dir = os.path.join(datasets_path, f'quantification/processed/kfolds_{kfold_method}_{granularity_level}')
+        save_dir = os.path.join(main_dir, 'results', dataset_dir, f'{model}_gridsearch_{kfold_method}', granularity_level)
         os.makedirs(save_dir, exist_ok=True)
-        label_dir = os.path.join(datasets_path, f'quantification/processed/labels_{kfold_method}.csv')
+        label_dir = os.path.join(datasets_path, f'quantification/processed/labels_{kfold_method}_{granularity_level}.csv')
 
         data_object = ClassicMLTuner(random_state=random_state, model = model, n_jobs = n_jobs_model, **model_kwargs_dict)
         data_object.train_tune_evaluate(kfold_dir, label_dir, param_grid_dict, n_jobs_gridsearch, verbose, scoring,
@@ -91,6 +91,13 @@ def main():
         choices=['StratifiedGroupKFold', 'StratifiedKFold', 'GroupShuffleSplit'],
         default='StratifiedGroupKFold',
         help="Which fold creation method was used. Default is StratifiedGroupKFold."
+        )
+    parser.add_argument(
+        "--granularity_level",
+        type=str,
+        choices=['level1', 'level2', 'level3'],
+        default='level3',
+        help="On which celltype granularity level the method is applied to. Granularity level 3 represents the finest granularity and equals cell subtypes. Default is level3."
         )
     parser.add_argument(
         "--param_grid",
@@ -173,9 +180,24 @@ def main():
     
     print(f"Selected model: {args.model}")
     
-    run_on_datasets(args.main_dir, args.model, args.kfold_method, args.param_grid, args.random_state,
-                    args.n_jobs_model, args.n_jobs_gridsearch, args.model_kwargs, args.verbose,
-                    args.scoring, args.scaling, args.dumb_columns, args.sample_weight, args.xgb_earlystopping)
+    run_on_datasets(
+        main_dir=args.main_dir,
+        model=args.model,
+        kfold_method=args.kfold_method,
+        granularity_level=args.granularity_level,
+        param_grid=args.param_grid,
+        random_state=args.random_state,
+        n_jobs_model=args.n_jobs_model,
+        n_jobs_gridsearch=args.n_jobs_gridsearch,
+        model_kwargs=args.model_kwargs,
+        verbose=args.verbose,
+        scoring=args.scoring,
+        scaling=args.scaling,
+        dumb_columns=args.dumb_columns,
+        sample_weight = args.sample_weight,
+        xgb_earlystopping = args.xgb_earlystopping
+    )
+
 
 if __name__ == '__main__':
     main()

@@ -79,7 +79,9 @@ def main():
     parser.add_argument(
         '--phenotype_column',
         type=str,
-        help='name of the column containing the target variable. Default is cell_type',
+        help="""name of the column containing the target variable. Default is cell_type, which corresponds to level1 granularity.
+        """,
+        choices=['cell_type', 'level_2_cell_type', 'level_1_cell_type'],
         default='cell_type',
     )
     parser.add_argument(

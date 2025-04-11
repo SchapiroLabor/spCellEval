@@ -15,6 +15,7 @@ class DataSetHandler:
         self.Y = None
         self.labels = None
         self.method = None
+        self.granularity_level = None
         self.batch_identifier = None
         self.kfolds = None
         self.fold_indices = None
@@ -27,6 +28,12 @@ class DataSetHandler:
         This function processes the laoded dataframe. If NA values are present, they can be dropped or imputed with a specified value. A group identifier can be
         specified so which will be kept even if non-numerical columns are dropped. The phenotype column is encoded and the data is split into X and Y. 
         """
+        if phenotype_column == 'cell_type':
+            self.granularity_level = 'level3'
+        elif phenotype_column == 'level_2_cell_type':
+            self.granularity_level = 'level2'
+        elif phenotype_column == 'level_1_cell_type':
+            self.granularity_level = 'level1'
 
         if not isinstance(dropna, bool):
             raise TypeError("dropna must be a boolean value")
@@ -120,7 +127,7 @@ class DataSetHandler:
         if save_path is None:
             save_path = os.getcwd()
         
-        self.labels.to_csv(os.path.join(save_path, f'labels_{self.method}.csv'), index=False)
+        self.labels.to_csv(os.path.join(save_path, f'labels_{self.method}_{self.granularity_level}.csv'), index=False)
         print(f"Labels saved in: {save_path} as labels.csv")
 
     def save_folds(self, save_path: str = None) -> None:
@@ -131,7 +138,7 @@ class DataSetHandler:
         if save_path is None:
             save_path = os.getcwd()
 
-        kfolds_dir = os.path.join(save_path, f'kfolds_{self.method}')
+        kfolds_dir = os.path.join(save_path, f'kfolds_{self.method}_{self.granularity_level}')
         os.makedirs(kfolds_dir, exist_ok=True)
 
         fold_data = {
