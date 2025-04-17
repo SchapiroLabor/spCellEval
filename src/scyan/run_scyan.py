@@ -59,22 +59,49 @@ def run_scyan(dataset_path, seed, granularity_level, remove_columns, remove_cell
 
     if remove_result_cell_types is not None:
         remove_result_cell_types = [cell_type.strip() for cell_type in remove_result_cell_types.split(',')]
-        adata = adata[~adata.obs['cell_type'].isin([remove_result_cell_types])]
-        adata = adata[~adata.obs['scyan_pop'].isin([remove_result_cell_types])]
-
-    if save_result_plots:
-        cr = classification_report(adata.obs['cell_type'].astype(str), adata.obs['scyan_pop'].astype(str))
-        with open(os.path.join(output_path, f'{dataset_name}_{granularity_level}_classification_report.txt'), 'w') as f:
-            f.write(cr)
-        cm = confusion_matrix(adata.obs['cell_type'].astype(str), adata.obs['scyan_pop'].astype(str), normalize='true')
-        class_labels = sorted(adata.obs['cell_type'].unique())
-        disp = ConfusionMatrixDisplay(confusion_matrix=cm, display_labels=class_labels)
-        fig, ax = plt.subplots(figsize=(12,12))
-        disp.plot(cmap='Blues', xticks_rotation='vertical', ax=ax)
-        fig.savefig(os.path.join(output_path, f'{dataset_name}_{granularity_level}_confusion_matrix.png'), dpi=300, bbox_inches='tight')
-
+        adata = adata[~adata.obs['cell_type'].isin(remove_result_cell_types)]
+        adata = adata[~adata.obs['scyan_pop'].isin(remove_result_cell_types)]
+    
     df = adata.to_df()
     df = df.join(adata.obs)
+
+    level_2_mapping = df[['level_2_cell_type', 'cell_type']].drop_duplicates()
+    level_1_mapping = df[['level_1_cell_type', 'cell_type']].drop_duplicates()
+    df['predicted_level_2_cell_type'] = df['scyan_pop'].map(level_2_mapping.set_index('cell_type')['level_2_cell_type'])
+    df['predicted_level_1_cell_type'] = df['scyan_pop'].map(level_1_mapping.set_index('cell_type')['level_1_cell_type'])
+
+    if save_result_plots:
+        cr_lvl3 = classification_report(df['cell_type'].astype(str), df['scyan_pop'].astype(str))
+        cr_lvl2 = classification_report(df['level_2_cell_type'].astype(str), df['predicted_level_2_cell_type'].astype(str))
+        cr_lvl1 = classification_report(df['level_1_cell_type'].astype(str), df['predicted_level_1_cell_type'].astype(str))
+        with open(os.path.join(output_path, f'{dataset_name}_{granularity_level}_classification_report_level3.txt'), 'w') as f:
+            f.write(cr_lvl3)
+        with open(os.path.join(output_path, f'{dataset_name}_{granularity_level}_classification_report_level2.txt'), 'w') as f:
+            f.write(cr_lvl2)
+        with open(os.path.join(output_path, f'{dataset_name}_{granularity_level}_classification_report_level1.txt'), 'w') as f:
+            f.write(cr_lvl1)
+        cm_lvl3 = confusion_matrix(df['cell_type'].astype(str), df['scyan_pop'].astype(str), normalize='true')
+        class_labels = sorted(adata.obs['cell_type'].unique())
+        disp = ConfusionMatrixDisplay(confusion_matrix=cm_lvl3, display_labels=class_labels)
+        fig, ax = plt.subplots(figsize=(12,12))
+        disp.plot(cmap='Blues', xticks_rotation='vertical', ax=ax)
+        fig.savefig(os.path.join(output_path, f'{dataset_name}_{granularity_level}_confusion_matrix_lvl3.png'), dpi=300, bbox_inches='tight')
+        plt.close(fig)
+        cm_lvl2 = confusion_matrix(df['level_2_cell_type'].astype(str), df['predicted_level_2_cell_type'].astype(str), normalize='true')
+        class_labels = sorted(adata.obs['level_2_cell_type'].unique())
+        disp = ConfusionMatrixDisplay(confusion_matrix=cm_lvl2, display_labels=class_labels)
+        fig, ax = plt.subplots(figsize=(12,12))
+        disp.plot(cmap='Blues', xticks_rotation='vertical', ax=ax)
+        fig.savefig(os.path.join(output_path, f'{dataset_name}_{granularity_level}_confusion_matrix_lvl2.png'), dpi=300, bbox_inches='tight')
+        plt.close(fig)
+        cm_lvl1 = confusion_matrix(df['level_1_cell_type'].astype(str), df['predicted_level_1_cell_type'].astype(str), normalize='true')
+        class_labels = sorted(adata.obs['level_1_cell_type'].unique())
+        disp = ConfusionMatrixDisplay(confusion_matrix=cm_lvl1, display_labels=class_labels)
+        fig, ax = plt.subplots(figsize=(12,12))
+        disp.plot(cmap='Blues', xticks_rotation='vertical', ax=ax)
+        fig.savefig(os.path.join(output_path, f'{dataset_name}_{granularity_level}_confusion_matrix_lvl1.png'), dpi=300, bbox_inches='tight')
+
+
     df.rename(columns={'scyan_pop': 'predicted_phenotype', 'cell_type': 'true_phenotype'}, inplace=True)
 
     df.to_csv(os.path.join(output_path,f'{dataset_name}_{granularity_level}_scyan.csv'), index=False)
