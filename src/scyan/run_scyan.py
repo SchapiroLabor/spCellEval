@@ -8,7 +8,7 @@ import random
 import argparse
 import os
 
-def run_scyan(dataset_path, seed, granularity_level, remove_columns, remove_cell_types, preprocess, decision_matrix_path, split_col, batch_key, prior_std, patience, remove_result_cell_types, output_path, save_results):
+def run_scyan(dataset_path, seed, granularity_level, remove_columns, remove_cell_types, preprocess, decision_matrix_path, split_col, accelerator, batch_key, prior_std, patience, remove_result_cell_types, output_path, save_results):
     random.seed(seed)
     np.random.seed(seed)
 
@@ -48,7 +48,7 @@ def run_scyan(dataset_path, seed, granularity_level, remove_columns, remove_cell
         model = scyan.Scyan(adata, table, batch_key=batch_key, prior_std=prior_std)
     else:
         model = scyan.Scyan(adata, table, prior_std=prior_std)
-    model.fit(patience=patience)
+    model.fit(patience=patience, accelerator=accelerator)
     model.predict()
 
     adata.obs['scyan_pop'] = adata.obs['scyan_pop'].astype(str)
@@ -134,6 +134,13 @@ def main():
         help="Column name for splitting the dataset when creating the anndata object. It should be the column separating markers and other features",
     )
     parser.add_argument(
+        "--accelerator",
+        type=str,
+        default="cpu",
+        choices=["cpu", "gpu", "tpu", "hpu", "auto"],
+        help="Accelerator to use for training. Default is 'cpu'",
+    )
+    parser.add_argument(
         "--batch_key",
         type=str,
         help="Column name for batch key",
@@ -179,6 +186,7 @@ def main():
         remove_cell_types=args.remove_cell_types,
         preprocess=args.preprocess,
         decision_matrix_path=args.decision_matrix_path,
+        accelerator=args.accelerator,
         split_col=args.split_col,
         batch_key=args.batch_key,
         prior_std=args.prior_std,
