@@ -8,7 +8,7 @@ import random
 import argparse
 import os
 
-def run_scyan(dataset_path, seed, granularity_level, remove_columns, remove_cell_types, preprocess, decision_matrix_path, split_col, accelerator, batch_key, prior_std, patience, remove_result_cell_types, output_path, save_results):
+def run_scyan(dataset_path, seed, n_runs, granularity_level, remove_columns, remove_cell_types, preprocess, decision_matrix_path, split_col, accelerator, batch_key, prior_std, patience, remove_result_cell_types, output_path, save_results):
     random.seed(seed)
     np.random.seed(seed)
 
@@ -34,55 +34,56 @@ def run_scyan(dataset_path, seed, granularity_level, remove_columns, remove_cell
     print("preparing andata object")
     X_cols = data.columns[:data.columns.get_loc(split_col)]
     obs_cols = data.columns[data.columns.get_loc(split_col):]
-    adata = ad.AnnData(
+    table = pd.read_csv(decision_matrix_path,index_col=0)
+
+    print(f'Starting SCyan with {n_runs} runs')
+    for n in range(n_runs):
+        adata = ad.AnnData(
         X=data[X_cols],
         obs=data[obs_cols],
         var=pd.DataFrame(index=X_cols)
-    )
+        )
+        if preprocess:
+            scyan.preprocess.scale(adata)
+        if batch_key is not None:
+            model = scyan.Scyan(adata, table, batch_key=batch_key, prior_std=prior_std)
+        else:
+            model = scyan.Scyan(adata, table, prior_std=prior_std)
+        model.fit(patience=patience, accelerator=accelerator)
+        model.predict()
 
-    if preprocess:
-        scyan.preprocess.scale(adata)
-    table = pd.read_csv(decision_matrix_path,index_col=0)
+        adata.obs['scyan_pop'] = adata.obs['scyan_pop'].astype(str)
+        adata.obs['scyan_pop'] = adata.obs['scyan_pop'].fillna('undefined')
+        adata.obs['scyan_pop'] = adata.obs['scyan_pop'].replace('nan','undefined')
+        adata.obs[target_col] = adata.obs[target_col].astype(str)
 
-    if batch_key is not None:
-        model = scyan.Scyan(adata, table, batch_key=batch_key, prior_std=prior_std)
-    else:
-        model = scyan.Scyan(adata, table, prior_std=prior_std)
-    model.fit(patience=patience, accelerator=accelerator)
-    model.predict()
-
-    adata.obs['scyan_pop'] = adata.obs['scyan_pop'].astype(str)
-    adata.obs['scyan_pop'] = adata.obs['scyan_pop'].fillna('undefined')
-    adata.obs['scyan_pop'] = adata.obs['scyan_pop'].replace('nan','undefined')
-    adata.obs[target_col] = adata.obs[target_col].astype(str)
-
-    if remove_result_cell_types is not None:
-        remove_result_cell_types = [cell_type.strip() for cell_type in remove_result_cell_types.split(',')]
-        adata = adata[~adata.obs[target_col].isin(remove_result_cell_types)]
-        adata = adata[~adata.obs['scyan_pop'].isin(remove_result_cell_types)]
-    
-    df = adata.to_df()
-    df = df.join(adata.obs)
+        if remove_result_cell_types is not None:
+            remove_result_cell_types = [cell_type.strip() for cell_type in remove_result_cell_types.split(',')]
+            adata = adata[~adata.obs[target_col].isin(remove_result_cell_types)]
+            adata = adata[~adata.obs['scyan_pop'].isin(remove_result_cell_types)]
+        
+        df = adata.to_df()
+        df = df.join(adata.obs)
 
 
-    if save_results:
-        cr = classification_report(df[target_col].astype(str), df['scyan_pop'].astype(str))
-        with open(os.path.join(output_path, 'classification_report.csv'), 'w') as f:
-            f.write(cr)
+        if save_results:
+            cr = classification_report(df[target_col].astype(str), df['scyan_pop'].astype(str))
+            with open(os.path.join(output_path, f'classification_report_{n}.csv'), 'w') as f:
+                f.write(cr)
 
-        cm = confusion_matrix(df[target_col].astype(str), df['scyan_pop'].astype(str), normalize='true')
-        class_labels = sorted(adata.obs[target_col].unique())
-        disp = ConfusionMatrixDisplay(confusion_matrix=cm, display_labels=class_labels)
-        fig, ax = plt.subplots(figsize=(12, 12))
-        disp.plot(cmap='Blues', xticks_rotation='vertical', ax=ax)
-        plt.tight_layout()
-        plt.savefig(os.path.join(output_path, 'confusion_matrix.png'))
-        plt.close(fig)
+            cm = confusion_matrix(df[target_col].astype(str), df['scyan_pop'].astype(str), normalize='true')
+            class_labels = sorted(adata.obs[target_col].unique())
+            disp = ConfusionMatrixDisplay(confusion_matrix=cm, display_labels=class_labels)
+            fig, ax = plt.subplots(figsize=(12, 12))
+            disp.plot(cmap='Blues', xticks_rotation='vertical', ax=ax)
+            plt.tight_layout()
+            plt.savefig(os.path.join(output_path, f'confusion_matrix_{n}.png'))
+            plt.close(fig)
 
 
-    df.rename(columns={'scyan_pop': 'predicted_phenotype', target_col: 'true_phenotype'}, inplace=True)
+        df.rename(columns={'scyan_pop': 'predicted_phenotype', target_col: 'true_phenotype'}, inplace=True)
 
-    df.to_csv(os.path.join(output_path,'predictions.csv'), index=False)
+        df.to_csv(os.path.join(output_path,f'predictions_{n}.csv'), index=False)
 
 
 
@@ -100,6 +101,13 @@ def main():
         default=42,
         help="Random seed for reproducibility",
     )
+    parser.add_argument(
+        "--n_runs",
+        type=int,
+        default=1,
+        help="Number of runs runs performed by SCyan",
+    )
+
     parser.add_argument(
         "--granularity_level",
         type=str,
@@ -181,6 +189,7 @@ def main():
     run_scyan(
         dataset_path=args.dataset_path,
         seed=args.seed,
+        n_runs=args.n_runs,
         granularity_level=args.granularity_level,
         remove_columns=args.remove_columns,
         remove_cell_types=args.remove_cell_types,
