@@ -8,12 +8,11 @@ import random
 import argparse
 import os
 
-def run_scyan(dataset_path, seed, granularity_level, remove_columns, remove_cell_types, preprocess, decision_matrix_path, split_col, batch_key, prior_std, patience, remove_result_cell_types, output_path, save_result_plots):
+def run_scyan(dataset_path, seed, granularity_level, remove_columns, remove_cell_types, preprocess, decision_matrix_path, split_col, accelerator, batch_key, prior_std, patience, remove_result_cell_types, output_path, save_results):
     random.seed(seed)
     np.random.seed(seed)
 
     data = pd.read_csv(dataset_path)
-    dataset_name = os.path.basename(dataset_path).split('.')[0]
 
     target_col = granularity_level
     if target_col == 'level3':
@@ -49,62 +48,41 @@ def run_scyan(dataset_path, seed, granularity_level, remove_columns, remove_cell
         model = scyan.Scyan(adata, table, batch_key=batch_key, prior_std=prior_std)
     else:
         model = scyan.Scyan(adata, table, prior_std=prior_std)
-    model.fit(patience=patience)
+    model.fit(patience=patience, accelerator=accelerator)
     model.predict()
 
     adata.obs['scyan_pop'] = adata.obs['scyan_pop'].astype(str)
     adata.obs['scyan_pop'] = adata.obs['scyan_pop'].fillna('undefined')
     adata.obs['scyan_pop'] = adata.obs['scyan_pop'].replace('nan','undefined')
-    adata.obs['cell_type'] = adata.obs['cell_type'].astype(str)
+    adata.obs[target_col] = adata.obs[target_col].astype(str)
 
     if remove_result_cell_types is not None:
         remove_result_cell_types = [cell_type.strip() for cell_type in remove_result_cell_types.split(',')]
-        adata = adata[~adata.obs['cell_type'].isin(remove_result_cell_types)]
+        adata = adata[~adata.obs[target_col].isin(remove_result_cell_types)]
         adata = adata[~adata.obs['scyan_pop'].isin(remove_result_cell_types)]
     
     df = adata.to_df()
     df = df.join(adata.obs)
 
-    level_2_mapping = df[['level_2_cell_type', 'cell_type']].drop_duplicates()
-    level_1_mapping = df[['level_1_cell_type', 'cell_type']].drop_duplicates()
-    df['predicted_level_2_cell_type'] = df['scyan_pop'].map(level_2_mapping.set_index('cell_type')['level_2_cell_type'])
-    df['predicted_level_1_cell_type'] = df['scyan_pop'].map(level_1_mapping.set_index('cell_type')['level_1_cell_type'])
 
-    if save_result_plots:
-        cr_lvl3 = classification_report(df['cell_type'].astype(str), df['scyan_pop'].astype(str))
-        cr_lvl2 = classification_report(df['level_2_cell_type'].astype(str), df['predicted_level_2_cell_type'].astype(str))
-        cr_lvl1 = classification_report(df['level_1_cell_type'].astype(str), df['predicted_level_1_cell_type'].astype(str))
-        with open(os.path.join(output_path, f'{dataset_name}_{granularity_level}_classification_report_level3.txt'), 'w') as f:
-            f.write(cr_lvl3)
-        with open(os.path.join(output_path, f'{dataset_name}_{granularity_level}_classification_report_level2.txt'), 'w') as f:
-            f.write(cr_lvl2)
-        with open(os.path.join(output_path, f'{dataset_name}_{granularity_level}_classification_report_level1.txt'), 'w') as f:
-            f.write(cr_lvl1)
-        cm_lvl3 = confusion_matrix(df['cell_type'].astype(str), df['scyan_pop'].astype(str), normalize='true')
-        class_labels = sorted(adata.obs['cell_type'].unique())
-        disp = ConfusionMatrixDisplay(confusion_matrix=cm_lvl3, display_labels=class_labels)
-        fig, ax = plt.subplots(figsize=(12,12))
+    if save_results:
+        cr = classification_report(df[target_col].astype(str), df['scyan_pop'].astype(str))
+        with open(os.path.join(output_path, 'classification_report.csv'), 'w') as f:
+            f.write(cr)
+
+        cm = confusion_matrix(df[target_col].astype(str), df['scyan_pop'].astype(str), normalize='true')
+        class_labels = sorted(adata.obs[target_col].unique())
+        disp = ConfusionMatrixDisplay(confusion_matrix=cm, display_labels=class_labels)
+        fig, ax = plt.subplots(figsize=(12, 12))
         disp.plot(cmap='Blues', xticks_rotation='vertical', ax=ax)
-        fig.savefig(os.path.join(output_path, f'{dataset_name}_{granularity_level}_confusion_matrix_lvl3.png'), dpi=300, bbox_inches='tight')
+        plt.tight_layout()
+        plt.savefig(os.path.join(output_path, 'confusion_matrix.png'))
         plt.close(fig)
-        cm_lvl2 = confusion_matrix(df['level_2_cell_type'].astype(str), df['predicted_level_2_cell_type'].astype(str), normalize='true')
-        class_labels = sorted(adata.obs['level_2_cell_type'].unique())
-        disp = ConfusionMatrixDisplay(confusion_matrix=cm_lvl2, display_labels=class_labels)
-        fig, ax = plt.subplots(figsize=(12,12))
-        disp.plot(cmap='Blues', xticks_rotation='vertical', ax=ax)
-        fig.savefig(os.path.join(output_path, f'{dataset_name}_{granularity_level}_confusion_matrix_lvl2.png'), dpi=300, bbox_inches='tight')
-        plt.close(fig)
-        cm_lvl1 = confusion_matrix(df['level_1_cell_type'].astype(str), df['predicted_level_1_cell_type'].astype(str), normalize='true')
-        class_labels = sorted(adata.obs['level_1_cell_type'].unique())
-        disp = ConfusionMatrixDisplay(confusion_matrix=cm_lvl1, display_labels=class_labels)
-        fig, ax = plt.subplots(figsize=(12,12))
-        disp.plot(cmap='Blues', xticks_rotation='vertical', ax=ax)
-        fig.savefig(os.path.join(output_path, f'{dataset_name}_{granularity_level}_confusion_matrix_lvl1.png'), dpi=300, bbox_inches='tight')
 
 
-    df.rename(columns={'scyan_pop': 'predicted_phenotype', 'cell_type': 'true_phenotype'}, inplace=True)
+    df.rename(columns={'scyan_pop': 'predicted_phenotype', target_col: 'true_phenotype'}, inplace=True)
 
-    df.to_csv(os.path.join(output_path,f'{dataset_name}_{granularity_level}_scyan.csv'), index=False)
+    df.to_csv(os.path.join(output_path,'predictions.csv'), index=False)
 
 
 
@@ -156,6 +134,13 @@ def main():
         help="Column name for splitting the dataset when creating the anndata object. It should be the column separating markers and other features",
     )
     parser.add_argument(
+        "--accelerator",
+        type=str,
+        default="cpu",
+        choices=["cpu", "gpu", "tpu", "hpu", "auto"],
+        help="Accelerator to use for training. Default is 'cpu'",
+    )
+    parser.add_argument(
         "--batch_key",
         type=str,
         help="Column name for batch key",
@@ -182,10 +167,10 @@ def main():
     parser.add_argument(
         "--output_path",
         type=str,
-        help="Path to save the predictions CSV file",
+        help="Path to save the predictions CSV file"
     )
     parser.add_argument(
-        "--save_result_plots",
+        "--save_results",
         action="store_true",
         help="Whether to save the result plots. Default is False",
     )
@@ -201,13 +186,14 @@ def main():
         remove_cell_types=args.remove_cell_types,
         preprocess=args.preprocess,
         decision_matrix_path=args.decision_matrix_path,
+        accelerator=args.accelerator,
         split_col=args.split_col,
         batch_key=args.batch_key,
         prior_std=args.prior_std,
         patience=args.patience,
         remove_result_cell_types=args.remove_result_cell_types,
         output_path=args.output_path,
-        save_result_plots=args.save_result_plots,
+        save_results=args.save_results,
     )
 
 if __name__ == "__main__":
