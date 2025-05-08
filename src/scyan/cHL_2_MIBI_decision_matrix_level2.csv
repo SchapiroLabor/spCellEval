@@ -1,0 +1,6 @@
+Populations,CD163,CD28,CD153 (CD30L),CD4,CD11c,CD56,FoxP3,CD20,CD68,CD8,CD3,CD15,HLA-DR,CD30,Pax-5,PD-L1,CD25
+Cancer,-1,,-1,,-1,,-1,-1,,,-1,,,1,,1,
+Lymphoid_immune,-1,,-1,,-1,,,,-1,,,-1,-1,-1,,,
+Myeloid_immune,,-1,-1,-1,,-1,-1,-1,,-1,-1,,,-1,-1,,
+Vascular,-1,-1,1,,,,,,,-1,-1,-1,-1,-1,-1,,
+
