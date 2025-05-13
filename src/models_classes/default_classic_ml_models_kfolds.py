@@ -31,7 +31,7 @@ class ClassicMLDefault:
             self.model_name = 'stratified'
             self.model = DummyClassifier(strategy='stratified', random_state=random_state, **kwargs) 
         else:
-            raise ValueError("Invalid model. Please choose either 'logistic_regression', 'xgboost' or 'random_forest' as model parameter.")
+            raise ValueError("Invalid model. Please choose either 'logistic_regression', 'xgboost', 'random_forest', 'most_frequent or 'stratified' as model parameter.")
         
         self.kwargs = kwargs
         self.random_state = random_state
