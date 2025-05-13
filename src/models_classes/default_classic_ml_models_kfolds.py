@@ -7,6 +7,7 @@ from sklearn.preprocessing import StandardScaler
 from sklearn.ensemble import RandomForestClassifier as rfc
 from xgboost import XGBClassifier
 from sklearn.utils.class_weight import compute_sample_weight
+from sklearn.dummy import DummyClassifier
 import json
 import csv
 import pickle
@@ -23,6 +24,12 @@ class ClassicMLDefault:
             self.class_weight = kwargs.pop('class_weight', None)
             self.model_name = 'xgboost'
             self.model = XGBClassifier(objective = 'multi:softmax', eval_metric = 'mlogloss', booster = 'gbtree', n_jobs=n_jobs, random_state=random_state, **kwargs)
+        elif model == 'most_frequent':
+            self.model_name = 'most_frequent'
+            self.model = DummyClassifier(strategy='most_frequent', random_state=random_state, **kwargs)
+        elif model == 'stratified':
+            self.model_name = 'stratified'
+            self.model = DummyClassifier(strategy='stratified', random_state=random_state, **kwargs) 
         else:
             raise ValueError("Invalid model. Please choose either 'logistic_regression', 'xgboost' or 'random_forest' as model parameter.")
         
@@ -210,6 +217,10 @@ class ClassicMLDefault:
                 json_name = 'average_logreg_results.json'
             elif self.model_name == 'xgboost':
                 json_name = 'average_xgboost_results.json'
+            elif self.model_name == 'most_frequent':
+                json_name = 'average_most_frequent_results.json'
+            elif self.model_name == 'stratified':
+                json_name = 'average_stratified_results.json'
             with open(os.path.join(save_path, json_name), 'w') as f:
                 json.dump(avg_results, f, indent=4)
 
