@@ -58,8 +58,8 @@ def main():
     parser.add_argument(
         "--model",
         type=str,
-        choices=['logistic_regression', 'random_forest', 'xgboost'],
-        help="Select a model to run, either 'logistic_regression', 'random_forest' or 'xgboost'", required=True
+        choices=['logistic_regression', 'random_forest', 'xgboost','most_frequent','stratified'],
+        help="Select a model to run, either 'logistic_regression', 'random_forest', 'xgboost', 'most_frequent', or 'stratifies'.", required=True
         )
     parser.add_argument(
         "--kfold_method",
