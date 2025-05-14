@@ -97,7 +97,8 @@ def main():
         "class_weight": "balanced",
         }
         In XGBoost, the class_weight parameter is not directly available. We implemented it with compute_sample_weight parameter from sklearn. In Logistic Regression and Random Forest, the class_weight parameter is directly available.
-        """
+        """,
+        default=None
         )
     parser.add_argument(
         "--verbose",
