@@ -4,9 +4,10 @@ import os
 import tribus
 from visualization import z_score
 import argparse
+import time
 
 
-def run_tribus(dataset_path, seed, n_runs, granularity_level, columns_to_use, remove_cell_types, decision_matrix_path, normalization, tuning, sigma, learning_rate,
+def run_tribus(dataset_path, seed, n_runs, seed_stability_mode, granularity_level, columns_to_use, remove_cell_types, decision_matrix_path, normalization, tuning, sigma, learning_rate,
                clustering_threshold, undefined_threshold, other_threshold, depth, remove_result_cell_types, output_path):
     
     sample_data = pd.read_csv(dataset_path)
@@ -39,10 +40,16 @@ def run_tribus(dataset_path, seed, n_runs, granularity_level, columns_to_use, re
         normalization = z_score
     else:
         normalization = None
-    for i in range(n_runs):  
-        labels,_ = tribus.run_tribus(sample_data[cols], logic, depth=depth, normalization=normalization, tuning=tuning, sigma=sigma, learning_rate=learning_rate, 
-                                    clustering_threshold=clustering_threshold, undefined_threshold=undefined_threshold, other_threshold=other_threshold, random_state=seed+i)
-
+    for i in range(n_runs):
+        start_time_loop = time.perf_counter()
+        if seed_stability_mode:
+            current_seed = seed + i
+        else:
+            current_seed = seed
+        labels,_ = tribus.run_tribus(sample_data[cols], logic, depth=depth, normalization=normalization, tuning=tuning, sigma=sigma, learning_rate=learning_rate,
+                                    clustering_threshold=clustering_threshold, undefined_threshold=undefined_threshold, other_threshold=other_threshold, random_state=current_seed)
+        end_time_loop = time.perf_counter()
+        elapsed_time_loop = end_time_loop - start_time_loop
         result_data = sample_data.join(labels)
         if remove_result_cell_types is not None:
             remove_result_cell_types = [cell_type.strip() for cell_type in remove_result_cell_types.split(',')]
@@ -51,14 +58,16 @@ def run_tribus(dataset_path, seed, n_runs, granularity_level, columns_to_use, re
         result_data.rename(columns={"final_label": 'predicted_phenotype', target_col: 'true_phenotype'}, inplace=True)
         result_data.to_csv(os.path.join(output_path, f'predictions_{i}.csv'))
         cr = classification_report(result_data['true_phenotype'], result_data['predicted_phenotype'])
+        report_with_time = f"{cr}\nLoop iteration {i} processing time: {elapsed_time_loop:.4f} seconds\n"
         with open(os.path.join(output_path, f'classification_report_{i}.csv'), 'w') as f:
-                f.write(cr)
+                f.write(report_with_time)
 
 def main():
     parser = argparse.ArgumentParser(description="Run Tribus on datasets")
     parser.add_argument("--dataset_path", type=str, required=True, help="Path to the dataset")
     parser.add_argument("--seed", type=int, default=42, help="Random seed for reproducibility. If n_runs > 1, the seed will be incremented by the run number")
     parser.add_argument("--n_runs", type=int, default=1, help="Number of runs")
+    parser.add_argument("--seed_stability_mode", action='store_true', help="If set, the seed will be incremented by the run number for each run")
     parser.add_argument("--granularity_level", type=str, default='level3', help="Granularity level for cell types")
     parser.add_argument("--columns_to_use", type=str, default='gene1,gene2,gene3', help="Columns to use for tribus celltyping. Comma separated")
     parser.add_argument("--remove_cell_types", type=str, default=None, help="Cell types to remove from the dataset before running tribus, Comma separated")
@@ -75,7 +84,7 @@ def main():
     parser.add_argument("--output_path", type=str, required=True, help="Path to save the results")
     args = parser.parse_args()
 
-    run_tribus(args.dataset_path, args.seed, args.n_runs, args.granularity_level, args.columns_to_use, args.remove_cell_types, args.decision_matrix_path, args.normalization,
+    run_tribus(args.dataset_path, args.seed, args.n_runs, args.seed_stability_mode, args.granularity_level, args.columns_to_use, args.remove_cell_types, args.decision_matrix_path, args.normalization,
                 args.tuning, args.sigma, args.learning_rate, args.clustering_threshold, args.undefined_threshold, args.other_threshold, args.depth, args.remove_result_cell_types, args.output_path)
 if __name__ == "__main__":
     main()
