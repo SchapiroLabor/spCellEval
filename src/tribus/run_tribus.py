@@ -41,7 +41,7 @@ def run_tribus(dataset_path, seed, n_runs, granularity_level, columns_to_use, re
         normalization = None
     for i in range(n_runs):  
         labels,_ = tribus.run_tribus(sample_data[cols], logic, depth=depth, normalization=normalization, tuning=tuning, sigma=sigma, learning_rate=learning_rate, 
-                                    clustering_threshold=clustering_threshold, undefined_threshold=undefined_threshold, other_threshold=other_threshold, random_state=seed)
+                                    clustering_threshold=clustering_threshold, undefined_threshold=undefined_threshold, other_threshold=other_threshold, random_state=seed+i)
 
         result_data = sample_data.join(labels)
         if remove_result_cell_types is not None:
@@ -57,7 +57,7 @@ def run_tribus(dataset_path, seed, n_runs, granularity_level, columns_to_use, re
 def main():
     parser = argparse.ArgumentParser(description="Run Tribus on datasets")
     parser.add_argument("--dataset_path", type=str, required=True, help="Path to the dataset")
-    parser.add_argument("--seed", type=int, default=42, help="Random seed for reproducibility")
+    parser.add_argument("--seed", type=int, default=42, help="Random seed for reproducibility. If n_runs > 1, the seed will be incremented by the run number")
     parser.add_argument("--n_runs", type=int, default=1, help="Number of runs")
     parser.add_argument("--granularity_level", type=str, default='level3', help="Granularity level for cell types")
     parser.add_argument("--columns_to_use", type=str, default='gene1,gene2,gene3', help="Columns to use for tribus celltyping. Comma separated")
