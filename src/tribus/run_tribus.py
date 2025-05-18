@@ -50,7 +50,7 @@ def run_tribus(dataset_path, seed, n_runs, granularity_level, columns_to_use, re
         result_data.loc[result_data["final_label"].str.contains('other|undefined', case=False, na=False), "final_label"] = 'undefined'
         result_data.rename(columns={"final_label": 'predicted_phenotype', target_col: 'true_phenotype'}, inplace=True)
         result_data.to_csv(os.path.join(output_path, f'predictions_{i}.csv'))
-        cr = classification_report(result_data["cell_type"], result_data["final_label"])
+        cr = classification_report(result_data['true_phenotype'], result_data['predicted_phenotype'])
         with open(os.path.join(output_path, f'classification_report_{i}.csv'), 'w') as f:
                 f.write(cr)
 
