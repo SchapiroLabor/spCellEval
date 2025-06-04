@@ -42,7 +42,7 @@ main <- function() {
                       help="Path to marker decision matrix CSV file")
   parser$add_argument("-n", "--iterations", type="integer", default=5,
                       help="Number of times to run the TACIT prediction [default %(default)s]")
-  parser$add_argument("-r", type="integer", default=10,n
+  parser$add_argument("-r", type="integer", default=10,
                       help="resolution. The higher the resolution, the greaterde the number of microclusters")
   parser$add_argument("-p", type="integer", default=10,
                       help="Dimension. TNumber of dimensions used for microclusters")
