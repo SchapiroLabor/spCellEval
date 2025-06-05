@@ -65,11 +65,11 @@ if __name__ == "__main__":
             for k in granularity:
                 print(f"Iteration {iteration} : Running greedy assignment of {c} to {k}")
                 ## greedy assignement
-                f1_macro, f1_weighted, mapped_preds, mapping, ari, nmi, accuracy, mcc, kappa= greedy_f1_score(df, k, c, tie_strategy='random')
-                print("F1 Macro:", f1_macro)
-                print("F1 Weighted:", f1_weighted)
+                results = greedy_f1_score(df, k, c, tie_strategy='random')
+                print("F1 Macro:", results["f1_macro"])
+                print("F1 Weighted:", results["f1_weighted"])
                 output = df.loc[:, ~df.columns.str.startswith('leiden_')].copy()
-                output['predicted_phenotype'] = mapped_preds
+                output['predicted_phenotype'] = results['mapped_predictions']
                 output = output.rename(columns={k: "true_phenotype"})
                 name = granularity[granularity==k].index[0]
                 path = f"../immucan/{c}/{name}/predictions_{iteration}.csv" #create output directory
