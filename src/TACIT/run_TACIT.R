@@ -6,12 +6,12 @@ library(tidyverse)
 library(TACIT)
 library(argparse)
 
-run_TACIT <- function(n, input_path, decision_matrix_path, r, p, output_path) {
+run_TACIT <- function(n, input_path, separate_col, decision_matrix_path, r, p, output_path) {
   data <- read_csv(input_path)
   
   CELLxFEATURE <- data %>% 
     select(cell_id, everything()) %>%
-    select(- (DNA1:last_col()))
+    select(- (separate_col:last_col()))
   
   data <- data %>%
     rename(true_phenotype = cell_type)
@@ -40,6 +40,8 @@ main <- function() {
                       help="Path to input quantification CSV file")
   parser$add_argument("--decision_matrix_path", type="character", required=TRUE,
                       help="Path to marker decision matrix CSV file")
+  parser$add_argument("--separate_col", type="character", required=TRUE,
+                      help="Col that separates marker columns from remaining cols. Input like this from terminal: 'colname' ")
   parser$add_argument("-n", "--iterations", type="integer", default=5,
                       help="Number of times to run the TACIT prediction [default %(default)s]")
   parser$add_argument("-r", type="integer", default=10,
@@ -49,8 +51,8 @@ main <- function() {
   parser$add_argument("--output_path", type="character", required=TRUE,
                       help="Directory to save prediction CSV files")
   args <- parser$parse_args()
-  
-  run_TACIT(args$iterations, args$input_path, args$decision_matrix_path, args$r, args$p, args$output_path)
+  options(future.globals.maxSize = 4 * 1024^3)
+  run_TACIT(args$iterations, args$input_path,args$separate_col, args$decision_matrix_path, args$r, args$p, args$output_path)
 }
 
 main()
