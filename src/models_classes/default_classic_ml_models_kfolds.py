@@ -96,6 +96,16 @@ class ClassicMLDefault:
 
         print('Starting the integration of the predefined Kfolds...')
         for i, (train_file, validation_file, test_file) in enumerate(zip(fold_dict['train'], fold_dict['validation'], fold_dict['test'])):
+            if self.model_name == 'logistic_regression':
+                self.model = LogisticRegression(n_jobs=self.model.n_jobs, random_state=self.random_state, **self.kwargs)
+            elif self.model_name == 'random_forest':
+                self.model = rfc(n_jobs=self.model.n_jobs, random_state=self.random_state, criterion='log_loss', **self.kwargs)
+            elif self.model_name == 'xgboost':
+                self.model = XGBClassifier(objective='multi:softmax', eval_metric='mlogloss', booster='gbtree', n_jobs=self.model.n_jobs, random_state=self.random_state, **self.kwargs)
+            elif self.model_name == 'most_frequent':
+                self.model = DummyClassifier(strategy='most_frequent', random_state=self.random_state, **self.kwargs)
+            elif self.model_name == 'stratified':
+                self.model = DummyClassifier(strategy='stratified', random_state=self.random_state, **self.kwargs)
             if dumb_columns is not None:
                 train_data = pd.read_csv(os.path.join(path, train_file))
                 validation_data = pd.read_csv(os.path.join(path, validation_file))
@@ -137,18 +147,37 @@ class ClassicMLDefault:
                 X_test = pd.DataFrame(X_test_scaled, columns=test_data.drop(columns='encoded_phenotype').columns)
 
 
+            # We need to adjust to xgboost case where we dont have the same labels in training than testing:
+            y_train_to_fit = y_train
+            y_val_to_fit = y_val
+            reverse_label_map = None
+
+            if self.model_name == 'xgboost':
+                unique_train_labels = np.unique(y_train)
+
+                #Check whether our unique training labels adhere to the XGBoost desired labeli indices, starting from 0 with consecutive integers
+                if not np.array_equal(unique_train_labels, np.arange(len(unique_train_labels))):
+                    print(f"Fold {i+1}: Labels are not zero-indexed/consecutive. Re-mapping for XGBoost.")
+                    label_map = {label: i for i,label in enumerate(unique_train_labels)}
+                    reverse_label_map = {i: label for i, label in label_map.items()}
+                    y_train_to_fit = np.array([label_map[label] for label in y_train])
+                    y_val_to_fit = np.array([label_map[label] for label in y_val])
+
             print(f"Fold {i+1} integrated successfully")
 
             if self.model_name == 'xgboost':
                 if self.class_weight is not None:
-                    sample_weights = compute_sample_weight(class_weight=self.class_weight,y=y_train)
-                    self.model.fit(X_train, y_train, eval_set=[(X_val, y_val)], verbose=verbose, sample_weight=sample_weights)
+                    sample_weights = compute_sample_weight(class_weight=self.class_weight,y=y_train_to_fit)
+                    self.model.fit(X_train, y_train_to_fit, eval_set=[(X_val, y_val_to_fit)], verbose=verbose, sample_weight=sample_weights)
                 else:
-                    self.model.fit(X_train, y_train, eval_set=[(X_val, y_val)], verbose=verbose)
+                    self.model.fit(X_train, y_train_to_fit, eval_set=[(X_val, y_val_to_fit)], verbose=verbose)
             else:
                 self.model.fit(X_train, y_train)
 
             y_pred_test = self.model.predict(X_test)
+
+            if reverse_label_map:
+                y_pred_test = np.array([reverse_label_map[label] for label in y_pred_test])
 
             accuracy = accuracy_score(y_test, y_pred_test)
             f1 = f1_score(y_test, y_pred_test, average='macro')
