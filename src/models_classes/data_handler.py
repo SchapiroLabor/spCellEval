@@ -68,7 +68,7 @@ class DataSetHandler:
         print("Data successfully preprocessed")
     
 
-    def createFolds(self, k: int, method:str, batch_identifier_column:str = None, group_shuffle_split_size:float = 0.5) -> None:
+    def createFolds(self, k: int, method:str, batch_identifier_column:str = None, group_shuffle_split_size:float = 0.5, swap_train_test:bool=False) -> None:
         """
         Creates StratifiedKfolds.
         Folds will be carried by the fold_data attribute.
@@ -105,7 +105,11 @@ class DataSetHandler:
             
         self.fold_indices = list(fold_generator)
         
+
         self.fold_data = []
+        if swap_train_test:
+            print("Swapping train and test sets in folds")
+            self.fold_indices = [(test_index, train_index) for train_index, test_index in self.fold_indices]
         for train_index, test_index in self.fold_indices:
             X_train, X_test = self.X.iloc[train_index], self.X.iloc[test_index]
             Y_train, Y_test = self.Y[train_index], self.Y[test_index]

@@ -2,7 +2,7 @@ import argparse
 import os
 from models_classes.data_handler import DataSetHandler
 
-def run_fold_creation(main_dir, dataset_name, dropna, impute_value, phenotype_column, batch_identifier_column, drop_columns, drop_non_numerical, n_splits, method, group_shuffle_split_size, random_state, percentage_validation):
+def run_fold_creation(main_dir, dataset_name, dropna, impute_value, phenotype_column, batch_identifier_column, drop_columns, drop_non_numerical, n_splits, method, group_shuffle_split_size, swap_train_test, random_state, percentage_validation):
     """
     This function executes the DataSetHandler class to create cleaned kfolds and labels including translation csvs.
     """    
@@ -36,7 +36,7 @@ def run_fold_creation(main_dir, dataset_name, dropna, impute_value, phenotype_co
             save_dir = os.path.join(main_dir, 'datasets', dataset, 'quantification/processed')
             data_handler = DataSetHandler(dataset_path, random_state=random_state)
             data_handler.preprocess(dropna, impute_value, phenotype_column, batch_identifier_column, drop_columns = drop_columns, drop_non_numerical = drop_non_numerical)
-            data_handler.createFolds(n_splits, method, batch_identifier_column, group_shuffle_split_size)
+            data_handler.createFolds(n_splits, method, batch_identifier_column, group_shuffle_split_size, swap_train_test)
             data_handler.save_labels(save_dir)
             data_handler.save_folds(save_dir)
             data_handler.create_validation_set_from_fold(save_path=os.path.join(save_dir, f'kfolds_{method}_{granularity_level}'), percentage_validation=percentage_validation)
@@ -47,7 +47,7 @@ def run_fold_creation(main_dir, dataset_name, dropna, impute_value, phenotype_co
             save_dir = os.path.join(main_dir, 'datasets', dataset_name, 'quantification/processed')
             data_handler = DataSetHandler(dataset_path, random_state=random_state)
             data_handler.preprocess(dropna, impute_value, phenotype_column, batch_identifier_column, drop_columns = drop_columns, drop_non_numerical = drop_non_numerical)
-            data_handler.createFolds(n_splits, method, batch_identifier_column, group_shuffle_split_size)
+            data_handler.createFolds(n_splits, method, batch_identifier_column, group_shuffle_split_size, swap_train_test)
             data_handler.save_labels(save_dir)
             data_handler.save_folds(save_dir)
             data_handler.create_validation_set_from_fold(save_path=os.path.join(save_dir, f'kfolds_{method}_{granularity_level}'), percentage_validation=percentage_validation)
@@ -128,6 +128,11 @@ def main():
         default = 0.5,
     )
     parser.add_argument(
+        '--swap_train_test',
+        action='store_true',
+        help = 'swap train and test sets. Default is False',
+    )
+    parser.add_argument(
         '--random_state',
         type = int,
         help = 'random state for reproducibility. Default is 42',
@@ -143,7 +148,7 @@ def main():
     args = parser.parse_args()
     run_fold_creation(args.main_dir, args.dataset_name, args.dropna, args.impute_value, args.phenotype_column,
                         args.batch_identifier_column, args.drop_columns, args.drop_non_numerical, args.n_splits,
-                        args.method, args.group_shuffle_split_size, args.random_state,
+                        args.method, args.group_shuffle_split_size, args.swap_train_test, args.random_state,
                         args.percentage_validation
                         )
     print("Done.")
