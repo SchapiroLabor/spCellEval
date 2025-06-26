@@ -95,7 +95,7 @@ class ClassicMLDefault:
         
 
         print('Starting the integration of the predefined Kfolds...')
-        for i, (train_file, validation_file, test_file) in enumerate(zip(fold_dict['train'], fold_dict['validation'], fold_dict['test'])):
+        for c, (train_file, validation_file, test_file) in enumerate(zip(fold_dict['train'], fold_dict['validation'], fold_dict['test'])):
             if self.model_name == 'logistic_regression':
                 self.model = LogisticRegression(n_jobs=self.model.n_jobs, random_state=self.random_state, **self.kwargs)
             elif self.model_name == 'random_forest':
@@ -130,7 +130,7 @@ class ClassicMLDefault:
             elif not non_numeric_df.empty:
                 raise ValueError(f"Non-numeric values found in the fold data. Please encode the non-numeric values before training. Found columns: {non_numeric_df.columns}")
             else:
-                print(f"Taking data from {train_file} and {validation_file} for fold {i+1}. No NANs found")
+                print(f"Taking data from {train_file} and {validation_file} for fold {c+1}. No NANs found")
 
             X_train = train_data.drop(columns='encoded_phenotype')
             y_train = train_data['encoded_phenotype'].values
@@ -157,13 +157,13 @@ class ClassicMLDefault:
 
                 #Check whether our unique training labels adhere to the XGBoost desired labeli indices, starting from 0 with consecutive integers
                 if not np.array_equal(unique_train_labels, np.arange(len(unique_train_labels))):
-                    print(f"Fold {i+1}: Labels are not zero-indexed/consecutive. Re-mapping for XGBoost.")
+                    print(f"Fold {c+1}: Labels are not zero-indexed/consecutive. Re-mapping for XGBoost.")
                     label_map = {label: i for i,label in enumerate(unique_train_labels)}
-                    reverse_label_map = {i: label for i, label in label_map.items()}
+                    reverse_label_map = {label: i for i, label in label_map.items()}
                     y_train_to_fit = np.array([label_map[label] for label in y_train])
                     y_val_to_fit = np.array([label_map[label] for label in y_val])
 
-            print(f"Fold {i+1} integrated successfully")
+            print(f"Fold {c+1} integrated successfully")
 
             if self.model_name == 'xgboost':
                 if self.class_weight is not None:
@@ -177,7 +177,10 @@ class ClassicMLDefault:
             y_pred_test = self.model.predict(X_test)
 
             if reverse_label_map:
-                y_pred_test = np.array([reverse_label_map[label] for label in y_pred_test])
+                print(reverse_label_map)
+                print('\n')
+                print(label_map)
+                y_pred_test = np.array([reverse_label_map[int(label)] for label in y_pred_test])
 
             accuracy = accuracy_score(y_test, y_pred_test)
             f1 = f1_score(y_test, y_pred_test, average='macro')
@@ -187,7 +190,7 @@ class ClassicMLDefault:
             cm = confusion_matrix(y_test, y_pred_test, labels=all_labels)
             cr = classification_report(y_test, y_pred_test, output_dict=False)
 
-            self.predictions[f'fold_{i+1}'] = y_pred_test
+            self.predictions[f'fold_{c+1}'] = y_pred_test
             self.fold_accuracies.append(accuracy)
             self.fold_f1_scores.append(f1)
             self.fold_weighted_f1_scores.append(weighted_f1)
@@ -196,7 +199,7 @@ class ClassicMLDefault:
             self.confusion_matrices.append(cm)
             self.classification_reports.append(cr)
             self.best_models.append(self.model)
-            print(f"Test Fold {i+1} completed")
+            print(f"Test Fold {c+1} completed")
             print(f"classification report: {cr}")
 
             del X_train, X_val, y_train, y_val, X_test, y_test
