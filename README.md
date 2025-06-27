@@ -22,11 +22,13 @@ To officially add your own method, Please provide us with the following to repro
 3. Your predictions (optional: would make things faster for us)
 
 Folder Strucutre to add you predictions in 
+```
 results/
 ├── Method1/
 │   └── predictions_*.csv
 ├── Method2/
 └── Method3/
+```
 
 ## TODO:
 - [ ] Add overview (and results) figure
