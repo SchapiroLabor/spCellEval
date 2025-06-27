@@ -31,7 +31,7 @@ results/
 ```
 
 ## TODO:
-- [ ] Add overview (and results) figure
+- [x] Add overview (and results) figure
 - [ ] remove .DS files
-- [ ] expand text
+- [x] expand text
 
