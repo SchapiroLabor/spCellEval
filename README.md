@@ -9,14 +9,14 @@ We present, "spCellEval Benchmark", a quantitative comparison of automated/semi-
 
 ## Getting Started
 
-Scripts to run each method are proveided within `src/<method>`.
+Scripts to run each method are provided within `src/<method>`.
 Parameters to recreate the each method can be found here.
 
 ### Evaluation Script
 The notebook, eval.ipynb, can be used to get the complete metrics on all methods for each dataset. 
 
 ### Adding your own method
-To officially add your own method, Please provide us with the following to reproduce
+To officially add your own method, please open an issue and provide us with the following to reproduce your method. 
 1. GitHub repo for the method
 2. List of Parameters use (if any)
 3. Your predictions (optional: would make things faster for us)
