@@ -71,7 +71,7 @@ def preprocessing(input, markers, PCA, normalization, arcsine):
 
 # Define Leiden clustering with greedy assignment function
 def leiden_with_greedy(adata, df, iterations, output_path, log, resolutions):
-    for iteration in range(1, iterations):
+    for iteration in range(1, iterations+1):
         for res in resolutions:
             start = time.time()
             sc.tl.leiden(adata, resolution=res, key_added=f'leiden_res{res}', random_state=np.random.seed())
@@ -107,4 +107,4 @@ if __name__ == "__main__":
     main()
 
 
-#example usage: python3 leiden_clustering.py -i ../chl2/cHL_2_MIBI_quantification.csv -o ../chl2/CLI_test -m CD163 CD45RO CD28 -r 2 5 1 -l short
+#example usage: python3 leiden_clustering.py -i ../chl2/cHL_2_MIBI_quantification.csv -o ../chl2/CLI_test -m CD163 CD11c CD28 -r 2 5 1 -l short
