@@ -366,7 +366,7 @@ class ClassicMLDefault:
             json.dump(avg_results, f, indent=4)
 
         with open(os.path.join(save_path, "fold_times.txt"), "w") as f:
-            for i, elapsed_train, elapsed_pred in enumerate(
+            for i, (elapsed_train, elapsed_pred) in enumerate(
                 zip(self.train_times, self.pred_times)
             ):
                 f.write(f"Fold {i+1} training_time: {elapsed_train:.2f}\n")
