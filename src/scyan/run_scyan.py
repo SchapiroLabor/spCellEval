@@ -2,46 +2,72 @@ import scyan
 import anndata as ad
 import pandas as pd
 import numpy as np
-from sklearn.metrics import classification_report, confusion_matrix, ConfusionMatrixDisplay
+from sklearn.metrics import (
+    classification_report,
+    confusion_matrix,
+    ConfusionMatrixDisplay,
+)
 import matplotlib.pyplot as plt
 import random
 import argparse
 import os
+import time
 
-def run_scyan(dataset_path, seed, n_runs, granularity_level, remove_columns, remove_cell_types, preprocess, decision_matrix_path, split_col, accelerator, batch_key, prior_std, patience, remove_result_cell_types, output_path, save_results):
+
+def run_scyan(
+    dataset_path,
+    seed,
+    n_runs,
+    granularity_level,
+    remove_columns,
+    remove_cell_types,
+    preprocess,
+    decision_matrix_path,
+    split_col,
+    accelerator,
+    batch_key,
+    prior_std,
+    patience,
+    remove_result_cell_types,
+    output_path,
+    save_results,
+):
     random.seed(seed)
     np.random.seed(seed)
 
     data = pd.read_csv(dataset_path)
 
     target_col = granularity_level
-    if target_col == 'level3':
-        target_col = 'cell_type'
-    elif target_col == 'level2':
-        target_col = 'level_2_cell_type'
-    elif target_col == 'level1':
-        target_col = 'level_1_cell_type'
-    print(f'selected granularity level {target_col}')
-    #Remove columns if specified
+    if target_col == "level3":
+        target_col = "cell_type"
+    elif target_col == "level2":
+        target_col = "level_2_cell_type"
+    elif target_col == "level1":
+        target_col = "level_1_cell_type"
+    print(f"selected granularity level {target_col}")
+    # Remove columns if specified
     if remove_columns is not None:
-        remove_columns = [col.strip() for col in remove_columns.split(',')]
+        remove_columns = [col.strip() for col in remove_columns.split(",")]
         data = data.drop(columns=remove_columns)
 
-    #Remove cell types if specified
+    # Remove cell types if specified
     if remove_cell_types is not None:
-        remove_cell_types = [cell_type.strip() for cell_type in remove_cell_types.split(',')]
+        remove_cell_types = [
+            cell_type.strip() for cell_type in remove_cell_types.split(",")
+        ]
         data = data[~data[target_col].isin(remove_cell_types)]
     print("preparing andata object")
-    X_cols = data.columns[:data.columns.get_loc(split_col)]
-    obs_cols = data.columns[data.columns.get_loc(split_col):]
-    table = pd.read_csv(decision_matrix_path,index_col=0)
+    X_cols = data.columns[: data.columns.get_loc(split_col)]
+    obs_cols = data.columns[data.columns.get_loc(split_col) :]
+    table = pd.read_csv(decision_matrix_path, index_col=0)
 
-    print(f'Starting SCyan with {n_runs} runs')
+    print(f"Starting SCyan with {n_runs} runs")
+    train_times = []
+    inference_times = []
     for n in range(n_runs):
+        start_train = time.time()
         adata = ad.AnnData(
-        X=data[X_cols],
-        obs=data[obs_cols],
-        var=pd.DataFrame(index=X_cols)
+            X=data[X_cols], obs=data[obs_cols], var=pd.DataFrame(index=X_cols)
         )
         if preprocess:
             scyan.preprocess.scale(adata)
@@ -50,41 +76,66 @@ def run_scyan(dataset_path, seed, n_runs, granularity_level, remove_columns, rem
         else:
             model = scyan.Scyan(adata, table, prior_std=prior_std)
         model.fit(patience=patience, accelerator=accelerator)
+        end_train = time.time()
+        start_inference = time.time()
         model.predict()
+        end_inference = time.time()
+        elapsed_train = end_train - start_train
+        elapsed_inference = end_inference - start_inference
+        train_times.append(elapsed_train)
+        inference_times.append(elapsed_inference)
 
-        adata.obs['scyan_pop'] = adata.obs['scyan_pop'].astype(str)
-        adata.obs['scyan_pop'] = adata.obs['scyan_pop'].fillna('undefined')
-        adata.obs['scyan_pop'] = adata.obs['scyan_pop'].replace('nan','undefined')
+        adata.obs["scyan_pop"] = adata.obs["scyan_pop"].astype(str)
+        adata.obs["scyan_pop"] = adata.obs["scyan_pop"].fillna("undefined")
+        adata.obs["scyan_pop"] = adata.obs["scyan_pop"].replace("nan", "undefined")
         adata.obs[target_col] = adata.obs[target_col].astype(str)
 
         if remove_result_cell_types is not None:
-            remove_result_cell_types = [cell_type.strip() for cell_type in remove_result_cell_types.split(',')]
+            remove_result_cell_types = [
+                cell_type.strip() for cell_type in remove_result_cell_types.split(",")
+            ]
             adata = adata[~adata.obs[target_col].isin(remove_result_cell_types)]
-            adata = adata[~adata.obs['scyan_pop'].isin(remove_result_cell_types)]
-        
+            adata = adata[~adata.obs["scyan_pop"].isin(remove_result_cell_types)]
+
         df = adata.to_df()
         df = df.join(adata.obs)
 
-
         if save_results:
-            cr = classification_report(df[target_col].astype(str), df['scyan_pop'].astype(str))
-            with open(os.path.join(output_path, f'classification_report_{n}.csv'), 'w') as f:
+            cr = classification_report(
+                df[target_col].astype(str), df["scyan_pop"].astype(str)
+            )
+            with open(
+                os.path.join(output_path, f"classification_report_{n}.csv"), "w"
+            ) as f:
                 f.write(cr)
 
-            cm = confusion_matrix(df[target_col].astype(str), df['scyan_pop'].astype(str), normalize='true')
+            cm = confusion_matrix(
+                df[target_col].astype(str),
+                df["scyan_pop"].astype(str),
+                normalize="true",
+            )
             class_labels = sorted(adata.obs[target_col].unique())
-            disp = ConfusionMatrixDisplay(confusion_matrix=cm, display_labels=class_labels)
+            disp = ConfusionMatrixDisplay(
+                confusion_matrix=cm, display_labels=class_labels
+            )
             fig, ax = plt.subplots(figsize=(12, 12))
-            disp.plot(cmap='Blues', xticks_rotation='vertical', ax=ax)
+            disp.plot(cmap="Blues", xticks_rotation="vertical", ax=ax)
             plt.tight_layout()
-            plt.savefig(os.path.join(output_path, f'confusion_matrix_{n}.png'))
+            plt.savefig(os.path.join(output_path, f"confusion_matrix_{n}.png"))
             plt.close(fig)
 
+        df.rename(
+            columns={"scyan_pop": "predicted_phenotype", target_col: "true_phenotype"},
+            inplace=True,
+        )
 
-        df.rename(columns={'scyan_pop': 'predicted_phenotype', target_col: 'true_phenotype'}, inplace=True)
-
-        df.to_csv(os.path.join(output_path,f'predictions_{n}.csv'), index=False)
-
+        df.to_csv(os.path.join(output_path, f"predictions_{n}.csv"), index=False)
+        with open(os.path.join(output_path, "fold_times.txt"), "w") as f:
+            for i, (elapsed_train, elapsed_pred) in enumerate(
+                zip(train_times, inference_times)
+            ):
+                f.write(f"Fold {i+1} training_time: {elapsed_train:.2f}\n")
+                f.write(f"Fold {i+1} prediction_time: {elapsed_pred:.2f}\n")
 
 
 def main():
@@ -149,10 +200,7 @@ def main():
         help="Accelerator to use for training. Default is 'cpu'",
     )
     parser.add_argument(
-        "--batch_key",
-        type=str,
-        help="Column name for batch key",
-        default=None
+        "--batch_key", type=str, help="Column name for batch key", default=None
     )
     parser.add_argument(
         "--prior_std",
@@ -173,16 +221,13 @@ def main():
         default=None,
     )
     parser.add_argument(
-        "--output_path",
-        type=str,
-        help="Path to save the predictions CSV file"
+        "--output_path", type=str, help="Path to save the predictions CSV file"
     )
     parser.add_argument(
         "--save_results",
         action="store_true",
         help="Whether to save the result plots. Default is False",
     )
-    
 
     args = parser.parse_args()
 
@@ -204,6 +249,7 @@ def main():
         output_path=args.output_path,
         save_results=args.save_results,
     )
+
 
 if __name__ == "__main__":
     main()

@@ -40,6 +40,7 @@ def run_tribus(dataset_path, seed, n_runs, seed_stability_mode, granularity_leve
         normalization = z_score
     else:
         normalization = None
+        fold_times = []
     for i in range(n_runs):
         start_time_loop = time.perf_counter()
         if seed_stability_mode:
@@ -50,6 +51,7 @@ def run_tribus(dataset_path, seed, n_runs, seed_stability_mode, granularity_leve
                                     clustering_threshold=clustering_threshold, undefined_threshold=undefined_threshold, other_threshold=other_threshold, random_state=current_seed)
         end_time_loop = time.perf_counter()
         elapsed_time_loop = end_time_loop - start_time_loop
+        fold_times.append(elapsed_time_loop)
         result_data = sample_data.join(labels)
         if remove_result_cell_types is not None:
             remove_result_cell_types = [cell_type.strip() for cell_type in remove_result_cell_types.split(',')]
@@ -61,6 +63,9 @@ def run_tribus(dataset_path, seed, n_runs, seed_stability_mode, granularity_leve
         report_with_time = f"{cr}\nLoop iteration {i} processing time: {elapsed_time_loop:.4f} seconds\n"
         with open(os.path.join(output_path, f'classification_report_{i}.csv'), 'w') as f:
                 f.write(report_with_time)
+    with open(os.path.join(output_path, "fold_times.txt"), "w") as f:
+        for i, elapsed in enumerate(fold_times):
+            f.write(f"Fold {i+1} inference_time: {elapsed:.2f}\n")
 
 def main():
     parser = argparse.ArgumentParser(description="Run Tribus on datasets")

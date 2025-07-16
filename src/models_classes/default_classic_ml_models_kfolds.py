@@ -229,6 +229,7 @@ class ClassicMLDefault:
             # We need to adjust to xgboost case where we dont have the same labels in training than testing:
             y_train_to_fit = y_train
             y_val_to_fit = y_val
+            X_val_for_eval = X_val
             reverse_label_map = None
 
             if self.model_name == "xgboost":
@@ -246,7 +247,21 @@ class ClassicMLDefault:
                     }
                     reverse_label_map = {label: i for i, label in label_map.items()}
                     y_train_to_fit = np.array([label_map[label] for label in y_train])
-                    y_val_to_fit = np.array([label_map[label] for label in y_val])
+
+                    # In case the vlidation set has labels that are not in the training set, we need to filter these
+                    train_labels_set = set(unique_train_labels)
+                    val_labels_set = set(np.unique(y_val))
+                    unseen_labels = val_labels_set - train_labels_set
+                    if unseen_labels:
+                        print(
+                            f"Fold {c+1}: Validation set contains unseen labels: {unseen_labels}. Filtering them out."
+                        )
+                        known_Labels_mask = np.isin(y_val, list(train_labels_set))
+                        X_val_for_eval = X_val[known_Labels_mask]
+                        y_val_filtered = y_val[known_Labels_mask]
+                    else:
+                        y_val_filtered = y_val
+                    y_val_to_fit = np.array([label_map[label] for label in y_val_filtered])
 
             print(f"Fold {c+1} integrated successfully")
 
@@ -259,7 +274,7 @@ class ClassicMLDefault:
                     self.model.fit(
                         X_train,
                         y_train_to_fit,
-                        eval_set=[(X_val, y_val_to_fit)],
+                        eval_set=[(X_val_for_eval, y_val_to_fit)],
                         verbose=verbose,
                         sample_weight=sample_weights,
                     )
@@ -267,7 +282,7 @@ class ClassicMLDefault:
                     self.model.fit(
                         X_train,
                         y_train_to_fit,
-                        eval_set=[(X_val, y_val_to_fit)],
+                        eval_set=[(X_val_for_eval, y_val_to_fit)],
                         verbose=verbose,
                     )
             else:
