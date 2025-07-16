@@ -5,9 +5,17 @@ import os
 import tifffile as tiff
 import time
 import argparse
+import random
+import torch
 
+def set_seed(seed: int):
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed) 
 
-def run_ceepcelltypes(
+def run_deepcelltypes(
     image_seg_pairs,
     marker_path,
     quant_path,
@@ -17,6 +25,7 @@ def run_ceepcelltypes(
     device,
     num_data_loader_threads,
     n_runs,
+    seed
 ):
 
     try:
@@ -34,6 +43,7 @@ def run_ceepcelltypes(
     inference_times = []
 
     for n in range(n_runs):
+        set_seed(seed + n)  
         quant = master_quant.copy()
         start = time.time()
         prediction_results_list = []
@@ -187,6 +197,12 @@ def main():
         default=1,
         help="Number of runs for the model (default: 1)",
     )
+    parser.add_argument(
+        "--seed",
+        type=int,
+        default=42,
+        help="Random seed for reproducibility (default: 42)",
+    )
     args = parser.parse_args()
 
     image_seg_pairs = []
@@ -212,7 +228,7 @@ def main():
         except Exception as e:
             parser.error(f"Error reading CSV file: {e}")
 
-    run_ceepcelltypes(
+    run_deepcelltypes(
         image_seg_pairs=image_seg_pairs,
         marker_path=args.marker_path,
         quant_path=args.quant_path,
@@ -222,6 +238,7 @@ def main():
         device=args.device,
         num_data_loader_threads=args.num_data_loader_threads,
         n_runs=args.n_runs,
+        seed=args.seed
     )
 
 
