@@ -1,36 +1,28 @@
 cell_types:
   Cancer:
-    - Ecad
-  Stroma:
-    - SMA
+    - CD30
   CD4+_T_cell:
     - CD4
     - CD3
   CD8+_T_cell:
-    - CD8a
+    - CD8
     - CD3
   Treg:
     - FOXP3
     - CD4
     - CD3
   NK_cell:
-    - CD7
-  Plasma_cell:
-    - CD38
+    - CD56
   B_cell:
     - CD20
   Neutrophil:
     - CD15
-    - MPO
   M2_Macrophage:
     - CD163
-    - CD206
   Dendritic_cell:
     - CD11c
     - HLADR
-  Plasmacytoid_dendritic_cell:
-    - CD303
-  BnT:
-    - CD3
-    - CD20
-    - CD4
+  M1_Macrophage:
+    - CD68
+  Endothelial:
+    - CD153 (CD30L)
