@@ -1,4 +1,5 @@
 import os
+import numpy as np
 import sys
 from astir.data import from_csv_yaml
 import argparse
@@ -9,6 +10,9 @@ import time
 def run_astir(
     quant_path,
     decision_matrix_path,
+    separate_col,
+    scaling,
+    log1p,
     max_epochs,
     n_init,
     n_init_epochs,
@@ -20,6 +24,13 @@ def run_astir(
     output_path
 ):
     df = pd.read_csv(quant_path)
+    if scaling is not None:
+        if separate_col is None:
+            raise ValueError("`separate_col` must be specified when `scaling` is used.")
+        marker_cols = df.loc[:, :separate_col].columns
+        df[marker_cols] = df[marker_cols] * scaling
+    if log1p:
+        df[marker_cols] = np.log1p(df[marker_cols])
     df.to_csv(os.path.join(output_path, "quantification_astir.csv"), index=True)
 
     inference_times = []
@@ -47,6 +58,9 @@ def main():
     parser = argparse.ArgumentParser(description="Run ASTIR with specified parameters.")
     parser.add_argument('--quant_path', type=str, required=True, help='Path to the quantification tableCSV file.')
     parser.add_argument('--decision_matrix_path', type=str, required=True, help='Path to the decision matrix YAML file.')
+    parser.add_argument('--separate_col', type=str, default=None, help='Column name to separate marker columns from other features, is required if scaling is not None.')
+    parser.add_argument('--scaling', type=float, default=None, help='Scaling factor for markers, separate_col must be specified if scaling is not None.')
+    parser.add_argument('--log1p', action='store_true', help='Apply log1p transformation to the marker columns. Separate_col must be specified for this.')
     parser.add_argument('--device', type=str, default='cuda', help='Device to run ASTIR on (default: cuda).')
     parser.add_argument('--max_epochs', type=int, default=50, help='Maximum number of epochs for training (default: 50).')
     parser.add_argument('--n_init', type=int, default=5, help='Number of initializations for training (default: 5).')
@@ -63,6 +77,9 @@ def main():
     run_astir(
         quant_path=args.quant_path,
         decision_matrix_path=args.decision_matrix_path,
+        separate_col=args.separate_col,
+        scaling=args.scaling,
+        log1p=args.log1p,
         max_epochs=args.max_epochs,
         n_init=args.n_init,
         n_init_epochs=args.n_init_epochs,

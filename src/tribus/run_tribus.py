@@ -1,4 +1,5 @@
 import pandas as pd
+import numpy as np
 from sklearn.metrics import classification_report
 import os
 import tribus
@@ -7,7 +8,7 @@ import argparse
 import time
 
 
-def run_tribus(dataset_path, seed, n_runs, seed_stability_mode, granularity_level, columns_to_use, remove_cell_types, decision_matrix_path, normalization, tuning, sigma, learning_rate,
+def run_tribus(dataset_path, seed, n_runs, seed_stability_mode, granularity_level, columns_to_use, remove_cell_types,scaling,log1p, decision_matrix_path, normalization, tuning, sigma, learning_rate,
                clustering_threshold, undefined_threshold, other_threshold, depth, remove_result_cell_types, output_path):
     
     sample_data = pd.read_csv(dataset_path)
@@ -29,6 +30,10 @@ def run_tribus(dataset_path, seed, n_runs, seed_stability_mode, granularity_leve
     cols = list(columns_to_use)
     Q = sample_data[cols].quantile(0.999)
     sample_data = sample_data[~((sample_data[cols] > Q)).any(axis=1)]
+    if scaling is not None:
+        sample_data[cols] = sample_data[cols] * scaling
+    if log1p:
+        sample_data[cols] = np.log1p(sample_data[cols])
 
     if remove_cell_types is not None:
         remove_cell_types = [cell_type.strip() for cell_type in remove_cell_types.split(',')]
@@ -40,7 +45,7 @@ def run_tribus(dataset_path, seed, n_runs, seed_stability_mode, granularity_leve
         normalization = z_score
     else:
         normalization = None
-        fold_times = []
+    fold_times = []
     for i in range(n_runs):
         start_time_loop = time.perf_counter()
         if seed_stability_mode:
@@ -77,6 +82,8 @@ def main():
     parser.add_argument("--columns_to_use", type=str, default='gene1,gene2,gene3', help="Columns to use for tribus celltyping. Comma separated")
     parser.add_argument("--remove_cell_types", type=str, default=None, help="Cell types to remove from the dataset before running tribus, Comma separated")
     parser.add_argument("--decision_matrix_path", type=str, required=True, help="Path to the decision matrix")
+    parser.add_argument("--scaling", type=int, default=None, help="Scaling factor for the data")
+    parser.add_argument("--log1p", action='store_true', help="Apply log1p transformation to the data")
     parser.add_argument("--normalization", type=str, default=None, choices=['z_score'], help="Normalization method")
     parser.add_argument("--tuning", type=str, default=None, help='If hyperparameter tuning is needed, set to 1 default is 0')
     parser.add_argument("--sigma", type=float, default=1.0, help="Sigma. If tuning is performed, this value will be estimated automatically")
@@ -89,7 +96,28 @@ def main():
     parser.add_argument("--output_path", type=str, required=True, help="Path to save the results")
     args = parser.parse_args()
 
-    run_tribus(args.dataset_path, args.seed, args.n_runs, args.seed_stability_mode, args.granularity_level, args.columns_to_use, args.remove_cell_types, args.decision_matrix_path, args.normalization,
-                args.tuning, args.sigma, args.learning_rate, args.clustering_threshold, args.undefined_threshold, args.other_threshold, args.depth, args.remove_result_cell_types, args.output_path)
+    run_tribus(
+        dataset_path=args.dataset_path,
+        seed=args.seed,
+        n_runs=args.n_runs,
+        seed_stability_mode=args.seed_stability_mode,
+        granularity_level=args.granularity_level,
+        columns_to_use=args.columns_to_use,
+        remove_cell_types=args.remove_cell_types,
+        scaling=args.scaling,
+        log1p=args.log1p,
+        decision_matrix_path=args.decision_matrix_path,
+        normalization=args.normalization,
+        tuning=args.tuning,
+        sigma=args.sigma,
+        learning_rate=args.learning_rate,
+        clustering_threshold=args.clustering_threshold,
+        undefined_threshold=args.undefined_threshold,
+        other_threshold=args.other_threshold,
+        depth=args.depth,
+        remove_result_cell_types=args.remove_result_cell_types,
+        output_path=args.output_path
+    )
+
 if __name__ == "__main__":
     main()

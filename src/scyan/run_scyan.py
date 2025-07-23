@@ -23,8 +23,10 @@ def run_scyan(
     remove_cell_types,
     preprocess,
     decision_matrix_path,
-    split_col,
     accelerator,
+    split_col,
+    scaling,
+    log1p,
     batch_key,
     prior_std,
     patience,
@@ -32,6 +34,7 @@ def run_scyan(
     output_path,
     save_results,
 ):
+
     random.seed(seed)
     np.random.seed(seed)
 
@@ -61,6 +64,10 @@ def run_scyan(
     obs_cols = data.columns[data.columns.get_loc(split_col) :]
     table = pd.read_csv(decision_matrix_path, index_col=0)
 
+    if scaling is not None:
+        data[X_cols] = data[X_cols] * scaling
+    if log1p:
+        data[X_cols] = np.log1p(data[X_cols])
     print(f"Starting SCyan with {n_runs} runs")
     train_times = []
     inference_times = []
@@ -193,6 +200,17 @@ def main():
         help="Column name for splitting the dataset when creating the anndata object. It should be the column separating markers and other features",
     )
     parser.add_argument(
+        "--scaling",
+        type=float,
+        default=None,
+        help="Scaling factor for the dataset",
+    )
+    parser.add_argument(
+        "--log1p",
+        action="store_true",
+        help="Whether to apply log1p transformation to the dataset. Default is False",
+    )
+    parser.add_argument(
         "--accelerator",
         type=str,
         default="cpu",
@@ -242,6 +260,8 @@ def main():
         decision_matrix_path=args.decision_matrix_path,
         accelerator=args.accelerator,
         split_col=args.split_col,
+        scaling=args.scaling,
+        log1p=args.log1p,
         batch_key=args.batch_key,
         prior_std=args.prior_std,
         patience=args.patience,
