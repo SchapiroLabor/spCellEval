@@ -1,0 +1,15 @@
+,,Ecad,SMA,PDGFRb,CD3,CD4,CD8a,FOXP3,CD7,CD38,CD20,CD15,MPO,CD163,CD68,CD206,CD11c,HLADR,CD303
+all,Cancer,pos,,,,,,,,,,,,,,,,,
+all,Stroma,,pos,,,,,,,,,,,,,,,,
+all,T_cells,,,,pos,,,,,,,,,,,,,,
+T_cells,CD4+_T_cell,,,,,pos,neg,,,,,,,,,,,,
+T_cells,CD8+_T_cell,,,,,neg,pos,,,,,,,,,,,,
+CD4+_T_cell,Treg,,,,,,,pos,,,,,,,,,,,
+all,NK_cell,,,,,,,,pos,,,,,,,,,,
+all,Plasma_cell,,,,,,,,,pos,,,,neg,,,,,neg
+all,B_cell,,,,,,,,,,pos,,,,,,,,
+all,Neutrophil,,,,,,,,,,,allpos,allpos,,,,,,
+all,M2_Macrophage,,,,,,,,,,,,,pos,,,,,
+all,Dendritic_cell,,,,,,,,,,,,,neg,,,allpos,allpos,
+all,Plasmacytoid_dendritic_cell,,,,,,,,,,,,,,,,,,allpos
+all,BnT,,,,allpos,,,,,,allpos,,,,,,,,

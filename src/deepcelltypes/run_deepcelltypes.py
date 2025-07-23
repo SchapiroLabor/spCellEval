@@ -7,6 +7,7 @@ import time
 import argparse
 import random
 import torch
+import json
 
 def set_seed(seed: int):
     random.seed(seed)
@@ -19,6 +20,7 @@ def run_deepcelltypes(
     image_seg_pairs,
     marker_path,
     quant_path,
+    rename_rules,
     mpp,
     model_name,
     output_dir,
@@ -38,6 +40,11 @@ def run_deepcelltypes(
     master_quant = pd.read_csv(quant_path)
     master_quant["sample_id"] = master_quant["sample_id"].astype(str)
     master_quant["cell_id"] = master_quant["cell_id"].astype(int)
+
+    if rename_rules:
+        with open(rename_rules, 'r') as f:
+            rename_dict = json.load(f)
+            master_quant["sample_id"] = master_quant["sample_id"].replace(rename_dict)
 
     reformatting_logged = False
     inference_times = []
@@ -150,7 +157,7 @@ def main():
     group.add_argument(
         "--data_paths",
         type=str,
-        help='Path to a CSV file with "image_path" and "seg_path" columns listing all pairs of images and masks.',
+        help='Path to a CSV file with "image_path" and "mask_path" columns listing all pairs of images and masks.',
     )
     parser.add_argument(
         "--marker_path", type=str, required=True, help="Path to the marker txt file"
@@ -160,6 +167,12 @@ def main():
         type=str,
         required=True,
         help="Path to the output quantification CSV file. IMPORTANT: A image_id column needs to be present that contains the image file basenames for mapping predictions",
+    )
+    parser.add_argument(
+        '--rename_rules',
+        type=str,
+        default=None,
+        help='Optional: Path to a JSON file with a dictionary to rename instances in the sample_id column of the quantification table. The keys should be the old names and the values the new names.',
     )
     parser.add_argument(
         "--mpp",
@@ -220,11 +233,11 @@ def main():
     elif args.data_paths:
         try:
             df = pd.read_csv(args.data_paths)
-            if "image_path" not in df.columns or "seg_path" not in df.columns:
+            if "image_path" not in df.columns or "mask_path" not in df.columns:
                 parser.error(
-                    "CSV file must contain 'image_path' and 'seg_path' columns."
+                    "CSV file must contain 'image_path' and 'mask_path' columns."
                 )
-            image_seg_pairs = list(zip(df["image_path"], df["seg_path"]))
+            image_seg_pairs = list(zip(df["image_path"], df["mask_path"]))
         except Exception as e:
             parser.error(f"Error reading CSV file: {e}")
 
@@ -232,6 +245,7 @@ def main():
         image_seg_pairs=image_seg_pairs,
         marker_path=args.marker_path,
         quant_path=args.quant_path,
+        rename_rules=args.rename_rules,
         mpp=args.mpp,
         model_name=args.model_name,
         output_dir=args.output_dir,

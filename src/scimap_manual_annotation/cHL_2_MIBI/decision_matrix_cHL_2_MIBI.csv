@@ -1,0 +1,13 @@
+,,CD30,CD153 (CD30L),CD3,CD4,CD8,FoxP3,CD20,CD56,CD11c,HLA-DR,CD68,CD163,CD15
+all,Cancer,pos,allneg,,,,,,,,,,,
+all,Endothelial,allneg,pos,,,,,,,,,,,
+all,T_cell,neg,,pos,,,,neg,,,,,,
+T_cell,CD4+_T_cell,,,,pos,neg,,,,,,,,
+T_cell,CD8+_T_cell,,,,neg,pos,,,,,,,,
+CD4+_T_cell,Treg,,,,,,pos,,,,,,,
+all,B_cell,,,neg,,,,pos,,,,,,
+all,NK_cell,,,,,,,,pos,,,,,
+all,Dendritic_cell,allneg,,,,,,,allneg,allpos,allpos,,,
+all,M1_Macrophage,allneg,,,,,,,,,,pos,allneg,
+all,M2_Macrophage,allneg,,,,,,,,,,,pos,
+all,Neutrophil,allneg,,,,,,,,,,,,pos

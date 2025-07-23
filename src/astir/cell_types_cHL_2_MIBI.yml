@@ -8,7 +8,7 @@ cell_types:
     - CD8
     - CD3
   Treg:
-    - FOXP3
+    - FoxP3
     - CD4
     - CD3
   NK_cell:
@@ -21,7 +21,7 @@ cell_types:
     - CD163
   Dendritic_cell:
     - CD11c
-    - HLADR
+    - HLA-DR
   M1_Macrophage:
     - CD68
   Endothelial:
