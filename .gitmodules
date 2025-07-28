@@ -1,3 +1,6 @@
 [submodule "src/multiplex-image-annotator"]
 	path = src/multiplex-image-annotator
 	url = https://github.com/SchapiroLabor/multiplexed-image-annotator.git
+[submodule "src/CellSighter"]
+	path = src/CellSighter
+	url = https://github.com/SchapiroLabor/CellSighter.git
