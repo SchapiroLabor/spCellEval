@@ -2,5 +2,5 @@
 	path = src/multiplex-image-annotator
 	url = https://github.com/SchapiroLabor/multiplexed-image-annotator.git
 [submodule "CellSighter_benchmark"]
-	path = CellSighter_benchmark
+	path = src/CellSighter_benchmark
 	url = https://github.com/LukasHats/CellSighter_benchmark.git
