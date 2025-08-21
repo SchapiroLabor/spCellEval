@@ -1,0 +1,156 @@
+Immune
+  Myeloid_immune
+    Macrophage
+    Neutrophil
+    Dendritic_cell
+    Monocyte
+    M1_Macrophage
+    Mast_cell
+    M2_Macrophage
+    Mature Myeloid
+    Non-classical_Monocyte
+    Plasmacytoid_dendritic_cell
+    Myeloid
+    M2a_Macrophage
+    M1a_Macrophage
+    M1b_Macrophage
+    M2c_Macrophage
+    M2b_Macrophage
+    Placental_Mac
+  Lymphoid_immune
+    Plasma_cell
+    CD8+_T_cell
+    CD4+_T_cell
+    B_cell
+    NK_cell
+    Treg
+    Cytotoxic_CD8+_T_cell
+    B_cells
+    Immature_B_cell
+    CD4_Treg
+    CD8_Treg
+    ki67_CD4
+    ki67_CD8
+    CD8_CXCL13
+    CD4_CXCL13
+    IDO_CD4
+    IDO_CD8
+    T_cell
+    Cytotoxic_CD4+_T_cell
+    BnT
+    NK1
+    NK_T_cell
+    NK2
+    NK3
+    NK4
+Stromal
+  Adipocyte
+    Adipocyte
+  Vascular
+    Endothelial
+    Lymphatic
+    SEC
+    AEC
+    VSMC
+    Blood
+    HEV
+  Bone
+    Osteoblast
+    Osteocyte
+    Osteoclast
+  Vimentin high
+    Vimentin high
+  Fibroblast
+    SMA+_Fibroblast
+    CD10_CAF
+    FN_Cdh11_mCAF
+    Fibroblast
+    vCAF
+    CXCL13_CAF
+    CD73_CAF
+    CCL21_CAF
+    IDO_CAF
+    CD34_CAF
+    CA9_CD10_CAF
+  Stroma
+    Stroma
+  Myofibroblasts
+    Myofibroblasts
+  muscle
+    muscle
+  Glandular
+    Glandular
+undefined
+  undefined
+    undefined
+  CD44+ Undetermined
+    CD44+ Undetermined
+  CD34+ CD61+
+    CD34+ CD61+
+HSCs
+  HSCs
+    HSCs
+Seg Artifact
+  Seg Artifact
+    Seg Artifact
+Cancer
+  Cancer
+    Cancer
+  hypoxic Cancer
+    hypoxic Cancer
+Epithelial
+  Epithelial
+    Epithelial
+unedfined
+  unedfined
+    unedfined
+Artifact
+  Artifact
+    Artifact
+Progenitor
+  Myeloid_progenitor
+    Early Myeloid Progenitor
+    Intermediate Myeloid
+    GMP/Myeloblast
+    GMP
+  Erythroid_mk_progenitor
+    Erythroid
+    Erythroblast
+    MEP/Early Erythroblast
+  SPINK2+ HSPC
+    SPINK2+ HSPC
+  HSPC
+    HSPC
+  Mesenchymal_stem
+    Adipo-MSC
+    THY1+ MSC
+  HSC
+    HSC
+  Lymphoid_progenitor
+    CLP
+Endosteal
+  Endosteal
+    Endosteal
+Autofluorescent
+  Autofluorescent
+    Autofluorescent
+Megakaryocytes
+  GATA1neg_Mks
+    GATA1neg_Mks
+  GATA1pos_Mks
+    GATA1pos_Mks
+Neuronal
+  Schwann Cells
+    Schwann Cells
+hypoxia
+  hypoxia
+    hypoxia
+HLADR
+  HLADR
+    HLADR
+Trophoblast
+  Trophoblast
+    EVT1a
+    EVT1b
+    EVT2
+    EVT1c
