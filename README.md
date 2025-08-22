@@ -2,10 +2,10 @@
 
 We present, "spCellEval Benchmark", a quantitative comparison of automated/semi-automated cell phenotyping methods for Spatial Proteomics datasets on a diverse set of 9 curated public datasets. The methods are compared with a list of label transfer metrics divided into 4 categories; classification performance, distribution recovery, stability and scalability. We hope this benchmark acts as a foundation to evaluate and improve automated cell phenotyping. 
 
-![Alt text](img/benchmark_overview.png?raw=true "Title")
+![Alt text](img/fig_1.png "Title")
 
 ## Current Results Overview: 
-![Alt text](img/results_overview.png?raw=true "Title")
+![Alt text](img/fig_2.png "Title")
 
 ## Getting Started
 
