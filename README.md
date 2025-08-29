@@ -31,7 +31,6 @@ results/
 ```
 
 ## TODO:
-- [x] Add overview (and results) figure
-- [ ] remove .DS files
-- [x] expand text
+- [ ] Clean repo
+
 
