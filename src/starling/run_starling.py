@@ -175,7 +175,7 @@ def main():
         default=0.001,
     )
     parser.add_argument(
-        "n_runs",
+        "--n_runs",
         type=int,
         help="Number of runs performed by starling",
         default=1,
