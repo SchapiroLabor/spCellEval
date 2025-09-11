@@ -51,10 +51,10 @@ def run_starling(
             adata=adata,
             dist_option=dist_option,
             singlet_prop=singlet_prop,
-            model_cell_size=model_cell_size,
+            model_cell_size=(model_cell_size == "Y"),
             cell_size_col_name=cell_size_col_name,
             model_regularizer=model_regularizer,
-            lr=lr,
+            learning_rate=lr,
         )
         log_tb = pl.loggers.TensorBoardLogger(save_dir="log")
         cb_early_stopping = pl.callbacks.EarlyStopping(
