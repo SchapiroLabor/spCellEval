@@ -8,6 +8,8 @@ import pytorch_lightning as pl
 import argparse
 import time
 import os
+from clustering_methods.greedy_f1_utils import calculate_greedy_f1
+
 
 
 def run_starling(
@@ -77,9 +79,11 @@ def run_starling(
 
         df_result = pd.concat([obs, intensities], axis=1)
         df_result.rename(
-            columns={"st_label": "predicted_phenotype", "cell_type": "true_phenotype"},
+            columns={"cell_type": "true_phenotype"},
             inplace=True,
         )
+        greedy_output = calculate_greedy_f1(df_result, "true_phenotype", "st_label", tie_strategy="random")
+        df_result['predicted_phenotype'] = greedy_output['mapped_predictions']
 
         # Save the results
         df_result.to_csv(
