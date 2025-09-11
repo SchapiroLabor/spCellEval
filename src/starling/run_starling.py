@@ -1,3 +1,8 @@
+import sys
+import os
+current_script_dir = os.path.dirname(os.path.abspath(__file__))
+project_root = os.path.dirname(current_script_dir)
+sys.path.insert(0, project_root)
 import anndata as ad
 import pandas as pd
 import torch
@@ -7,8 +12,7 @@ from lightning_lite import seed_everything
 import pytorch_lightning as pl
 import argparse
 import time
-import os
-from clustering_methods.greedy_f1_utils import calculate_greedy_f1
+from clustering_methods.greedy_f1_utils import greedy_f1_score
 
 
 
@@ -47,10 +51,10 @@ def run_starling(
     # inference_times = []
     for n in range(n_runs):
         seed_everything(seed + n)
-        adata = utility.init_clustering(initial_clustering, adata, k=k_cluster)
+        adata_st = utility.init_clustering(initial_clustering, adata, k=k_cluster)
 
         st = starling.ST(
-            adata=adata,
+            adata=adata_st,
             dist_option=dist_option,
             singlet_prop=singlet_prop,
             model_cell_size=(model_cell_size == "Y"),
@@ -82,13 +86,16 @@ def run_starling(
             columns={"cell_type": "true_phenotype"},
             inplace=True,
         )
-        greedy_output = calculate_greedy_f1(df_result, "true_phenotype", "st_label", tie_strategy="random")
+        greedy_output = greedy_f1_score(df_result, "true_phenotype", "st_label", tie_strategy="random")
         df_result['predicted_phenotype'] = greedy_output['mapped_predictions']
 
         # Save the results
         df_result.to_csv(
             os.path.join(output_path, f"predictions_fold_{n}.csv"), index=False
         )
+
+        del st, adata_st, df_result, result
+        torch.cuda.empty_cache()
 
     with open(os.path.join(output_path, "fold_times.txt"), "w") as f:
         for i, elapsed_train in enumerate(train_times):
