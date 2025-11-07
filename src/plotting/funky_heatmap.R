@@ -78,7 +78,7 @@ legends <- list(
   )
 )
 
-row_info <- tibble(id = results$id, group = c(rep("Supervised",5), "Unsupervised", "Prior-Knowledge Driven", rep("Unsupervised",3), "Prior-Knowledge Driven",rep("Unsupervised",2),"Prior-Knowledge Driven", "Pre-Trained Models", "Prior-Knowledge Driven", "Pre-Trained Models", "Unsupervised", rep("Pre-Trained Models",2), "Baseline", "Pre-Trained Models","Baseline"))
+row_info <- tibble(id = results$id, group = c(rep("Supervised",5), "Unsupervised", "Prior-Knowledge Driven", rep("Unsupervised",3), "Prior-Knowledge Driven",rep("Unsupervised",2),"Prior-Knowledge Driven","Unsupervised", "Pre-Trained Models", "Prior-Knowledge Driven", "Pre-Trained Models", "Unsupervised", rep("Pre-Trained Models",2), "Baseline", "Pre-Trained Models","Baseline"))
 row_info$group <- factor(row_info$group, levels = c( "Supervised", "Unsupervised", "Prior-Knowledge Driven", "Pre-Trained Models", "Baseline"))
 results <- results[order(row_info$group), ]
 row_info <- row_info[order(row_info$group), ]
