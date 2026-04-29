@@ -6,14 +6,14 @@ library(readr)
 library(RColorBrewer)
 library(ggplot2)
 library(colorspace)
-
-results <- read_delim("final_results_averaged.csv", delim = ";", escape_double = FALSE, trim_ws = TRUE)
+setwd(dirname(normalizePath(sys.frame(1)$ofile)))
+path <- "/Users/lukashat/sds_mount/sds/sd22c003/phenotyping_benchmark/final_results/final_results_averaged.csv"
+results <- read_delim(path, delim = ",", escape_double = FALSE, trim_ws = TRUE)
 #old <- read_csv("Documents/uni/PhD/pheno_benchmark/results/results_lvl3.csv")
 results <- results[ , c("method", "Weighted F1","Hierarchical F1", "Macro F1",  "MCC", "ARI", "JSD Scaled", "Overall Performance" ,"Stability", "Scalability")]
 results$`Overall Performance` <- round(results$`Overall Performance`, 3)
 colnames(results)[colnames(results) == "method"] <- "id"
-results$Scalability[results$id == 'Deepcelltypes_adapted'] <- results$Scalability[results$id == 'Deepcelltypes']
-results$Scalability[results$id == 'RIBCA_adapted'] <- results$Scalability[results$id == 'RIBCA']
+
 
 rcinfo <- tibble(
   id = colnames(results),
@@ -78,11 +78,44 @@ legends <- list(
   )
 )
 
-row_info <- tibble(id = results$id, group = c(rep("Supervised",5), "Unsupervised", "Prior-Knowledge Driven", rep("Unsupervised",3), "Prior-Knowledge Driven",rep("Unsupervised",2),"Prior-Knowledge Driven","Unsupervised", "Pre-Trained Models", "Prior-Knowledge Driven", "Pre-Trained Models", "Unsupervised", rep("Pre-Trained Models",2), "Baseline", "Pre-Trained Models","Baseline"))
-row_info$group <- factor(row_info$group, levels = c( "Supervised", "Unsupervised", "Prior-Knowledge Driven", "Pre-Trained Models", "Baseline"))
+method_groups <- c(
+  "XGBoost"               = "Supervised",
+  "Random Forest"         = "Supervised",
+  "MAPS"                  = "Supervised",
+  "Logistic Regression"   = "Supervised",
+  "CellSighter"           = "Supervised",
+  "Scyan"                 = "Prior-Knowledge Driven",
+  "CellLENS_Lite"         = "Unsupervised",
+  "Leiden"                = "Unsupervised",
+  "Phenograph"            = "Unsupervised",
+  "Tacit"                 = "Prior-Knowledge Driven",
+  "CellLENS_Full"         = "Unsupervised",
+  "FuseSOM"               = "Unsupervised",
+  "Tribus"                = "Prior-Knowledge Driven",
+  "Astir"                 = "Prior-Knowledge Driven",
+  "Nimbus"                = "Pre-Trained Models",
+  "Starling"              = "Unsupervised",
+  "RIBCA_adapted"         = "Pre-Trained Models",
+  "RIBCA"                 = "Pre-Trained Models",
+  "FlowSOM Meta Clusters" = "Unsupervised",
+  "Deepcelltypes_adapted" = "Pre-Trained Models",
+  "Stratified sampler"    = "Baseline",
+  "Deepcelltypes"         = "Pre-Trained Models",
+  "Most Frequent"         = "Baseline"
+)
+
+group_levels <- c(
+  "Supervised", "Unsupervised", "Prior-Knowledge Driven",
+  "Pre-Trained Models", "Baseline"
+)
+
+row_info <- tibble(
+  id    = results$id,
+  group = factor(method_groups[results$id], levels = group_levels)
+)
 results <- results[order(row_info$group), ]
 row_info <- row_info[order(row_info$group), ]
-row_groups <- tibble(level1 = c("Supervised", "Unsupervised", "Prior-Knowledge Driven", "Pre-Trained Models", "Baseline"), group = c("Supervised", "Unsupervised", "Prior-Knowledge Driven", "Pre-Trained Models", "Baseline"))
+row_groups <- tibble(level1 = group_levels, group = group_levels)
 
 
 p = funky_heatmap(results, 
