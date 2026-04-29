@@ -1,19 +1,31 @@
 library(tidyverse)
 library(ggplot2)
-install.packages("Cairo")
-library(Cairo)
+#install.packages("Cairo")
+#library(Cairo)
 
 library(webr)
 
 #dataprep
 datasets <- tibble(
-  platform = c(rep("MIBI", 2), rep("CODEX", 1), rep("IMC", 1), rep("Lunaphore", 1), "CODEX", "MIBI", rep("IMC", 2)),
-  cells = c(1669853, 230895, 145161,100000,100000, 1200000, 500000, 553121, 457117), 
-  tissue = c(rep("Lymph node", 3), "Bone marrow","Heart", "Bone marrow", "Decidua", "Breast",  "Multiple"),
-  stage1 = c("full", "pilot", rep("full", 6), "pilot")
+  platform = c(rep("MIBI", 2), rep("CODEX", 1), rep("IMC", 1), rep("Lunaphore", 1), "CODEX", "MIBI", "IMC","Rarecyte", rep("CODEX", 2), rep("MIBI", 2)),
+  cells = c(1669853, 
+    230895, 
+    145161,
+    76000,
+    563180, 
+    1200000, 
+    500000,  
+    457117,
+    2735711,
+    7610,
+    2505,
+    1794,
+    21204), 
+  tissue = c(rep("Lymph node", 3), "Bone marrow","Heart", "Bone marrow", "Decidua", "Multiple", "Ovary", "Multiple", "Multiple", "Multiple", "Multiple"),
+  stage1 = c("full", "pilot", rep("full", 5), "pilot", rep("full", 5))
 )
-datasets$platform <- factor(datasets$platform, levels = c("MIBI", "IMC","CODEX",  "Lunaphore"))
-datasets$tissue <- factor(datasets$tissue, levels = c("Lymph node", "Bone marrow","Multiple", "Breast",  "Decidua", "Heart"))
+datasets$platform <- factor(datasets$platform, levels = c("MIBI", "IMC","CODEX",  "Lunaphore", "Rarecyte"))
+datasets$tissue <- factor(datasets$tissue, levels = c("Lymph node", "Bone marrow","Multiple",  "Decidua", "Heart", "Ovary"))
 datasets$stage1 <- factor(datasets$stage1, levels = c( "pilot", "full"))
 
 #### barplots ####
