@@ -1,0 +1,367 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>spCellEval Results</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        .solid-bg { background-color: #120822; }
+        .method-cell { position: sticky; left: 0; background-color: #ffffff; z-index: 10; box-shadow: 2px 0 3px rgba(0,0,0,0.05); }
+        .sticky-header { position: sticky; top: 0; z-index: 20; backdrop-filter: blur(8px); background-color: rgba(255,255,255,0.9); }
+        .card-hover { transition: all 0.3s ease; }
+        .card-hover:hover { transform: translateY(-5px); box-shadow: 0 10px 25px -5px rgba(0,0,0,0.15); }
+        .scrollable-table { overflow-x: auto; }
+        @media (max-width: 768px) { .scrollable-table { display: block; } }
+    </style>
+</head>
+<body class="solid-bg font-sans antialiased">
+    <header class="fixed top-0 left-0 right-0 z-50 bg-gray-900/70 backdrop-blur-lg border-b border-gray-700/50">
+        <div class="container mx-auto px-6 py-3 flex justify-between items-center">
+            <a href="index.html" class="flex items-center space-x-3">
+                <img src="./plotly_figures/logo_example.png" alt="Cell Phenotyping Logo" width="56" height="56" class="transition-transform duration-300 hover:scale-110">
+                <span class="text-xl font-bold tracking-tight text-white">spCellEval</span>
+            </a>
+            <nav class="hidden md:flex space-x-10">
+                <a href="index.html#about" class="text-gray-300 hover:text-indigo-400 transition-colors">About</a>
+                <a href="results.html" class="text-indigo-300 font-semibold">Results</a>
+                <a href="methods.html" class="text-gray-300 hover:text-indigo-400 transition-colors">Methods</a>
+                <a href="datasets.html" class="text-gray-300 hover:text-indigo-400 transition-colors">Datasets</a>
+                <a href="index.html#cta" class="text-gray-300 hover:text-indigo-400 transition-colors">Contact</a>
+            </nav>
+        </div>
+    </header>
+
+    <main class="container mx-auto px-4 pt-32 pb-10">
+        <section class="text-center text-white mb-10">
+            <h1 class="text-4xl md:text-5xl font-extrabold tracking-tight">Results</h1>
+            <p class="mt-4 max-w-3xl mx-auto text-gray-300">Full quantitative results: metric matrices, rankings, and per-class F1 heatmaps.</p>
+        </section>
+
+        <!-- Detailed Results 2 (CSV-driven, dataset & level selectable, metrics as columns) -->
+        <section class="mb-8">
+            <div class="bg-white rounded-xl shadow-sm overflow-hidden">
+            <div class="border-b border-gray-100 px-6 py-4 flex flex-col md:flex-row justify-between items-start md:items-center">
+            <div>
+            <h2 class="text-xl font-semibold text-gray-800">Detailed Results</h2>
+            <p class="text-gray-500 text-sm">Scores by method and metric</p>
+            </div>
+            <div class="mt-3 md:mt-0 flex flex-col sm:flex-row space-y-2 sm:space-y-0 sm:space-x-3 w-full sm:w-auto">
+            <div class="relative flex-1 sm:w-64">
+            <button type="button" id="methodGroupFilter2Button" class="w-full bg-gray-50 border border-gray-200 rounded-md py-2 pl-3 pr-8 text-left text-gray-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-sm">
+            <span id="methodGroupFilter2Label">All Methods</span>
+            </button>
+            <div id="methodGroupFilter2Menu" class="absolute left-0 right-0 mt-2 hidden z-30 rounded-md border border-gray-200 bg-white shadow-lg p-3 max-h-72 overflow-y-auto"></div>
+            </div>
+            <div class="relative flex-1 sm:w-32">
+            <select id="datasetFilter2" class="appearance-none w-full bg-gray-50 border border-gray-200 rounded-md py-2 pl-3 pr-8 text-gray-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-sm"></select>
+            <div class="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-gray-700"><i class="fas fa-chevron-down text-xs"></i></div>
+            </div>
+            <div class="relative flex-1 sm:w-32">
+            <select id="levelFilter2" class="appearance-none w-full bg-gray-50 border border-gray-200 rounded-md py-2 pl-3 pr-8 text-gray-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-sm"></select>
+            <div class="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-gray-700"><i class="fas fa-chevron-down text-xs"></i></div>
+            </div>
+            <button id="sortBtn2" class="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-md flex items-center justify-center space-x-2 text-sm"><i class="fas fa-sort-alpha-down"></i><span>Sort by Method</span></button>
+            </div>
+            </div>
+            <div class="p-4">
+            <div class="scrollable-table">
+            <table class="w-full border-collapse">
+            <thead class="sticky-header"><tr>
+            <th class="method-cell py-3 px-4 text-left font-semibold text-gray-700 border-b text-sm">Method</th>
+            <!-- metric headers set by JS -->
+            </tr></thead>
+            <tbody id="resultsTable2"></tbody>
+            </table>
+            </div>
+            </div>
+            </div>
+        </section>
+
+        <!-- F1 score per class -->
+        <section class="mb-8">
+            <div class="bg-white rounded-xl shadow-sm overflow-hidden">
+            <div class="border-b border-gray-100 px-6 py-4 flex flex-col md:flex-row justify-between items-start md:items-center">
+            <div>
+            <h2 class="text-xl font-semibold text-gray-800">F1 score per class</h2>
+            <p class="text-gray-500 text-sm">Per-method F1 by class label. Filter by dataset and sort by method or class.</p>
+            </div>
+            <div class="mt-3 md:mt-0 flex flex-col sm:flex-row space-y-2 sm:space-y-0 sm:space-x-3 w-full sm:w-auto">
+            <div class="relative flex-1 sm:w-72">
+            <button type="button" id="methodGroupFilter3Button" class="w-full bg-gray-50 border border-gray-200 rounded-md py-2 pl-3 pr-8 text-left text-gray-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-sm">
+            <span id="methodGroupFilter3Label">All Methods</span>
+            </button>
+            <div id="methodGroupFilter3Menu" class="absolute left-0 right-0 mt-2 hidden z-30 rounded-md border border-gray-200 bg-white shadow-lg p-3 max-h-72 overflow-y-auto"></div>
+            </div>
+            <div class="relative flex-1 sm:w-48">
+            <select id="datasetFilter3" class="appearance-none w-full bg-gray-50 border border-gray-200 rounded-md py-2 pl-3 pr-8 text-gray-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-sm"></select>
+            <div class="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-gray-700"><i class="fas fa-chevron-down text-xs"></i></div>
+            </div>
+            <div class="flex items-center space-x-2">
+            <label class="text-sm text-gray-600">Show P/R</label>
+            <input type="checkbox" id="showPrecisionRecall" class="h-4 w-4 text-indigo-600 border-gray-300 rounded">
+            </div>
+            <button id="sortBtn3" class="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-md flex items-center justify-center space-x-2 text-sm"><i class="fas fa-sort-alpha-down"></i><span>Sort by Method</span></button>
+            </div>
+            </div>
+            <div class="p-4">
+            <div class="scrollable-table">
+            <table class="w-full border-collapse">
+            <thead class="sticky-header"><tr>
+            <th class="method-cell py-3 px-4 text-left font-semibold text-gray-700 border-b text-sm">Method</th>
+            <!-- class label headers inserted by JS -->
+            </tr></thead>
+            <tbody id="perClassTableBody"></tbody>
+            </table>
+            </div>
+            </div>
+            </div>
+        </section>
+
+        <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+        <script>
+            // Copy of heatmap helpers used on the homepage
+            const heatmapColors = ["#fde4e4","#fafde4","#eff6ff","#e8fcde"];
+            function hexToRgb(hex){hex=hex.replace(/^#/,'');if(hex.length===3){hex=hex.split('').map(x=>x+x).join('');}const num=parseInt(hex,16);return[(num>>16)&255,(num>>8)&255,num&255];}
+            const heatmapColorsRgb = heatmapColors.map(hexToRgb);
+            function interpolateRGB(a,b,f){return[Math.round(a[0]+(b[0]-a[0])*f),Math.round(a[1]+(b[1]-a[1])*f),Math.round(a[2]+(b[2]-a[2])*f)];}
+            function getHeatmapColor(norm){if(norm<=0.33){const f=norm/0.33;const rgb=interpolateRGB(heatmapColorsRgb[0],heatmapColorsRgb[1],f);return `rgb(${rgb[0]},${rgb[1]},${rgb[2]})`;}else if(norm<=0.66){const f=(norm-0.33)/0.33;const rgb=interpolateRGB(heatmapColorsRgb[1],heatmapColorsRgb[2],f);return `rgb(${rgb[0]},${rgb[1]},${rgb[2]})`; }else{const f=(norm-0.66)/0.34;const rgb=interpolateRGB(heatmapColorsRgb[2],heatmapColorsRgb[3],f);return `rgb(${rgb[0]},${rgb[1]},${rgb[2]})`;}}
+
+            const methodGroups = {
+                "Supervised": ["XGBoost", "Logistic Regression", "Random Forest", "MAPS", "CellSighter"],
+                "Unsupervised": [
+                    "Phenograph", "Leiden", "CellLENS_Lite", "CellLENS_Full",
+                    "FuseSOM", "Starling", "FlowSOM Meta Clusters"
+                ],
+                "Prior-Knowledge-driven": ["Scyan", "Tacit", "Tribus", "Astir"],
+                "Pre-trained Models": ["Nimbus", "Deepcelltypes", "Deepcelltypes_adapted", "RIBCA", "RIBCA_adapted"],
+                "Baselines": ["Most Frequent", "Stratified sampler"]
+            };
+            const methodGroupNames = Object.keys(methodGroups);
+            const methodGroupLabels = ["All Methods", ...methodGroupNames];
+            const methodOrderMap = new Map();
+            methodGroupNames.forEach((groupName, groupIndex) => {
+                methodGroups[groupName].forEach((methodName, methodIndex) => {
+                    methodOrderMap.set(methodName, { groupIndex, methodIndex });
+                });
+            });
+
+            const methodGroupSelection = {
+                methodGroupFilter2: new Set(methodGroupNames),
+                methodGroupFilter3: new Set(methodGroupNames)
+            };
+
+            function updateMethodGroupLabel(filterId) {
+                const labelEl = document.getElementById(`${filterId}Label`);
+                const selectedGroups = Array.from(methodGroupSelection[filterId] || []);
+                labelEl.textContent = selectedGroups.length === methodGroupNames.length ? 'All Methods' : `${selectedGroups.length} groups selected`;
+            }
+
+            function closeMethodGroupMenu(filterId) {
+                document.getElementById(`${filterId}Menu`).classList.add('hidden');
+            }
+
+            function renderMethodGroupDropdown(filterId) {
+                const menu = document.getElementById(`${filterId}Menu`);
+                menu.innerHTML = '';
+                const header = document.createElement('div');
+                header.className = 'mb-2 text-xs font-semibold uppercase tracking-wide text-gray-500';
+                header.textContent = 'Method groups';
+                menu.appendChild(header);
+
+                methodGroupNames.forEach((groupName) => {
+                    const label = document.createElement('label');
+                    label.className = 'flex items-center gap-2 rounded-md px-2 py-1.5 hover:bg-gray-100 cursor-pointer';
+
+                    const checkbox = document.createElement('input');
+                    checkbox.type = 'checkbox';
+                    checkbox.value = groupName;
+                    checkbox.checked = methodGroupSelection[filterId].has(groupName);
+                    checkbox.className = 'h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500';
+                    checkbox.addEventListener('change', () => {
+                        if (checkbox.checked) {
+                            methodGroupSelection[filterId].add(groupName);
+                        } else {
+                            methodGroupSelection[filterId].delete(groupName);
+                        }
+                        if (methodGroupSelection[filterId].size === 0) {
+                            methodGroupSelection[filterId] = new Set(methodGroupNames);
+                            menu.querySelectorAll('input[type="checkbox"]').forEach(input => { input.checked = true; });
+                        }
+                        updateMethodGroupLabel(filterId);
+                        if (filterId === 'methodGroupFilter2') {
+                            filterRows2();
+                            populateTable2(filteredRows);
+                        } else {
+                            buildPerClassTable(document.getElementById('datasetFilter3').value);
+                        }
+                    });
+
+                    const text = document.createElement('span');
+                    text.textContent = groupName;
+
+                    label.appendChild(checkbox);
+                    label.appendChild(text);
+                    menu.appendChild(label);
+                });
+
+                updateMethodGroupLabel(filterId);
+            }
+
+            function getVisibleMethodsByGroup(selectId) {
+                const selectedGroups = Array.from(methodGroupSelection[selectId] || []);
+                if (selectedGroups.length === 0) {
+                    return null;
+                }
+                const visibleMethods = new Set();
+                selectedGroups.forEach(groupName => {
+                    (methodGroups[groupName] || []).forEach(methodName => visibleMethods.add(methodName));
+                });
+                return visibleMethods;
+            }
+
+            function getMethodName(item) {
+                return item && (item.Method || item.method || item.method_name || item.name) || '';
+            }
+
+            function compareMethodsByPreferredOrder(a, b) {
+                const methodA = getMethodName(a);
+                const methodB = getMethodName(b);
+                const orderA = methodOrderMap.get(methodA) || { groupIndex: Number.POSITIVE_INFINITY, methodIndex: Number.POSITIVE_INFINITY };
+                const orderB = methodOrderMap.get(methodB) || { groupIndex: Number.POSITIVE_INFINITY, methodIndex: Number.POSITIVE_INFINITY };
+                if (orderA.groupIndex !== orderB.groupIndex) {
+                    return orderA.groupIndex - orderB.groupIndex;
+                }
+                if (orderA.methodIndex !== orderB.methodIndex) {
+                    return orderA.methodIndex - orderB.methodIndex;
+                }
+                return methodA.localeCompare(methodB);
+            }
+
+            // Detailed Results CSV handling (same logic as homepage)
+            const csvPath2 = './plotly_figures/results_table.csv';
+            let allRows = [], filteredRows = [], currentSort2='method', ascending2=true, datasetsSet=new Set(), levelsSet=new Set(), metricNames=[];
+
+            function populateDropdowns2(){const datasetFilter=document.getElementById('datasetFilter2');const levelFilter=document.getElementById('levelFilter2');datasetFilter.innerHTML='';levelFilter.innerHTML='';Array.from(datasetsSet).sort().forEach(ds=>{datasetFilter.innerHTML+=`<option value="${ds}">${ds}</option>`});let levelsArr=Array.from(levelsSet).sort();levelsArr.forEach(lv=>{levelFilter.innerHTML+=`<option value="${lv}"${lv==='3'?' selected':''}>${lv}</option>`});renderMethodGroupDropdown('methodGroupFilter2');}
+
+            function filterRows2(){const datasetVal=document.getElementById('datasetFilter2').value;const levelVal=document.getElementById('levelFilter2').value;const visibleMethods=getVisibleMethodsByGroup('methodGroupFilter2');filteredRows=allRows.filter(row=>row.Dataset===datasetVal && row.Level===levelVal && (!visibleMethods || visibleMethods.has(row.Method)));} 
+
+            function populateTable2(data){const resultsTable=document.getElementById('resultsTable2');resultsTable.innerHTML='';let ranked=[...data];ranked.forEach(row=>{let avg=0,count=0;metricNames.forEach(m=>{const v=parseFloat(row[m]);if(!isNaN(v)){avg+=v;count++;}});row._avg = count?avg/count:0});ranked.sort((a,b)=>parseFloat(b._avg)-parseFloat(a._avg));ranked.forEach((row,idx)=>row._rank=idx+1);
+                if(currentSort2==='method'){ranked.sort(compareMethodsByPreferredOrder);}else if(currentSort2==='avg'){ranked.sort((a,b)=>ascending2?a._avg-b._avg:b._avg-a._avg);}else if(currentSort2.startsWith('metric')){const metricIdx=parseInt(currentSort2.replace('metric',''))-1;const metric=metricNames[metricIdx];ranked.sort((a,b)=>ascending2?parseFloat(a[metric])-parseFloat(b[metric]):parseFloat(b[metric])-parseFloat(a[metric]));}
+                let globalMin=Infinity,globalMax=-Infinity;ranked.forEach(row=>{metricNames.forEach(metric=>{const v=parseFloat(row[metric]);if(!isNaN(v)){if(v<globalMin)globalMin=v;if(v>globalMax)globalMax=v;}})});if(globalMin===globalMax)globalMax=globalMin+1;
+                ranked.forEach(row=>{const tr=document.createElement('tr');tr.className='hover:bg-gray-50 border-b transition-colors';const methodCell=document.createElement('td');methodCell.className='method-cell py-3 px-4 font-medium text-gray-900 text-sm';methodCell.textContent=row.Method;tr.appendChild(methodCell);metricNames.forEach(metric=>{const val=parseFloat(row[metric]);const td=document.createElement('td');td.className='py-3 px-4 text-center text-gray-700 text-sm';td.textContent=isNaN(val)?'':val.toFixed(2);if(!isNaN(val)){let norm=(val-globalMin)/(globalMax-globalMin);norm=Math.max(0,Math.min(1,norm));td.style.background=getHeatmapColor(norm);td.style.color='#222';}tr.appendChild(td);});resultsTable.appendChild(tr);});}
+
+            Papa.parse(csvPath2,{header:true,download:true,complete:function(results){function normalizeRowKeys(row){const keyMap={};Object.keys(row).forEach(k=>{keyMap[k.toLowerCase()]=k});return{Method:row[keyMap['method']],Dataset:row[keyMap['dataset']],Level:row[keyMap['level']],original:row};}
+                const normalizedRows = results.data.map(normalizeRowKeys).filter(row=>row.Method && row.Dataset && row.Level);
+                allRows = normalizedRows.map(r=>Object.assign({Method:r.Method,Dataset:r.Dataset,Level:r.Level},r.original));
+                const firstRow=allRows[0]||{}; metricNames = Object.keys(firstRow).filter(k=>!['Method','Dataset','Level','method','dataset','level'].includes(k));
+                // Ensure metric header cells exist and set their text
+                const tableEl = document.querySelector('#resultsTable2') ? document.querySelector('#resultsTable2').closest('table') : document.querySelector('table');
+                const theadRow = tableEl.querySelector('thead tr');
+                // remove any metric header cells beyond the first (Method)
+                while (theadRow.children.length > 1) theadRow.removeChild(theadRow.lastChild);
+                metricNames.forEach(m => {
+                    const th = document.createElement('th');
+                    th.className = 'py-3 px-4 text-center font-semibold text-gray-700 border-b text-sm';
+                    th.textContent = m;
+                    theadRow.appendChild(th);
+                });
+                datasetsSet=new Set(allRows.map(row=>row.Dataset)); levelsSet=new Set(allRows.map(row=>row.Level)); populateDropdowns2(); const levelFilter=document.getElementById('levelFilter2'); if(Array.from(levelsSet).includes('3')) levelFilter.value='3'; const datasetFilter=document.getElementById('datasetFilter2'); if(datasetFilter.options.length>0) datasetFilter.selectedIndex=0; filterRows2(); populateTable2(filteredRows);
+            }});
+
+            document.addEventListener('change', function(e){ if(e.target.id==='datasetFilter2' || e.target.id==='levelFilter2'){ filterRows2(); populateTable2(filteredRows); } });
+            document.getElementById('methodGroupFilter2Button').addEventListener('click', function(e){ e.stopPropagation(); const menu=document.getElementById('methodGroupFilter2Menu'); menu.classList.toggle('hidden'); document.getElementById('methodGroupFilter3Menu').classList.add('hidden'); });
+
+            document.getElementById('sortBtn2').addEventListener('click', function(){ let label='Method', icon='fa-sort-alpha-down'; if(currentSort2==='method'){currentSort2='avg'; ascending2=false; label='Avg'; icon='fa-sort-amount-down';} else if(currentSort2==='avg'){currentSort2='metric1'; ascending2=false; label=metricNames[0]||'Metric 1'; icon='fa-sort-amount-down';} else {const idx=currentSort2.startsWith('metric')?parseInt(currentSort2.replace('metric','')):0; if(idx<metricNames.length){currentSort2=`metric${idx+1}`; ascending2=false; label=metricNames[idx]||`Metric ${idx+1}`; icon='fa-sort-amount-down';} else {currentSort2='method'; ascending2=true; label='Method'; icon='fa-sort-alpha-down';}} this.innerHTML=`<i class="fas ${icon}"></i><span> Sorted by ${label}</span>`; populateTable2(filteredRows);
+                const tableEl2 = document.querySelector('#resultsTable2') ? document.querySelector('#resultsTable2').closest('table') : document.querySelector('table');
+                const ths = tableEl2.querySelectorAll('thead th');
+                ths.forEach(cell=>cell.classList.remove('bg-indigo-50','text-indigo-700'));
+                if(currentSort2==='method'){ if(ths[0]) ths[0].classList.add('bg-indigo-50','text-indigo-700'); }
+                else if(currentSort2==='avg'){ for(let i=1;i<=metricNames.length;++i) if(ths[i]) ths[i].classList.add('bg-indigo-50','text-indigo-700'); }
+                else if(currentSort2.startsWith('metric')){ const idx=parseInt(currentSort2.replace('metric','')); if(ths[idx]) ths[idx].classList.add('bg-indigo-50','text-indigo-700'); }
+            });
+
+            // Per-class F1 handling (same as homepage)
+            const csvPath3 = './plotly_figures/per_class_mean_metrics.csv';
+            let perClassRows = [], classLabels = [], methodsSet3 = new Set(), datasetsSet3 = new Set(), currentSort3='method', ascending3=true;
+            let showPR = false;
+
+            function buildPerClassTable(dataset){
+                const rows = perClassRows.filter(r=>r.dataset===dataset);
+                const visibleMethodsSet = getVisibleMethodsByGroup('methodGroupFilter3');
+                const methods = Array.from(new Set(rows.map(r=>r.method))).filter(method=>!visibleMethodsSet || visibleMethodsSet.has(method));
+                const tbody=document.getElementById('perClassTableBody');
+                const theadRow=tbody.parentElement.querySelector('thead tr');
+                const supportMap = {};
+                rows.forEach(r=>{const sup=Number(r.support)||0; if(!supportMap[r.class_label]||supportMap[r.class_label]<sup) supportMap[r.class_label]=sup;});
+                const classesInDataset = classLabels.filter(cl=> (supportMap[cl]||0)>0 && rows.some(r=>r.class_label===cl));
+
+                while(theadRow.children.length>1) theadRow.removeChild(theadRow.lastChild);
+                classesInDataset.forEach(cl=>{const th=document.createElement('th');th.className='py-3 px-4 text-center font-semibold text-gray-700 border-b text-sm';th.textContent=cl; theadRow.appendChild(th);});
+
+                // Build a map storing precision, recall, f1 per method/class
+                const map=new Map();
+                rows.forEach(r=>{ if(visibleMethodsSet && !visibleMethodsSet.has(r.method)) return; if(!map.has(r.method)) map.set(r.method,{}); map.get(r.method)[r.class_label]={f1: Number(r.f1), precision: Number(r.precision), recall: Number(r.recall)};});
+
+                // Prepare table data using f1 for sorting/avg
+                const tableData = methods.map(m=>{ const vals = classesInDataset.map(cl=>{ const entry = (map.get(m) && map.get(m)[cl])? map.get(m)[cl] : null; const v = entry && !isNaN(Number(entry.f1))? Number(entry.f1) : NaN; return v; }); const avg = vals.reduce((s,v)=>s + (isNaN(v)?0:v),0) / vals.filter(v=>!isNaN(v)).length || 0; return {method:m, vals, avg}; });
+
+                if(currentSort3==='method'){ tableData.sort(compareMethodsByPreferredOrder); } else if(currentSort3==='avg'){ tableData.sort((a,b)=> ascending3? a.avg-b.avg : b.avg-a.avg); } else if(currentSort3.startsWith('class')){ const idx = parseInt(currentSort3.replace('class','')) - 1; tableData.sort((a,b)=>{ const va=a.vals[idx], vb=b.vals[idx]; if((isNaN(va)||va===undefined) && (isNaN(vb)||vb===undefined)) return 0; if(isNaN(va)||va===undefined) return 1; if(isNaN(vb)||vb===undefined) return -1; return ascending3? va-vb : vb-va; }); }
+
+                // Determine color scale bounds. If showing P/R, base on average(PR), otherwise F1.
+                let globalMin=Infinity, globalMax=-Infinity;
+                tableData.forEach(td=> td.vals.forEach((v,idx)=>{ if(!isNaN(v)){ if(v<globalMin) globalMin=v; if(v>globalMax) globalMax=v; } else if(showPR){ // check PR entries
+                    const m = td.method; const cl = classesInDataset[idx]; const entry = (map.get(m) && map.get(m)[cl])? map.get(m)[cl] : null; if(entry){ const pVal = Number(entry.precision); const rVal = Number(entry.recall); const vals = []; if(!isNaN(pVal)) vals.push(pVal); if(!isNaN(rVal)) vals.push(rVal); const avgPR = vals.length? vals.reduce((a,b)=>a+b,0)/vals.length : NaN; if(!isNaN(avgPR)){ if(avgPR<globalMin) globalMin=avgPR; if(avgPR>globalMax) globalMax=avgPR; } }
+                }}));
+                if(globalMin===Infinity){ globalMin=0; globalMax=1;} if(globalMin===globalMax) globalMax = globalMin + 1;
+
+                tbody.innerHTML='';
+                tableData.forEach(td=>{
+                    const tr=document.createElement('tr'); tr.className='hover:bg-gray-50 border-b transition-colors';
+                    const mcell=document.createElement('td'); mcell.className='method-cell py-3 px-4 font-medium text-gray-900 text-sm'; mcell.textContent = td.method; tr.appendChild(mcell);
+                    td.vals.forEach((v,ci)=>{
+                        const tdcell=document.createElement('td'); tdcell.className='py-3 px-4 text-center text-gray-700 text-sm';
+                        const cl = classesInDataset[ci]; const entry = (map.get(td.method) && map.get(td.method)[cl])? map.get(td.method)[cl] : null;
+                        if(!entry){ tdcell.textContent=''; tr.appendChild(tdcell); return; }
+
+                        if(showPR){
+                            const p = entry.precision; const r = entry.recall;
+                            const pText = isNaN(Number(p))? '–' : Number(p).toFixed(2);
+                            const rText = isNaN(Number(r))? '–' : Number(r).toFixed(2);
+                            tdcell.textContent = `${pText}/${rText}`;
+                            const pVal = Number(p); const rVal = Number(r); const vals2 = []; if(!isNaN(pVal)) vals2.push(pVal); if(!isNaN(rVal)) vals2.push(rVal); const avgPR = vals2.length? vals2.reduce((a,b)=>a+b,0)/vals2.length : NaN;
+                            let norm = (avgPR - globalMin) / (globalMax - globalMin); norm = Math.max(0, Math.min(1, norm)); tdcell.style.background = getHeatmapColor(norm);
+                        } else {
+                            const f = entry.f1;
+                            if(isNaN(Number(f))){ tdcell.textContent=''; } else { tdcell.textContent = Number(f).toFixed(2); let norm = (f - globalMin) / (globalMax - globalMin); norm = Math.max(0, Math.min(1, norm)); tdcell.style.background = getHeatmapColor(norm); }
+                        }
+                        tr.appendChild(tdcell);
+                    });
+                    tbody.appendChild(tr);
+                });
+            }
+
+            Papa.parse(csvPath3,{ header:true, download:true, complete:function(results){ perClassRows = results.data.map(r=>({ dataset: r.dataset || r.Dataset || r.DatasetName || r['dataset'], level: r.level || r.Level, method: r.method || r.Method, class_label: r.class_label || r.class || r['class_label'], precision: Number(r.precision || r.Precision || r['precision']), recall: Number(r.recall || r.Recall || r['recall']), f1: Number(r.f1 || r.F1 || r['f1']), support: Number(r.support || r.Support || r['support']) || 0 })).filter(r=> r.dataset && r.method && r.class_label ); const classSet=new Set(); perClassRows.forEach(r=>{ if(!classSet.has(r.class_label)) classSet.add(r.class_label); }); classLabels = Array.from(classSet); perClassRows.forEach(r=>{ methodsSet3.add(r.method); datasetsSet3.add(r.dataset); }); const dsEl=document.getElementById('datasetFilter3'); dsEl.innerHTML=''; Array.from(datasetsSet3).sort().forEach(ds => { dsEl.innerHTML += `<option value="${ds}">${ds}</option>`; }); renderMethodGroupDropdown('methodGroupFilter3'); if(dsEl.options.length) dsEl.selectedIndex=0; buildPerClassTable(dsEl.value); } });
+
+            document.addEventListener('change', function(e){
+                if(e.target && e.target.id==='datasetFilter3'){
+                    buildPerClassTable(document.getElementById('datasetFilter3').value);
+                }
+                if(e.target && e.target.id==='showPrecisionRecall'){
+                    showPR = !!e.target.checked;
+                    buildPerClassTable(document.getElementById('datasetFilter3').value);
+                }
+            });
+            document.getElementById('methodGroupFilter3Button').addEventListener('click', function(e){ e.stopPropagation(); const menu=document.getElementById('methodGroupFilter3Menu'); menu.classList.toggle('hidden'); document.getElementById('methodGroupFilter2Menu').classList.add('hidden'); });
+
+            document.addEventListener('click', function(){ closeMethodGroupMenu('methodGroupFilter2'); closeMethodGroupMenu('methodGroupFilter3'); });
+            document.getElementById('methodGroupFilter2Menu').addEventListener('click', function(e){ e.stopPropagation(); });
+            document.getElementById('methodGroupFilter3Menu').addEventListener('click', function(e){ e.stopPropagation(); });
+            document.getElementById('sortBtn3').addEventListener('click', function(){ let label='Method', icon='fa-sort-alpha-down'; if(currentSort3==='method'){ currentSort3='avg'; ascending3=false; label='Avg'; icon='fa-sort-amount-down'; } else if(currentSort3==='avg'){ const ds0=document.getElementById('datasetFilter3').value; const visible = classLabels.filter(cl=> perClassRows.some(r=> r.dataset===ds0 && r.class_label===cl && (Number(r.support)||0)>0)); currentSort3='class1'; ascending3=false; label = visible[0] || 'Class 1'; icon='fa-sort-amount-down'; } else if(currentSort3.startsWith('class')){ const ds1=document.getElementById('datasetFilter3').value; const visible = classLabels.filter(cl=> perClassRows.some(r=> r.dataset===ds1 && r.class_label===cl && (Number(r.support)||0)>0)); const idx = parseInt(currentSort3.replace('class','')) || 1; if(idx<visible.length){ currentSort3=`class${idx+1}`; ascending3=false; label = visible[idx] || `Class ${idx+1}`; icon='fa-sort-amount-down'; } else { currentSort3='method'; ascending3=true; label='Method'; icon='fa-sort-alpha-down'; } } this.innerHTML = `<i class="fas ${icon}"></i><span> Sorted by ${label}</span>`; const ds = document.getElementById('datasetFilter3').value; buildPerClassTable(ds); });
+
+        </script>
+
+    </main>
+</body>
+</html>

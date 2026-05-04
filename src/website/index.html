@@ -1,0 +1,397 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>spCellEval Benchmark Analysis</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        .gradient-bg {
+            background: linear-gradient(135deg, #0d0a4e 0%, #7c3aed 100%);
+        }
+        .solid-bg {
+            background-color: #120822;
+        }
+        .method-cell {
+            position: sticky;
+            left: 0;
+            background-color: rgb(255, 255, 255);
+            z-index: 10;
+            box-shadow: 2px 0 3px rgba(0,0,0,0.05);
+        }
+        .sticky-header {
+            position: sticky;
+            top: 0;
+            z-index: 20;
+            backdrop-filter: blur(8px);
+            background-color: rgba(255,255,255,0.8);
+        }
+        .chart-container {
+            height: 400px;
+            position: relative;
+        }
+        .card-hover {
+            transition: all 0.3s ease;
+        }
+        .card-hover:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 10px 25px -5px rgba(0,0,0,0.1);
+        }
+        .highlight-cell {
+            animation: highlight 2s ease-out;
+        }
+        @keyframes highlight {
+            0% { background-color: rgba(255, 255, 0, 0.5); }
+            100% { background-color: transparent; }
+        }
+        @media (max-width: 768px) {
+            .scrollable-table {
+                overflow-x: auto;
+                display: block;
+            }
+            .chart-container {
+                height: 300px;
+            }
+        }
+    </style>
+</head>
+
+<body class="solid-bg font-sans antialiased">
+    <!-- Header Section -->
+    <header class="fixed top-0 left-0 right-0 z-50 bg-gray-900/70 backdrop-blur-lg border-b border-gray-700/50">
+        <div class="container mx-auto px-6 py-3 flex justify-between items-center">
+            <div class="flex items-center space-x-2">
+                <div class="text-white p-6">
+                    <!-- Interactive Cell Logo -->
+                    <span class="cell-logo group relative inline-block" title="Cell Phenotyping Logo" style="cursor:pointer;">
+                        <img src="./plotly_figures/logo_example.png" alt="Cell Phenotyping Logo" width="56" height="56" style="display:inline-block; transition: transform 0.3s, box-shadow 0.3s;">
+                    </span>
+                    <script>
+                        // Add a subtle scale and shadow effect on hover
+                        document.querySelectorAll('.cell-logo img').forEach(function(img) {
+                            img.addEventListener('mouseenter', function() {
+                                img.style.transform = 'scale(1.12) rotate(-4deg)';
+                                img.style.boxShadow = '0 8px 24px rgba(76, 29, 149, 0.18)';
+                            });
+                            img.addEventListener('mouseleave', function() {
+                                img.style.transform = '';
+                                img.style.boxShadow = '';
+                            });
+                        });
+                    </script>
+                    <!-- <i class="fas fa-cubes text-3xl"></i> -->
+                </div>
+                <span class="text-xl font-bold tracking-tight text-white">spCellEval</span>
+            </div>
+            <nav class="hidden md:flex space-x-10">
+                <a href="index.html#about" data-nav-link="about" class="text-gray-300 hover:text-indigo-400 transition-colors">About</a>
+                <a href="results.html" class="text-gray-300 hover:text-indigo-400 transition-colors">Results</a>
+                <a href="methods.html" class="text-gray-300 hover:text-indigo-400 transition-colors">Methods</a>
+                <a href="datasets.html" class="text-gray-300 hover:text-indigo-400 transition-colors">Datasets</a>
+                <a href="index.html#cta" data-nav-link="cta" class="text-gray-300 hover:text-indigo-400 transition-colors">Contact</a>
+            </nav>
+            <button class="md:hidden p-2 rounded-md text-gray-300 hover:bg-gray-700">
+                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="4" x2="20" y1="12" y2="12"/><line x1="4" x2="20" y1="6" y2="6"/><line x1="4" x2="20" y1="18" y2="18"/></svg>
+            </button>
+        </div>
+    </header>
+
+    <header class="solid-bg text-white shadow-lg">
+        <div class="relative pt-32 pb-20 text-center">
+            <div class="absolute inset-0 bg-grid-gray-700/20 [mask-image:linear-gradient(to_bottom,white_20%,transparent_100%)]"></div>
+            <div class="container mx-auto px-6 relative">
+                <h1 class="text-4xl md:text-6xl font-extrabold tracking-tighter text-white leading-tight">
+                    <br />
+                    Benchmarking Spatial Proteomics
+                    <br />
+                    <span class="bg-clip-text text-transparent bg-gradient-to-r from-indigo-400 to-teal-400">
+                        Cell Phenotyping Methods
+                    </span>
+                </h1>
+                <p class="mt-6 max-w-2xl mx-auto text-lg text-gray-400">
+                    A comprehensive, large-scale evaluation of leading computational methods for identifying cell types in complex tissue images.
+                </p>
+                <div class="mt-8 flex justify-center gap-4">
+                    <a href="results.html" class="px-6 py-3 bg-indigo-600 text-white font-semibold rounded-lg shadow-lg hover:bg-indigo-500 transition-all transform hover:scale-105">
+                        Explore Results
+                    </a>
+                    <a href="#cta" class="px-6 py-3 bg-gray-700 text-white font-semibold rounded-lg shadow-lg hover:bg-gray-600 transition-all transform hover:scale-105">
+                        Learn More
+                    </a>
+                </div>
+
+                <div class="mt-4 mb-8 text-gray-300 marginbottom-80">
+                    <p class="text-sm">Last updated: May 2026</p>
+                </div>
+
+                
+            </div>
+
+
+
+    </header>
+
+    <!-- About Section -->
+    <section id="about" style="scroll-margin-top: 70px;" class="py-16 solid-bg;">
+        <div class="container mx-auto px-6">
+            <div class="max-w-3xl mx-auto text-center">
+                <h2 class="text-3xl md:text-4xl font-extrabold text-white mb-4">
+                    About the Benchmark
+                </h2>
+                <p class="text-lg text-indigo-100 mb-6">
+                    <span class="font-semibold text-indigo-200">spCellEval</span> is a comprehensive benchmarking platform designed to evaluate and compare computational methods for cell phenotyping in spatial proteomics and tissue imaging data.
+                </p>
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-8 mt-10">
+                    <div class="bg-white/10 rounded-lg p-6 flex flex-col items-center card-hover">
+                        <i class="fas fa-microscope text-3xl text-indigo-200 mb-3"></i>
+                        <h3 class="text-lg font-semibold text-white mb-2">Why Benchmark?</h3>
+                        <p class="text-indigo-100 text-sm">
+                            With the rapid growth of spatial omics, objective comparison of cell phenotyping methods is crucial for robust biological discovery.
+                        </p>
+                    </div>
+                    <div class="bg-white/10 rounded-lg p-6 flex flex-col items-center card-hover">
+                        <i class="fas fa-layer-group text-3xl text-indigo-200 mb-3"></i>
+                        <h3 class="text-lg font-semibold text-white mb-2">What We Evaluate</h3>
+                        <p class="text-indigo-100 text-sm">
+                            We assess accuracy, robustness, scalability, and interpretability across diverse datasets and tissue types.
+                        </p>
+                    </div>
+                    <div class="bg-white/10 rounded-lg p-6 flex flex-col items-center card-hover">
+                        <i class="fas fa-users text-3xl text-indigo-200 mb-3"></i>
+                        <h3 class="text-lg font-semibold text-white mb-2">Who Is It For?</h3>
+                        <p class="text-indigo-100 text-sm">
+                            Researchers, computational biologists, and tool developers seeking unbiased insights into method performance.
+                        </p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+
+
+    <main class="container mx-auto px-4 py-8 solid-bg" mb-8>
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+
+            <div class="bg-white rounded-xl shadow-sm p-6 card-hover">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <p class="text-gray-700 text-sm font-medium text-left">Methods Evaluated</p>
+                        <h3 class="text-4xl font-bold text-gray-800 mt-1 text-left">20</h3>
+                        <p class="text-gray-500 text-sm font-small text-left">We evaluated a wide range of popular and novel methods for cell phenotyping.</p>
+                    </div>
+                    <div class="bg-indigo-100 text-indigo-800 p-6 rounded-lg">
+                        <i class="fas fa-cogs text-2xl"></i>
+                    </div>
+                </div>
+
+            </div>
+
+            <div class="bg-white rounded-xl shadow-sm p-6 card-hover">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <p class="text-gray-700 text-sm font-medium text-left">Datasets Evaluated</p>
+                        <h3 class="text-4xl font-bold text-gray-800 mt-1 text-left">13</h3>
+                        <p class="text-gray-500 text-sm font-small text-left">
+                            Our benchmark includes datasets from various cancer types and healthy tissues to ensure robustness.
+                        </p>
+                    </div>
+                    <div class="bg-indigo-100 text-indigo-800 p-6 rounded-lg">
+                        <i class="fas fa-database text-2xl"></i>
+                    </div>
+                </div>
+
+            </div>
+
+            <div class="bg-white rounded-xl shadow-sm p-6 card-hover">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <p class="text-gray-700 text-sm font-medium text-left">Metric Categories</p>
+                        <h3 class="text-4xl font-bold text-gray-800 mt-1 text-left">4</h3>
+                        <p class="text-gray-500 text-sm font-small text-left">
+                            Performance was measured across accuracy, robustness, scalability, and interpretability </p>
+                    </div>
+                    <div class="bg-indigo-100 text-indigo-800 p-6 rounded-lg">
+                        <i class="fas fa-chart-bar text-2xl"></i>
+                    </div>
+                </div>
+
+            </div>
+
+
+        </div>
+        </section>
+
+
+        <!-- Performance Overview-->
+        <section id="results" style="scroll-margin-top: 140px;" class="mt-8 mb-8">
+            <div class="bg-white rounded-xl shadow-sm overflow-hidden">
+                <div class="border-b border-gray-100 px-6 py-4 flex flex-col md:flex-row justify-between items-start md:items-center">
+                    <div>
+                        <h2 class="text-xl font-semibold text-gray-800">Performance Overview</h2>
+                        <p class="text-gray-500 text-sm">Average scores and rankings across all datasets</p>
+                    </div>
+                    <div class="mt-2 md:mt-0 flex space-x-2">
+                        <button id="perfBtn" class="px-3 py-1 bg-indigo-50 text-indigo-600 rounded-md text-sm font-medium">Overview</button>
+                        <button id="datasetsBtn" class="px-3 py-1 bg-gray-100 text-gray-600 rounded-md text-sm font-medium">By Datasets</button>
+                        <button class="px-3 py-1 bg-gray-100 text-gray-600 rounded-md text-sm font-medium">Custom</button>
+                    </div>
+                </div>
+
+                <div id="overviewContent" class="grid grid-cols-1 lg:grid-cols-[auto_1fr] gap-3 p-6 items-start">
+                    <!-- Default: Performance View -->
+                    <div class="w-[600px]">
+                        <img src="./plotly_figures/funky_heatmap.png"
+                            class="w-[600px] h-auto object-contain rounded-lg" />
+                    </div>
+                    <div class="flex flex-col gap-0">
+                        <div class="h-[410px] w-[800px] overflow-hidden">
+                            <iframe src="./plotly_figures/scatter_plot_grouped.html" class="w-full h-full rounded-lg block" frameborder="0"></iframe>
+                        </div>
+                        <div class="h-[420px] w-[800px] overflow-hidden">
+                            <iframe src="./plotly_figures/scalability_plot.html" class="w-full h-full rounded-lg block" frameborder="0"></iframe>
+                        </div>
+                    </div>
+                </div>
+                <!-- Datasets View (hidden by default) -->
+                <div id="datasetsContent" class="grid grid-cols-1 lg:grid-cols-[auto_1fr] gap-3 p-6 items-start hidden">
+                    <div class="w-full"></div>
+                    <div class="relative w-full max-w-[600px] mx-auto" style="padding-bottom: 70%; height: 0;">
+                        <iframe src="./plotly_figures/sunburst_distribution.html"
+                            class="absolute top-0 left-0 w-full h-full object-contain rounded-lg" frameborder="0" style="border:0;"></iframe>
+                    </div>
+                </div>
+            </div>
+        </section>
+        
+        <script>
+            // Toggle between Performance and Datasets view
+            const perfBtn = document.getElementById('perfBtn');
+            const datasetsBtn = document.getElementById('datasetsBtn');
+            const overviewContent = document.getElementById('overviewContent');
+            const datasetsContent = document.getElementById('datasetsContent');
+
+            perfBtn.addEventListener('click', function() {
+                overviewContent.classList.remove('hidden');
+                datasetsContent.classList.add('hidden');
+                perfBtn.classList.add('bg-indigo-50', 'text-indigo-600');
+                perfBtn.classList.remove('bg-gray-100', 'text-gray-600');
+                datasetsBtn.classList.remove('bg-indigo-50', 'text-indigo-600');
+                datasetsBtn.classList.add('bg-gray-100', 'text-gray-600');
+            });
+
+            datasetsBtn.addEventListener('click', function() {
+                overviewContent.classList.add('hidden');
+                datasetsContent.classList.remove('hidden');
+                datasetsBtn.classList.add('bg-indigo-50', 'text-indigo-600');
+                datasetsBtn.classList.remove('bg-gray-100', 'text-gray-600');
+                perfBtn.classList.remove('bg-indigo-50', 'text-indigo-600');
+                perfBtn.classList.add('bg-gray-100', 'text-gray-600');
+            });
+        </script>
+
+        <!-- Link to dedicated Results page -->
+        <section class="mb-8">
+            <div class="bg-white rounded-xl shadow-sm overflow-hidden">
+                <div class="border-b border-gray-100 px-6 py-4">
+                    <h2 class="text-xl font-semibold text-gray-800">Full Results</h2>
+                    <p class="text-gray-500 text-sm">Detailed metric matrices and per-class F1 heatmaps have moved to a dedicated Results page.</p>
+                </div>
+                <div class="p-6 text-center">
+                    <a href="results.html" class="inline-block px-6 py-3 bg-indigo-600 text-white rounded-md font-semibold hover:bg-indigo-500">Open Results Page</a>
+                </div>
+            </div>
+        </section>
+
+        <!-- Insights & Recommendations -->
+        <section>
+            <div class="bg-white rounded-xl shadow-sm overflow-hidden">
+                <div class="border-b border-gray-100 px-6 py-4">
+                    <h2 class="text-xl font-semibold text-gray-800">Insights & Recommendations</h2>
+                    <p class="text-gray-500 text-sm">Key findings from the benchmark analysis</p>
+                </div>
+                <div class="p-6 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                    <div class="bg-indigo-50 p-5 rounded-lg card-hover">
+                        <div class="flex items-start">
+                            <div class="bg-indigo-100 p-2 rounded-lg mr-4">
+                                <i class="fas fa-lightbulb text-indigo-600 text-xl"></i>
+                            </div>
+                            <div>
+                                <h3 class="font-semibold text-gray-800 mb-2">Optimal Method Selection</h3>
+                                <p class="text-gray-600 text-sm">Supervised methods can recover cell types the best but require labelled data which can be challenging to obtain.</p>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="bg-green-50 p-5 rounded-lg card-hover">
+                        <div class="flex items-start">
+                            <div class="bg-green-100 p-2 rounded-lg mr-4">
+                                <i class="fas fa-shield-alt text-green-600 text-xl"></i>
+                            </div>
+                            <div>
+                                <h3 class="font-semibold text-gray-800 mb-2">Reliable Fallback Option</h3>
+                                <p class="text-gray-600 text-sm">Prior-knowledge based methods perform well when labeled data is scarce and can be used when quick results are needed. However, they require careful tuning and may not generalize well to all datasets.</p>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="bg-purple-50 p-5 rounded-lg card-hover">
+                        <div class="flex items-start">
+                            <div class="bg-purple-100 p-2 rounded-lg mr-4">
+                                <i class="fas fa-magic text-purple-600 text-xl"></i>
+                            </div>
+                            <div>
+                                <h3 class="font-semibold text-gray-800 mb-2">Specialized Solution</h3>
+                                <p class="text-gray-600 text-sm">For large datasets, clustering and/or visual gating with scimap can help identify key regions of interest before applying supervised methods.</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <section id="cta" class="py-16 bg-gradient-to-r from-indigo-700 to-teal-700">
+        <div class="container mx-auto px-6 text-center">
+            <h2 class="text-3xl font-bold text-white">Ready to Dive Deeper?</h2>
+            <p class="mt-4 text-indigo-200 max-w-2xl mx-auto">
+                Access the full manuscript, browse the source code, and explore the complete datasets.
+            </p>
+            <div class="mt-8 flex justify-center flex-wrap gap-4">
+                <button class="px-8 py-3 bg-white text-indigo-600 font-bold rounded-lg shadow-xl hover:bg-gray-200 transition-all transform hover:scale-105">
+                    Read The Paper
+                </button>
+                <a href="https://github.com/SchapiroLabor/spCellEval" target="_blank" rel="noopener" class="px-8 py-3 bg-black/20 border border-indigo-300 text-white font-bold rounded-lg shadow-xl hover:bg-black/40 transition-all transform hover:scale-105">
+                    View on GitHub
+                </a>
+            </div>
+        </div>
+    </section>
+
+    <section id="contribute" class="py-16 bg-gradient-to-r from-indigo-700 to-teal-700">
+        <div class="container mx-auto px-6">
+            <div class="max-w-2xl mx-auto text-center">
+                <h2 class="text-3xl md:text-4xl font-extrabold text-white mb-4">
+                    Contribute Your Dataset or Method
+                </h2>
+                <p class="text-lg text-indigo-100 mb-6">
+                    Interested in adding your cell phenotyping method or sharing a new spatial proteomics dataset? We welcome community contributions to expand and improve the benchmark.
+                </p>
+                <div class="flex flex-col md:flex-row justify-center gap-6 mt-8">
+                    <a href="mailto:schapirolabor@gmail.org" class="px-8 py-3 bg-indigo-600 text-white font-bold rounded-lg shadow-lg hover:bg-indigo-500 transition-all transform hover:scale-105 flex items-center justify-center gap-2">
+                        <i class="fas fa-envelope"></i> Contact Us
+                    </a>
+                    <a href="https://github.com/SchapiroLabor/spCellEval/issues/new?labels=contribution" target="_blank" rel="noopener" class="px-8 py-3 bg-gray-800 text-white font-bold rounded-lg shadow-lg hover:bg-gray-700 transition-all transform hover:scale-105 flex items-center justify-center gap-2">
+                        <i class="fab fa-github"></i> Open a GitHub Issue
+                    </a>
+                </div>
+                <p class="mt-6 text-indigo-200 text-sm">
+                    We review all submissions and will work with you to integrate your contribution into the platform.
+                </p>
+            </div>
+        </div>
+    </section>
+
+</body>
+</html>

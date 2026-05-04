@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>spCellEval Methods</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        .solid-bg {
+            background-color: #120822;
+        }
+        .card-hover {
+            transition: all 0.3s ease;
+        }
+        .card-hover:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 10px 25px -5px rgba(0,0,0,0.15);
+        }
+        .method-cell {
+            position: sticky;
+            left: 0;
+            background-color: #ffffff;
+            z-index: 10;
+            box-shadow: 2px 0 3px rgba(0,0,0,0.05);
+        }
+        .sticky-header {
+            position: sticky;
+            top: 0;
+            z-index: 20;
+            backdrop-filter: blur(8px);
+            background-color: rgba(255,255,255,0.9);
+        }
+    </style>
+</head>
+<body class="solid-bg font-sans antialiased">
+    <header class="fixed top-0 left-0 right-0 z-50 bg-gray-900/70 backdrop-blur-lg border-b border-gray-700/50">
+        <div class="container mx-auto px-6 py-3 flex justify-between items-center">
+            <a href="index.html" class="flex items-center space-x-3">
+                <img src="./plotly_figures/logo_example.png" alt="Cell Phenotyping Logo" width="56" height="56" class="transition-transform duration-300 hover:scale-110">
+                <span class="text-xl font-bold tracking-tight text-white">spCellEval</span>
+            </a>
+            <nav class="hidden md:flex space-x-10">
+                <a href="index.html#about" class="text-gray-300 hover:text-indigo-400 transition-colors">About</a>
+                <a href="results.html" class="text-gray-300 hover:text-indigo-400 transition-colors">Results</a>
+                <a href="methods.html" class="text-indigo-300 font-semibold">Methods</a>
+                <a href="datasets.html" class="text-gray-300 hover:text-indigo-400 transition-colors">Datasets</a>
+                <a href="index.html#cta" class="text-gray-300 hover:text-indigo-400 transition-colors">Contact</a>
+            </nav>
+        </div>
+    </header>
+
+    <main class="container mx-auto px-4 pt-32 pb-10">
+        <section class="text-center text-white mb-10">
+            <h1 class="text-4xl md:text-5xl font-extrabold tracking-tight">Methods</h1>
+            <p class="mt-4 max-w-3xl mx-auto text-gray-300">
+                This page summarizes the algorithmic families included in spCellEval and the criteria used to assess method performance across datasets.
+            </p>
+        </section>
+
+        <section class="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
+            <div class="bg-white/10 rounded-xl p-6 card-hover">
+                <i class="fas fa-user-check text-indigo-300 text-2xl mb-3"></i>
+                <h2 class="text-white font-semibold text-lg mb-2">Supervised</h2>
+                <p class="text-indigo-100 text-sm">Learns explicit labels and generally achieves strongest recovery when high-quality annotations are available.</p>
+            </div>
+            <div class="bg-white/10 rounded-xl p-6 card-hover">
+                <i class="fas fa-project-diagram text-indigo-300 text-2xl mb-3"></i>
+                <h2 class="text-white font-semibold text-lg mb-2">Prior-Knowledge Based</h2>
+                <p class="text-indigo-100 text-sm">Uses marker panels and biological priors for robust cell typing when labels are scarce.</p>
+            </div>
+            <div class="bg-white/10 rounded-xl p-6 card-hover">
+                <i class="fas fa-layer-group text-indigo-300 text-2xl mb-3"></i>
+                <h2 class="text-white font-semibold text-lg mb-2">Unsupervised</h2>
+                <p class="text-indigo-100 text-sm">Identifies structure in large cohorts and supports exploratory phenotyping in novel tissues.</p>
+            </div>
+            <div class="bg-white/10 rounded-xl p-6 card-hover">
+                <i class="fas fa-plug-circle-check text-indigo-300 text-2xl mb-3"></i>
+                <h2 class="text-white font-semibold text-lg mb-2">Pre-trained</h2>
+                <p class="text-indigo-100 text-sm">Enables rapid cell typing in novel tissues using pre-existing models.</p>
+            </div>
+        </section>
+
+        <section class="bg-white rounded-xl shadow-sm overflow-hidden mb-8">
+            <div class="border-b border-gray-100 px-6 py-4">
+                <h2 class="text-xl font-semibold text-gray-800">Method Papers</h2>
+                <p class="text-gray-500 text-sm">Open the primary paper or publication page for each method in the benchmark.</p>
+            </div>
+            <div id="methodPaperGrid" class="p-6 space-y-8"></div>
+        </section>
+
+        <!-- 
+        <section class="bg-white rounded-xl shadow-sm overflow-hidden mb-8">
+            <div class="border-b border-gray-100 px-6 py-4">
+                <h2 class="text-xl font-semibold text-gray-800">Method Comparison Snapshot</h2>
+                <p class="text-gray-500 text-sm">Illustrative examples of method profiles used in the benchmark.</p>
+            </div>
+            <div class="p-4 overflow-x-auto">
+                <table class="w-full border-collapse min-w-[760px]">
+                    <thead class="sticky-header">
+                        <tr>
+                            <th class="method-cell py-3 px-4 text-left font-semibold text-gray-700 border-b text-sm">Method</th>
+                            <th class="py-3 px-4 text-left font-semibold text-gray-700 border-b text-sm">Family</th>
+                            <th class="py-3 px-4 text-left font-semibold text-gray-700 border-b text-sm">Strength</th>
+                            <th class="py-3 px-4 text-left font-semibold text-gray-700 border-b text-sm">Best Use Case</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr class="border-b hover:bg-gray-50">
+                            <td class="method-cell py-3 px-4 text-sm font-medium text-gray-900">scimap</td>
+                            <td class="py-3 px-4 text-sm text-gray-700">Prior-knowledge / Gating</td>
+                            <td class="py-3 px-4 text-sm text-gray-700">Marker-aware interpretability</td>
+                            <td class="py-3 px-4 text-sm text-gray-700">Marker-guided discovery workflows</td>
+                        </tr>
+                        <tr class="border-b hover:bg-gray-50">
+                            <td class="method-cell py-3 px-4 text-sm font-medium text-gray-900">Phenograph</td>
+                            <td class="py-3 px-4 text-sm text-gray-700">Unsupervised</td>
+                            <td class="py-3 px-4 text-sm text-gray-700">Community detection in high-dimensional space</td>
+                            <td class="py-3 px-4 text-sm text-gray-700">Discovery of novel cell states</td>
+                        </tr>
+                        <tr class="hover:bg-gray-50">
+                            <td class="method-cell py-3 px-4 text-sm font-medium text-gray-900">Leiden + UMAP</td>
+                            <td class="py-3 px-4 text-sm text-gray-700">Clustering + Visualization</td>
+                            <td class="py-3 px-4 text-sm text-gray-700">Scalable exploratory segmentation</td>
+                            <td class="py-3 px-4 text-sm text-gray-700">Initial stratification before supervision</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </section> -->
+
+        <section class="bg-gradient-to-r from-indigo-700 to-teal-700 rounded-xl p-8 text-center">
+            <h2 class="text-2xl font-bold text-white">Need Full Quantitative Results?</h2>
+            <p class="mt-2 text-indigo-100">Explore the full metric matrix and ranking tables on the homepage Results section.</p>
+            <a href="results.html" class="inline-block mt-5 px-6 py-3 bg-white text-indigo-700 font-semibold rounded-lg hover:bg-gray-100 transition-colors">Open Results</a>
+        </section>
+    </main>
+<script>
+    const methodGroups = {
+        "Supervised": ["XGBoost", "Logistic Regression", "Random Forest", "MAPS", "CellSighter"],
+        "Unsupervised": [
+            "Phenograph", "Leiden", "CellLENS_Lite", "CellLENS_Full",
+            "FuseSOM", "Starling", "FlowSOM Meta Clusters"
+        ],
+        "Prior-Knowledge-driven": ["Scyan", "Tacit", "Tribus", "Astir"],
+        "Pre-trained Models": ["Nimbus", "Deepcelltypes", "Deepcelltypes_adapted", "RIBCA", "RIBCA_adapted"],
+    };
+
+    const methodPaperLinks = {
+        "XGBoost": "https://doi.org/10.1145/2939672.2939785",
+        "Logistic Regression": "https://scholar.google.com/scholar?q=logistic+regression+paper",
+        "Random Forest": "https://doi.org/10.1023/A:1010933404324",
+        "MAPS": "https://scholar.google.com/scholar?q=MAPS+cell+typing+paper",
+        "CellSighter": "https://scholar.google.com/scholar?q=CellSighter+paper",
+        "Phenograph": "https://scholar.google.com/scholar?q=Phenograph+paper",
+        "Leiden": "https://doi.org/10.1038/s41598-019-41695-z",
+        "CellLENS_Lite": "https://scholar.google.com/scholar?q=CellLENS+paper",
+        "CellLENS_Full": "https://scholar.google.com/scholar?q=CellLENS+paper",
+        "FuseSOM": "https://scholar.google.com/scholar?q=FuseSOM+paper",
+        "Starling": "https://scholar.google.com/scholar?q=Starling+single+cell+paper",
+        "FlowSOM Meta Clusters": "https://doi.org/10.1002/cyto.a.22625",
+        "Scyan": "https://scholar.google.com/scholar?q=Scyan+single+cell+paper",
+        "Tacit": "https://scholar.google.com/scholar?q=Tacit+cell+typing+paper",
+        "Tribus": "https://scholar.google.com/scholar?q=Tribus+cell+typing+paper",
+        "Astir": "https://scholar.google.com/scholar?q=Astir+paper",
+        "Nimbus": "https://scholar.google.com/scholar?q=Nimbus+cell+typing+paper",
+        "Deepcelltypes": "https://scholar.google.com/scholar?q=DeepCellTypes+paper",
+        "RIBCA": "https://scholar.google.com/scholar?q=RIBCA+paper",
+    };
+
+    const methodPaperGrid = document.getElementById('methodPaperGrid');
+    const categoryColors = {
+        "Supervised": "from-indigo-50 to-white",
+        "Unsupervised": "from-cyan-50 to-white",
+        "Prior-Knowledge-driven": "from-amber-50 to-white",
+        "Pre-trained Models": "from-emerald-50 to-white"
+    };
+
+    Object.entries(methodGroups).forEach(([category, methods]) => {
+        const section = document.createElement('div');
+        section.className = 'rounded-xl border border-gray-200 bg-white shadow-sm overflow-hidden';
+
+        const header = document.createElement('div');
+        header.className = 'flex items-center justify-between gap-3 px-6 py-4 border-b border-gray-100 bg-gray-50/80';
+        header.innerHTML = `
+            <div>
+                <h3 class="text-lg font-semibold text-gray-800">${category}</h3>
+                <p class="text-sm text-gray-500">${methods.length} methods</p>
+            </div>
+        `;
+        section.appendChild(header);
+
+        const body = document.createElement('div');
+        body.className = 'p-6';
+
+        const grid = document.createElement('div');
+        grid.className = 'grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4';
+
+        methods.forEach((methodName) => {
+            const link = methodPaperLinks[methodName] || `https://scholar.google.com/scholar?q=${encodeURIComponent(methodName + ' paper')}`;
+            const tile = document.createElement('a');
+            tile.href = link;
+            tile.target = '_blank';
+            tile.rel = 'noreferrer';
+            tile.className = `block rounded-xl border border-gray-200 bg-gradient-to-br ${categoryColors[category] || 'from-gray-50 to-white'} p-5 card-hover hover:border-indigo-300`;
+            tile.innerHTML = `
+                <div class="flex items-start justify-between gap-3">
+                    <div>
+                        <div class="inline-flex items-center rounded-full bg-gray-900 px-2.5 py-1 text-xs font-semibold text-white mb-3">${category}</div>
+                        <h4 class="text-base font-semibold text-gray-900 leading-snug">${methodName}</h4>
+                    </div>
+                    <span class="mt-1 inline-flex h-9 w-9 items-center justify-center rounded-full bg-white text-indigo-600 shadow-sm border border-gray-200">
+                        <i class="fas fa-arrow-up-right-from-square text-sm"></i>
+                    </span>
+                </div>
+                <div class="mt-4 flex items-center justify-between text-sm text-gray-600">
+                    <span>Paper link</span>
+                    <span class="font-medium text-indigo-700">Open</span>
+                </div>
+            `;
+            grid.appendChild(tile);
+        });
+
+        body.appendChild(grid);
+        section.appendChild(body);
+        methodPaperGrid.appendChild(section);
+    });
+</script>
+</body>
+</html>

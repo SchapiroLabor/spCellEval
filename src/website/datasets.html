@@ -1,0 +1,452 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>spCellEval Datasets</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@3.9.1/dist/chart.min.js"></script>
+    <style>
+        .solid-bg {
+            background-color: #120822;
+        }
+        .card-hover {
+            transition: all 0.3s ease;
+        }
+        .card-hover:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 10px 25px -5px rgba(0,0,0,0.15);
+        }
+    </style>
+</head>
+<body class="solid-bg font-sans antialiased">
+    <header class="fixed top-0 left-0 right-0 z-50 bg-gray-900/70 backdrop-blur-lg border-b border-gray-700/50">
+        <div class="container mx-auto px-6 py-3 flex justify-between items-center">
+            <a href="index.html" class="flex items-center space-x-3">
+                <img src="./plotly_figures/logo_example.png" alt="Cell Phenotyping Logo" width="56" height="56" class="transition-transform duration-300 hover:scale-110">
+                <span class="text-xl font-bold tracking-tight text-white">spCellEval</span>
+            </a>
+            <nav class="hidden md:flex space-x-10">
+                <a href="index.html#about" class="text-gray-300 hover:text-indigo-400 transition-colors">About</a>
+                <a href="results.html" class="text-gray-300 hover:text-indigo-400 transition-colors">Results</a>
+                <a href="methods.html" class="text-gray-300 hover:text-indigo-400 transition-colors">Methods</a>
+                <a href="datasets.html" class="text-indigo-300 font-semibold">Datasets</a>
+                <a href="index.html#cta" class="text-gray-300 hover:text-indigo-400 transition-colors">Contact</a>
+            </nav>
+        </div>
+    </header>
+
+    <main class="container mx-auto px-4 pt-32 pb-10">
+        <section class="text-center text-white mb-10">
+            <h1 class="text-4xl md:text-5xl font-extrabold tracking-tight">Datasets</h1>
+            <p class="mt-4 max-w-3xl mx-auto text-gray-300">
+                This page summarizes the diversity of tissues and benchmark scenarios represented in spCellEval.
+            </p>
+        </section>
+
+        <section class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+            <div class="bg-white/10 rounded-xl p-6 card-hover">
+                <i class="fas fa-database text-indigo-300 text-2xl mb-3"></i>
+                <h2 class="text-white font-semibold text-lg mb-1">Datasets</h2>
+                <p class="text-indigo-100 text-sm">13 curated datasets spanning multiple tissue and platform contexts.</p>
+            </div>
+            <div class="bg-white/10 rounded-xl p-6 card-hover">
+                <i class="fas fa-layer-group text-indigo-300 text-2xl mb-3"></i>
+                <h2 class="text-white font-semibold text-lg mb-1">Annotation Levels</h2>
+                <p class="text-indigo-100 text-sm">Multi-resolution labels enable fine-grained and coarse-grained evaluation.</p>
+            </div>
+            <div class="bg-white/10 rounded-xl p-6 card-hover">
+                <i class="fas fa-vial text-indigo-300 text-2xl mb-3"></i>
+                <h2 class="text-white font-semibold text-lg mb-1">Benchmark Coverage</h2>
+                <p class="text-indigo-100 text-sm">Balanced evaluation of robustness across biological and technical variability.</p>
+            </div>
+        </section>
+
+        <section class="bg-white rounded-xl shadow-sm overflow-hidden mb-8">
+            <div class="border-b border-gray-100 px-6 py-4">
+                <h2 class="text-xl font-semibold text-gray-800">Dataset Summary</h2>
+                <p class="text-gray-500 text-sm">Comprehensive overview of all datasets in the benchmark collection.</p>
+            </div>
+            <div class="p-6 overflow-x-auto">
+                <table class="w-full border-collapse min-w-[980px]">
+                    <thead>
+                        <tr class="border-b bg-gray-50">
+                            <th class="py-3 px-4 text-left text-sm font-semibold text-gray-700">S.No.</th>
+                            <th class="py-3 px-4 text-left text-sm font-semibold text-gray-700">Dataset</th>
+                            <th class="py-3 px-4 text-left text-sm font-semibold text-gray-700">Platform</th>
+                            <th class="py-3 px-4 text-left text-sm font-semibold text-gray-700">Tissue</th>
+                            <th class="py-3 px-4 text-left text-sm font-semibold text-gray-700">#cells</th>
+                            <th class="py-3 px-4 text-left text-sm font-semibold text-gray-700">#cell_types</th>
+                            <th class="py-3 px-4 text-left text-sm font-semibold text-gray-700">Annotation</th>
+                            <th class="py-3 px-4 text-left text-sm font-semibold text-gray-700">GT agreement (%)</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr class="border-b hover:bg-gray-50">
+                            <td class="py-3 px-4 text-sm text-gray-800 font-medium">1</td>
+                            <td class="py-3 px-4 text-sm text-gray-800 font-medium">cHL1_MIBI</td>
+                            <td class="py-3 px-4 text-sm text-gray-700">MIBI</td>
+                            <td class="py-3 px-4 text-sm text-gray-700">Lymph node</td>
+                            <td class="py-3 px-4 text-sm text-gray-700">1,669,853</td>
+                            <td class="py-3 px-4 text-sm text-gray-700">14</td>
+                            <td class="py-3 px-4 text-sm text-gray-700">Clustering + Pathologist verification</td>
+                            <td class="py-3 px-4 text-sm text-gray-700">–</td>
+                        </tr>
+                        <tr class="border-b hover:bg-gray-50">
+                            <td class="py-3 px-4 text-sm text-gray-800 font-medium">2</td>
+                            <td class="py-3 px-4 text-sm text-gray-800 font-medium">cHL2_MIBI</td>
+                            <td class="py-3 px-4 text-sm text-gray-700">MIBI</td>
+                            <td class="py-3 px-4 text-sm text-gray-700">Lymph node</td>
+                            <td class="py-3 px-4 text-sm text-gray-700">230,889</td>
+                            <td class="py-3 px-4 text-sm text-gray-700">12</td>
+                            <td class="py-3 px-4 text-sm text-gray-700">Clustering + Pathologist verification</td>
+                            <td class="py-3 px-4 text-sm text-gray-700">91.4</td>
+                        </tr>
+                        <tr class="border-b hover:bg-gray-50">
+                            <td class="py-3 px-4 text-sm text-gray-800 font-medium">3</td>
+                            <td class="py-3 px-4 text-sm text-gray-800 font-medium">cHL_CODEX</td>
+                            <td class="py-3 px-4 text-sm text-gray-700">CODEX</td>
+                            <td class="py-3 px-4 text-sm text-gray-700">Lymph node</td>
+                            <td class="py-3 px-4 text-sm text-gray-700">145,161</td>
+                            <td class="py-3 px-4 text-sm text-gray-700">16</td>
+                            <td class="py-3 px-4 text-sm text-gray-700">Clustering + Pathologist verification</td>
+                            <td class="py-3 px-4 text-sm text-gray-700">–</td>
+                        </tr>
+                        <tr class="border-b hover:bg-gray-50">
+                            <td class="py-3 px-4 text-sm text-gray-800 font-medium">4</td>
+                            <td class="py-3 px-4 text-sm text-gray-800 font-medium">myeloma_IMC</td>
+                            <td class="py-3 px-4 text-sm text-gray-700">IMC</td>
+                            <td class="py-3 px-4 text-sm text-gray-700">Bone marrow</td>
+                            <td class="py-3 px-4 text-sm text-gray-700">76,000</td>
+                            <td class="py-3 px-4 text-sm text-gray-700">12</td>
+                            <td class="py-3 px-4 text-sm text-gray-700">Manual visual gating+XGBoost</td>
+                            <td class="py-3 px-4 text-sm text-gray-700">–</td>
+                        </tr>
+                        <tr class="border-b hover:bg-gray-50">
+                            <td class="py-3 px-4 text-sm text-gray-800 font-medium">5</td>
+                            <td class="py-3 px-4 text-sm text-gray-800 font-medium">Mouse Heart</td>
+                            <td class="py-3 px-4 text-sm text-gray-700">Lunaphore</td>
+                            <td class="py-3 px-4 text-sm text-gray-700">Heart (Mouse)</td>
+                            <td class="py-3 px-4 text-sm text-gray-700">563,180</td>
+                            <td class="py-3 px-4 text-sm text-gray-700">19</td>
+                            <td class="py-3 px-4 text-sm text-gray-700">Clustering</td>
+                            <td class="py-3 px-4 text-sm text-gray-700">–</td>
+                        </tr>
+                        <tr class="border-b hover:bg-gray-50">
+                            <td class="py-3 px-4 text-sm text-gray-800 font-medium">6</td>
+                            <td class="py-3 px-4 text-sm text-gray-800 font-medium">healthy_bone_marrow</td>
+                            <td class="py-3 px-4 text-sm text-gray-700">CODEX</td>
+                            <td class="py-3 px-4 text-sm text-gray-700">Bone marrow</td>
+                            <td class="py-3 px-4 text-sm text-gray-700">1,200,000</td>
+                            <td class="py-3 px-4 text-sm text-gray-700">36</td>
+                            <td class="py-3 px-4 text-sm text-gray-700">Clustering</td>
+                            <td class="py-3 px-4 text-sm text-gray-700">–</td>
+                        </tr>
+                        <tr class="border-b hover:bg-gray-50">
+                            <td class="py-3 px-4 text-sm text-gray-800 font-medium">7</td>
+                            <td class="py-3 px-4 text-sm text-gray-800 font-medium">feto_maternal</td>
+                            <td class="py-3 px-4 text-sm text-gray-700">MIBI</td>
+                            <td class="py-3 px-4 text-sm text-gray-700">Decidua</td>
+                            <td class="py-3 px-4 text-sm text-gray-700">500,000</td>
+                            <td class="py-3 px-4 text-sm text-gray-700">26</td>
+                            <td class="py-3 px-4 text-sm text-gray-700">Clustering</td>
+                            <td class="py-3 px-4 text-sm text-gray-700">–</td>
+                        </tr>
+                        <tr class="border-b hover:bg-gray-50">
+                            <td class="py-3 px-4 text-sm text-gray-800 font-medium">8</td>
+                            <td class="py-3 px-4 text-sm text-gray-800 font-medium">IMMUcan</td>
+                            <td class="py-3 px-4 text-sm text-gray-700">IMC</td>
+                            <td class="py-3 px-4 text-sm text-gray-700">Multiple (Cancer lesions)</td>
+                            <td class="py-3 px-4 text-sm text-gray-700">457,117</td>
+                            <td class="py-3 px-4 text-sm text-gray-700">15</td>
+                            <td class="py-3 px-4 text-sm text-gray-700">Manual</td>
+                            <td class="py-3 px-4 text-sm text-gray-700">94.1</td>
+                        </tr>
+                        <tr class="border-b hover:bg-gray-50">
+                            <td class="py-3 px-4 text-sm text-gray-800 font-medium">9</td>
+                            <td class="py-3 px-4 text-sm text-gray-800 font-medium">cycif_ovca</td>
+                            <td class="py-3 px-4 text-sm text-gray-700">Rarecyte</td>
+                            <td class="py-3 px-4 text-sm text-gray-700">Ovary</td>
+                            <td class="py-3 px-4 text-sm text-gray-700">2,735,711</td>
+                            <td class="py-3 px-4 text-sm text-gray-700">13</td>
+                            <td class="py-3 px-4 text-sm text-gray-700">TRIBUS+Manual</td>
+                            <td class="py-3 px-4 text-sm text-gray-700">–</td>
+                        </tr>
+                        <tr class="border-b hover:bg-gray-50">
+                            <td class="py-3 px-4 text-sm text-gray-800 font-medium">10</td>
+                            <td class="py-3 px-4 text-sm text-gray-800 font-medium">Breast_Jun0524</td>
+                            <td class="py-3 px-4 text-sm text-gray-700">CODEX</td>
+                            <td class="py-3 px-4 text-sm text-gray-700">Breast</td>
+                            <td class="py-3 px-4 text-sm text-gray-700">7,610</td>
+                            <td class="py-3 px-4 text-sm text-gray-700">14</td>
+                            <td class="py-3 px-4 text-sm text-gray-700">Manual</td>
+                            <td class="py-3 px-4 text-sm text-gray-700">–</td>
+                        </tr>
+                        <tr class="border-b hover:bg-gray-50">
+                            <td class="py-3 px-4 text-sm text-gray-800 font-medium">11</td>
+                            <td class="py-3 px-4 text-sm text-gray-800 font-medium">CRC_Feb2623</td>
+                            <td class="py-3 px-4 text-sm text-gray-700">CODEX</td>
+                            <td class="py-3 px-4 text-sm text-gray-700">Colon</td>
+                            <td class="py-3 px-4 text-sm text-gray-700">2,505</td>
+                            <td class="py-3 px-4 text-sm text-gray-700">17</td>
+                            <td class="py-3 px-4 text-sm text-gray-700">Manual</td>
+                            <td class="py-3 px-4 text-sm text-gray-700">–</td>
+                        </tr>
+                        <tr class="border-b hover:bg-gray-50">
+                            <td class="py-3 px-4 text-sm text-gray-800 font-medium">12</td>
+                            <td class="py-3 px-4 text-sm text-gray-800 font-medium">GVHD_Feb1323</td>
+                            <td class="py-3 px-4 text-sm text-gray-700">MIBI</td>
+                            <td class="py-3 px-4 text-sm text-gray-700">GI-tract</td>
+                            <td class="py-3 px-4 text-sm text-gray-700">1,794</td>
+                            <td class="py-3 px-4 text-sm text-gray-700">17</td>
+                            <td class="py-3 px-4 text-sm text-gray-700">Manual</td>
+                            <td class="py-3 px-4 text-sm text-gray-700">–</td>
+                        </tr>
+                        <tr class="border-b hover:bg-gray-50">
+                            <td class="py-3 px-4 text-sm text-gray-800 font-medium">13</td>
+                            <td class="py-3 px-4 text-sm text-gray-800 font-medium">Melanoma_Oct2522</td>
+                            <td class="py-3 px-4 text-sm text-gray-700">MIBI</td>
+                            <td class="py-3 px-4 text-sm text-gray-700">Multiple (Melanoma lesions)</td>
+                            <td class="py-3 px-4 text-sm text-gray-700">21,204</td>
+                            <td class="py-3 px-4 text-sm text-gray-700">18</td>
+                            <td class="py-3 px-4 text-sm text-gray-700">Manual</td>
+                            <td class="py-3 px-4 text-sm text-gray-700">–</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </section>
+
+        <section class="bg-white rounded-xl shadow-sm overflow-hidden mb-8">
+            <div class="border-b border-gray-100 px-6 py-4">
+                <h2 class="text-xl font-semibold text-gray-800">Cell Type Abundance</h2>
+                <p class="text-gray-500 text-sm">Distribution of cell types across datasets. Select a dataset to view the abundance.</p>
+            </div>
+            <div class="p-6">
+                <div class="mb-6 flex flex-col sm:flex-row sm:items-center gap-4">
+                    <label for="cellTypeDatasetSelect" class="text-sm font-medium text-gray-700 sm:mb-0">Select Dataset:</label>
+                    <select id="cellTypeDatasetSelect" class="w-full sm:w-72 bg-gray-50 border border-gray-200 rounded-md py-2 pl-3 pr-8 text-gray-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-sm appearance-none">
+                        <option value="">Loading datasets...</option>
+                    </select>
+                </div>
+                <div id="cellTypeLegend" class="flex flex-wrap justify-center gap-3 mb-4"></div>
+                <div class="w-full" style="position: center; height: 400px;">
+                    <canvas id="cellTypeChart"></canvas>
+                </div>
+            </div>
+        </section>
+
+        <section class="bg-white rounded-xl shadow-sm overflow-hidden mb-8">
+            <div class="border-b border-gray-100 px-6 py-4">
+                <h2 class="text-xl font-semibold text-gray-800">Celltype Distribution</h2>
+                <p class="text-gray-500 text-sm">Interactive hierarchy of celltype composition in all datasets.</p>
+            </div>
+            <div class="p-6">
+                <div class="relative w-full max-w-5xl mx-auto" style="padding-bottom: 68%; height: 0;">
+                    <iframe src="./plotly_figures/sunburst_distribution.html" class="absolute top-0 left-0 w-full h-full rounded-lg" frameborder="0" style="border:0;"></iframe>
+                </div>
+            </div>
+        </section>
+
+
+
+        <section class="bg-gradient-to-r from-indigo-700 to-teal-700 rounded-xl p-8 text-center">
+            <h2 class="text-2xl font-bold text-white">Inspect Method-Level Scores</h2>
+            <p class="mt-2 text-indigo-100">Return to the results page for filtering and sorting detailed metric tables.</p>
+            <a href="results.html" class="inline-block mt-5 px-6 py-3 bg-white text-indigo-700 font-semibold rounded-lg hover:bg-gray-100 transition-colors">Back To Results</a>
+        </section>
+    </main>
+
+    <script>
+        let cellTypeData = {};
+        let cellTypeChart = null;
+
+        Papa.parse('./plotly_figures/cell_type_abundance_bin_summary.csv', {
+            header: true,
+            download: true,
+            complete: function(results) {
+                const rows = results.data.filter(row => Object.values(row).some(value => value));
+                
+                // Group data by dataset
+                rows.forEach(row => {
+                    const dataset = row.dataset || '';
+                    const cellType = row.cell_type || '';
+                    const abundancePct = parseFloat(row.abundance_pct) || 0;
+                    const abundanceBin = row.abundance_bin || '';
+                    
+                    if (!dataset || !cellType) return;
+                    
+                    if (!cellTypeData[dataset]) {
+                        cellTypeData[dataset] = [];
+                    }
+                    cellTypeData[dataset].push({
+                        cellType: cellType,
+                        abundancePct: abundancePct,
+                        abundanceBin: abundanceBin
+                    });
+                });
+
+                // Sort datasets and populate dropdown
+                const datasetSelect = document.getElementById('cellTypeDatasetSelect');
+                const datasets = Object.keys(cellTypeData).sort();
+                
+                if (datasets.length === 0) {
+                    datasetSelect.innerHTML = '<option value="">No dataset data found</option>';
+                    return;
+                }
+
+                datasetSelect.innerHTML = '';
+                datasets.forEach((dataset, index) => {
+                    const option = document.createElement('option');
+                    option.value = dataset;
+                    option.textContent = dataset;
+                    if (index === 0) option.selected = true;
+                    datasetSelect.appendChild(option);
+                });
+
+                // Plot the first dataset by default
+                plotCellTypeChart(datasets[0]);
+            },
+            error: function(err) {
+                console.error('Error loading CSV:', err);
+                document.getElementById('cellTypeDatasetSelect').innerHTML = '<option value="">Error loading data</option>';
+            }
+        });
+
+        function plotCellTypeChart(dataset) {
+            if (!cellTypeData[dataset]) return;
+
+            const data = cellTypeData[dataset].slice(); // Copy array to avoid mutation
+            
+            // Define bin order and colors
+            const binOrder = ['abundant', 'common', 'rare', 'ultra_rare'];
+            const binColors = {
+                'abundant': '#ef4444',
+                'common': '#f97316',
+                'rare': '#eab308',
+                'ultra_rare': '#84cc16'
+            };
+
+            const legendLabels = {
+                'abundant': 'Abundant',
+                'common': 'Common',
+                'rare': 'Rare',
+                'ultra_rare': 'Ultra rare'
+            };
+
+            const legendContainer = document.getElementById('cellTypeLegend');
+            legendContainer.innerHTML = binOrder.map(bin => `
+                <div class="flex items-center gap-2 text-sm text-gray-700">
+                    <span class="inline-block w-3 h-3 rounded-sm" style="background-color: ${binColors[bin]};"></span>
+                    <span>${legendLabels[bin]}</span>
+                </div>
+            `).join('');
+
+            // Sort first by abundance category, then by abundance percentage.
+            data.sort((a, b) => {
+                const binDiff = binOrder.indexOf(a.abundanceBin) - binOrder.indexOf(b.abundanceBin);
+                if (binDiff !== 0) return binDiff;
+                return b.abundancePct - a.abundancePct;
+            });
+            
+            const labels = data.map(d => d.cellType);
+            const abundances = data.map(d => d.abundancePct);
+            const colors = data.map(d => binColors[d.abundanceBin] || '#6366f1');
+
+            // Calculate separator positions between contiguous abundance blocks.
+            const separators = [];
+            for (let i = 1; i < data.length; i++) {
+                if (data[i].abundanceBin !== data[i-1].abundanceBin) {
+                    separators.push(i - 0.5); // Position between bars
+                }
+            }
+
+            const ctx = document.getElementById('cellTypeChart').getContext('2d');
+            
+            // Destroy existing chart if it exists
+            if (cellTypeChart) {
+                cellTypeChart.destroy();
+            }
+
+            // Create chart with custom plugin for dotted line separators
+            cellTypeChart = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: 'Abundance (%)',
+                        data: abundances,
+                        backgroundColor: colors,
+                        borderColor: colors,
+                        borderWidth: 1
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            display: false,
+                            position: 'top'
+                        },
+                        title: {
+                            display: true,
+                            text: `Cell Type Abundance - ${dataset}`,
+                            font: {
+                                size: 14,
+                                weight: 'bold'
+                            }
+                        }
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            title: {
+                                display: true,
+                                text: 'Abundance (%)'
+                            }
+                        },
+                        x: {
+                            title: {
+                                display: true,
+                                text: 'Cell Type'
+                            }
+                        }
+                    }
+                },
+                plugins: [{
+                    id: 'separatorLines',
+                    afterDatasetsDraw(chart) {
+                        const {ctx, chartArea: {top, bottom}} = chart;
+                        const xScale = chart.scales.x;
+                        
+                        ctx.save();
+                        ctx.strokeStyle = '#999';
+                        ctx.lineWidth = 2;
+                        ctx.setLineDash([5, 5]); // Dotted line
+                        
+                        separators.forEach(sep => {
+                            // Convert data index to pixel position
+                            const xPixel = xScale.getPixelForValue(sep);
+                            ctx.beginPath();
+                            ctx.moveTo(xPixel, top);
+                            ctx.lineTo(xPixel, bottom);
+                            ctx.stroke();
+                        });
+                        
+                        ctx.restore();
+                    }
+                }]
+            });
+        }
+
+        document.getElementById('cellTypeDatasetSelect').addEventListener('change', function(e) {
+            if (e.target.value) {
+                plotCellTypeChart(e.target.value);
+            }
+        });
+    </script>
+</body>
+</html>
