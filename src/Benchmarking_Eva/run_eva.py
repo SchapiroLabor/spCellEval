@@ -90,18 +90,23 @@ import numpy as np
 import pandas as pd
 import tifffile
 from tqdm import tqdm
+from omegaconf import OmegaConf
+from Eva.utils import load_from_hf
+import torch
 
-warnings.filterwarnings('ignore', category=FutureWarning)
-warnings.filterwarnings('ignore', category=UserWarning)
+
 
 # Import shared benchmark utilities
 sys.path.insert(0, str(Path(__file__).parent))
-from utils_benchmark import (
+from project.notebooks.utils_foundational_models import (
     load_label_map, load_folds, get_label,
     save_embeddings, load_embeddings, rebuild_img_feature_store,
     run_supervised, run_leiden,
     add_shared_args,
 )
+
+warnings.filterwarnings('ignore', category=FutureWarning)
+warnings.filterwarnings('ignore', category=UserWarning)
 
 # Marker definitions 
 
@@ -140,10 +145,8 @@ def load_eva_model(eva_dir, device):
                           os.environ.get('LD_LIBRARY_PATH', ''))
     os.environ.setdefault('PYTORCH_CUDA_ALLOC_CONF', 'expandable_segments:True')
 
-    import torch
+    
     sys.path.insert(0, str(eva_dir))
-    from omegaconf import OmegaConf
-    from Eva.utils import load_from_hf
 
     os.chdir(str(eva_dir))
     conf  = OmegaConf.load(Path(eva_dir) / 'config.yaml')
@@ -194,7 +197,6 @@ def extract_features_batch(patches, model, biomarkers, device):
     Eva's patch_embed uses .view() which needs contiguous memory.
     Without this: RuntimeError: view size is not compatible.
     """
-    import torch
     batch       = np.stack(patches)
     batch_t     = torch.from_numpy(batch).to(device)
     batch_input = batch_t.permute(0, 3, 1, 2).contiguous()  # (N, C, 224, 224)
@@ -211,7 +213,7 @@ def extract_token_map(img, model, biomarkers, device, patch_size):
     Per-cell feature = mean of token vectors over cell mask pixels.
     ~9 forward passes per 600×600 image.
     """
-    import torch
+
     H, W, C  = img.shape
     feat_dim = 768
     stride   = patch_size // 2
@@ -265,7 +267,7 @@ def extract_features(args, model, all_images, clean_indices, biomarkers, label_m
     Supports both 'bbox' (v7) and 'tile' (v3) embedding modes.
     Results are cached per image for crash-safe resumption.
     """
-    import torch
+    
 
     data_dir  = Path(args.data_dir)
     cache_dir = Path(args.output_dir) / 'embeddings' / 'cache'

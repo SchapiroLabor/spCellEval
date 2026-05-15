@@ -23,10 +23,15 @@ import sys
 import json
 import time
 from pathlib import Path
-
 import numpy as np
 import pandas as pd
-
+import scanpy as sc
+from sklearn.neighbors import KNeighborsClassifier
+from sklearn.metrics import (f1_score, adjusted_rand_score,
+                                 normalized_mutual_info_score,
+                                 matthews_corrcoef, cohen_kappa_score)
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.metrics import classification_report
 
 # Ground Truth 
 
@@ -142,10 +147,7 @@ def greedy_f1_score(df, true_label_col, predicted_cluster_col,
     dict with keys: f1_macro, f1_weighted, accuracy, ari, nmi,
                     mcc, kappa, mapping, mapped_predictions
     """
-    from sklearn.metrics import (f1_score, adjusted_rand_score,
-                                 normalized_mutual_info_score,
-                                 matthews_corrcoef, cohen_kappa_score)
-
+    
     contingency     = pd.crosstab(df[true_label_col], df[predicted_cluster_col])
     cluster_to_label = {}
 
@@ -234,8 +236,7 @@ def run_supervised(args, folds, img_feature_store, all_feats_arr, metadata_all,
     metadata_all      : pd.DataFrame with image_id, cell_id, label
     method_name       : override output folder name (default: EVA_supervised_{embedding_mode})
     """
-    from sklearn.ensemble import RandomForestClassifier
-    from sklearn.metrics import classification_report
+
 
     if method_name is None:
         method_name = f"EVA_supervised_{args.embedding_mode}"
@@ -376,8 +377,7 @@ def run_leiden(args, folds, img_feature_store, all_feats_arr, metadata_all,
     metadata_all      : pd.DataFrame with image_id, cell_id, label
     method_name       : override output folder name
     """
-    import scanpy as sc
-    from sklearn.neighbors import KNeighborsClassifier
+    
 
     if method_name is None:
         method_name = f"EVA_leiden_{args.embedding_mode}"
