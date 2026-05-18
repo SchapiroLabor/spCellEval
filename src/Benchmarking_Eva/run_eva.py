@@ -15,6 +15,7 @@ python run_eva.py extract \\
     --output-dir    /path/to/output \\
     --embedding-mode bbox \\
     --device        cuda:1
+
 # Supervised Random Forest (loads precomputed embeddings if available)
 python run_eva.py supervised \\
     --data-dir      /path/to/IMMUcan \\
@@ -40,33 +41,33 @@ python run_eva.py all \\
     --embedding-mode bbox \\
     --device        cuda:1 \\
     --n-jobs        -1
-    
+
 # For Julia
-python run_eva.py all \
-    --data-dir   /home/juliaoesterle/data/phenotyping_benchmark/IMMUcan/ \
-    --eva-dir    /home/juliaoesterle/eva/project \
-    --output-dir /home/juliaoesterle/results/eva_bbox \
-    --embedding-mode bbox \
+python run_eva.py all \\
+    --data-dir   /home/juliaoesterle/data/phenotyping_benchmark/IMMUcan/ \\
+    --eva-dir    /home/juliaoesterle/eva/project \\
+    --output-dir /home/juliaoesterle/results/eva_bbox \\
+    --embedding-mode bbox \\
     --device cuda:1
 
 Embedding modes (--embedding-mode)
 -----------------------------------
-bbox  Adaptive bounding box from segmentation mask -> zero-pad to 224×224.
-      Each cell gets exactly its own pixels. CLS token as feature. 
-      Most IMMUcan cells: mean bbox 9.5×10.6px, mean area 78.7px²
+bbox  Adaptive bounding box from segmentation mask -> zero-pad to 224x224.
+      Each cell gets exactly its own pixels. CLS token as feature.
+      Most IMMUcan cells: mean bbox 9.5x10.6px, mean area 78.7px²
 
-tile  224×224 overlapping tissue tiles → full spatial token map ->
-      mean spatial tokens over cell mask pixels as feature. 
+tile  224x224 overlapping tissue tiles -> full spatial token map ->
+      mean spatial tokens over cell mask pixels as feature.
       ~9 Eva forward passes per image (~18 min total for 179 images)
 
 Output structure
 ----------------
 {output_dir}/
 ├── embeddings/
-│   ├── cache/                             ← per-image cache (crash-safe)
-│   ├── all_cell_features.npy              ← (N_cells × 768)
-│   ├── all_cell_metadata.csv              ← image_id, cell_id, label
-│   └── leiden_clusters_res{X}.csv         ← Leiden + UMAP (leiden mode)
+│   ├── cache/                             <- per-image cache (crash-safe)
+│   ├── all_cell_features.npy              <- (N_cells x 768)
+│   ├── all_cell_metadata.csv              <- image_id, cell_id, label
+│   └── leiden_clusters_res{X}.csv         <- Leiden + UMAP (leiden mode)
 ├── EVA_supervised_{embedding}/
 │   └── level3/
 │       ├── predictions_0.csv ... predictions_4.csv
@@ -78,7 +79,7 @@ Output structure
 
 Notes
 -----
-- Eva requires 224×224 input (hard-coded assertion in patch_embed layer)
+- Eva requires 224x224 input (hard-coded assertion in patch_embed layer)
 - .contiguous() is required after .permute() before Eva forward pass
 - CLS token (index 0) used as cell feature in bbox mode
 - Mean spatial tokens used as cell feature in tile mode
@@ -86,6 +87,7 @@ Notes
 - Embeddings are reused across supervised/leiden runs automatically
 """
 
+# Standard library 
 import os
 import sys
 import time
@@ -93,22 +95,43 @@ import argparse
 import warnings
 from pathlib import Path
 
+#  CUDA env vars
+os.environ.setdefault('CUDA_HOME', '/usr/local/cuda-12.3')
+os.environ.setdefault('LD_LIBRARY_PATH',
+                      '/usr/local/cuda-12.3/lib64:' +
+                      os.environ.get('LD_LIBRARY_PATH', ''))
+os.environ.setdefault('PYTORCH_CUDA_ALLOC_CONF', 'expandable_segments:True')
+
+#  Third-party
 import numpy as np
 import pandas as pd
 import tifffile
+import torch
 from tqdm import tqdm
+
+#  Shared benchmark utilities 
+# utils_benchmark.py must be in the same directory as run_eva.py
+sys.path.insert(0, str(Path(__file__).parent))
+from utils_benchmark import (
+    load_label_map,
+    load_folds,
+    get_label,
+    save_embeddings,
+    load_embeddings,
+    rebuild_img_feature_store,
+    run_supervised,
+    run_leiden,
+    add_shared_args,
+)
+
+#  Eva model utilities 
+# OmegaConf and Eva.utils are imported inside load_eva_model() because
+# Eva must first be added to sys.path using the runtime --eva-dir argument.
+# Importing them here would raise ModuleNotFoundError before --eva-dir is parsed.
 
 warnings.filterwarnings('ignore', category=FutureWarning)
 warnings.filterwarnings('ignore', category=UserWarning)
 
-# Import shared benchmark utilities
-sys.path.insert(0, str(Path(__file__).parent))
-from utils_benchmark import (
-    load_label_map, load_folds, get_label,
-    save_embeddings, load_embeddings, rebuild_img_feature_store,
-    run_supervised, run_leiden,
-    add_shared_args,
-)
 
 # Marker definitions 
 
@@ -132,25 +155,19 @@ def get_clean_markers(exclude):
     return clean_idx, clean_names
 
 
-# Eva model loading 
+#  Eva model loading 
 
 def load_eva_model(eva_dir, device):
     """
     Load Eva model from HuggingFace checkpoint.
-    Sets required CUDA env vars before importing torch.
+    OmegaConf and Eva.utils are imported here because Eva must first be added
+    to sys.path using the runtime --eva-dir argument.
     Requires HuggingFace authentication: huggingface-cli auth login
     Model: yandrewl/Eva (public gated repo — access request required)
     """
-    os.environ.setdefault('CUDA_HOME', '/usr/local/cuda-12.3')
-    os.environ.setdefault('LD_LIBRARY_PATH',
-                          '/usr/local/cuda-12.3/lib64:' +
-                          os.environ.get('LD_LIBRARY_PATH', ''))
-    os.environ.setdefault('PYTORCH_CUDA_ALLOC_CONF', 'expandable_segments:True')
-
-    import torch
     sys.path.insert(0, str(eva_dir))
-    from omegaconf import OmegaConf
-    from Eva.utils import load_from_hf
+    from omegaconf import OmegaConf       # requires Eva venv
+    from Eva.utils import load_from_hf    # requires eva_dir on sys.path
 
     os.chdir(str(eva_dir))
     conf  = OmegaConf.load(Path(eva_dir) / 'config.yaml')
@@ -160,15 +177,15 @@ def load_eva_model(eva_dir, device):
     return model
 
 
-# Eva-specific patch extraction 
+#  Eva-specific patch extraction 
 
 def get_bbox_patch(img, ys, xs, patch_size=224):
     """
     Adaptive bounding box: crop exact cell bbox from segmentation mask
-    pixels → symmetrically zero-pad to patch_size × patch_size.
+    pixels -> symmetrically zero-pad to patch_size x patch_size.
 
     Unlike fixed crops, captures the full cell regardless of shape/size.
-    Mean IMMUcan cell: 9.5×10.6px bbox, 78.7px² area.
+    Mean IMMUcan cell: 9.5x10.6px bbox, 78.7px² area.
 
     Returns: (patch, bbox_h, bbox_w)
     """
@@ -194,14 +211,13 @@ def get_bbox_patch(img, ys, xs, patch_size=224):
 
 def extract_features_batch(patches, model, biomarkers, device):
     """
-    Bbox mode: batched Eva forward pass on 224×224 patches.
+    Bbox mode: batched Eva forward pass on 224x224 patches.
     Returns CLS token (index 0) as cell feature: (N, 768).
 
     CRITICAL: .contiguous() after .permute() is required.
     Eva's patch_embed uses .view() which needs contiguous memory.
     Without this: RuntimeError: view size is not compatible.
     """
-    import torch
     batch       = np.stack(patches)
     batch_t     = torch.from_numpy(batch).to(device)
     batch_input = batch_t.permute(0, 3, 1, 2).contiguous()  # (N, C, 224, 224)
@@ -213,12 +229,11 @@ def extract_features_batch(patches, model, biomarkers, device):
 
 def extract_token_map(img, model, biomarkers, device, patch_size):
     """
-    Tile mode (v3): overlapping 224×224 patches → H×W×768 token map.
+    Tile mode (v3): overlapping 224x224 patches -> HxWx768 token map.
     Tokens are averaged where patches overlap.
     Per-cell feature = mean of token vectors over cell mask pixels.
-    ~9 forward passes per 600×600 image.
+    ~9 forward passes per 600x600 image.
     """
-    import torch
     H, W, C  = img.shape
     feat_dim = 768
     stride   = patch_size // 2
@@ -264,7 +279,7 @@ def extract_token_map(img, model, biomarkers, device, patch_size):
     return feat_accum / count_accum[:, :, np.newaxis]
 
 
-#  Feature extraction
+#  Feature extraction 
 
 def extract_features(args, model, all_images, clean_indices, biomarkers, label_map):
     """
@@ -272,8 +287,6 @@ def extract_features(args, model, all_images, clean_indices, biomarkers, label_m
     Supports both 'bbox' (v7) and 'tile' (v3) embedding modes.
     Results are cached per image for crash-safe resumption.
     """
-    import torch
-
     data_dir  = Path(args.data_dir)
     cache_dir = Path(args.output_dir) / 'embeddings' / 'cache'
     cache_dir.mkdir(parents=True, exist_ok=True)
@@ -325,7 +338,7 @@ def extract_features(args, model, all_images, clean_indices, biomarkers, label_m
         cell_ids = cell_ids[cell_ids > 0]
 
         if args.embedding_mode == 'bbox':
-            #  Adaptive bounding box 
+            # Adaptive bounding box
             patches_buf, labels_buf, cell_ids_buf = [], [], []
             for cell_id in cell_ids:
                 label  = get_label(int(cell_id), cell_labels, label_map)
@@ -345,7 +358,7 @@ def extract_features(args, model, all_images, clean_indices, biomarkers, label_m
                 torch.cuda.empty_cache()
 
         else:
-            #  Tile-based spatial token map 
+            # Tile-based spatial token map
             token_map = extract_token_map(
                 img, model, biomarkers, args.device, args.patch_size
             )
@@ -360,7 +373,7 @@ def extract_features(args, model, all_images, clean_indices, biomarkers, label_m
 
         feats_arr = np.array(all_feats)
 
-        # Save per-image cache 
+        # Save per-image cache
         np.save(cache_feat, feats_arr)
         pd.DataFrame({
             'image_id': [img_name] * len(cell_ids_buf),
@@ -393,7 +406,7 @@ def extract_features(args, model, all_images, clean_indices, biomarkers, label_m
     return img_feature_store, all_feats_arr, metadata_all
 
 
-# Argument Parser 
+#  Argument Parser 
 
 def build_parser():
     parser = argparse.ArgumentParser(
@@ -412,11 +425,11 @@ def build_parser():
                 'extract':    'Extract Eva embeddings only (reusable downstream)',
                 'supervised': 'Supervised Random Forest + 5-fold CV',
                 'leiden':     'Leiden clustering + greedy F1',
-                'all':        'extract → supervised → leiden in sequence',
+                'all':        'extract -> supervised -> leiden in sequence',
             }[m]
         )
 
-        # Eva-specific arguments 
+        # Eva-specific arguments
         p.add_argument('--eva-dir', required=True,
                        help='Eva project directory (contains config.yaml, Eva/)')
         p.add_argument('--embedding-mode', choices=['bbox', 'tile'], default='bbox',
@@ -432,7 +445,7 @@ def build_parser():
         p.add_argument('--device', default='cuda:1',
                        help='PyTorch device (cuda:0, cuda:1, cpu)')
 
-        #  Shared arguments from utils_benchmark 
+        # Shared arguments from utils_benchmark
         add_shared_args(p)
 
     return parser
@@ -449,7 +462,7 @@ def main():
     print(f"run_eva.py | mode={args.mode} | embedding={args.embedding_mode}")
     print(f"{'='*60}")
 
-    # Setup 
+    # Setup
     clean_indices, biomarkers = get_clean_markers(args.exclude_markers)
     label_map                 = load_label_map(args.data_dir)
     folds, all_images         = load_folds(args.data_dir, args.n_folds)
@@ -487,7 +500,7 @@ def main():
 
     total_time = time.time() - total_start
     print(f"\n{'='*60}")
-    print(f"✓ run_eva.py complete | total: {total_time:.1f}s "
+    print(f"run_eva.py complete | total: {total_time:.1f}s "
           f"({total_time/3600:.2f}h)")
     print(f"{'='*60}\n")
 
