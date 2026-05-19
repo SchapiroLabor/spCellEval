@@ -123,10 +123,11 @@ KRONOS_NAME_MAPPINGS = {
     'HLADR':       'HLA_DR',
     'CD8a':        'CD8',
     'cleavedPARP': 'CLEAVED_CASP3',
+    'Ecad':        'CDH1',
 }
 
 KRONOS_NO_EQUIVALENT = {
-    'SMA', 'PDGFRb', 'TCF7', 'CarbonicAnhydrase', 'Ecad', 'CD33', 'CD303'
+    'SMA', 'PDGFRb', 'TCF7', 'CarbonicAnhydrase', 'CD33', 'CD303'
 }
 
 # uint16 max — matches authors exactly
