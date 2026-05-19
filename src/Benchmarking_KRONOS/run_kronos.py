@@ -161,13 +161,12 @@ KRONOS_NAME_MAPPINGS = {
     'GrzB':        'GZMB',           # same gene, different antibody name
     'HLADR':       'HLA_DR',         # same protein
     'CD8a':        'CD8',            # same protein
-    'cleavedPARP': 'CLEAVED_CASP3',  # apoptosis proxy — closest available
-    'Ecad':        'CDH1',    
+    'cleavedPARP': 'CLEAVED_CASP3',  # apoptosis proxy — closest available   
 }
 
 # Markers with no KRONOS equivalent — will use mean=0, std=1 (no normalisation)
 KRONOS_NO_EQUIVALENT = {
-    'SMA', 'PDGFRb', 'TCF7', 'CarbonicAnhydrase', 'CD33', 'CD303'
+    'SMA', 'PDGFRb', 'TCF7', 'CarbonicAnhydrase', 'Ecad','CD33', 'CD303'
 }
 
 
