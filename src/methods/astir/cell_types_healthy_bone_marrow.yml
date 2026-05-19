@@ -1,0 +1,69 @@
+cell_types:
+  Macrophage:
+    - CD68
+    - CD163
+  Mature Myeloid:
+    - CD11B
+    - CD141
+  Early Myeloid Progenitor:
+    - CD33
+    - MPO 
+  Intermediate Myeloid:
+    - CD11B
+    - CD33
+  Plasma_cell:
+    - CD79A
+    - CD38
+  B_cells:
+    - CD79A
+  Immature_B_cell:
+    - CD79A
+    - PAX5
+  AEC:
+    - VECAD
+    - CXCL12
+  SEC:
+    - VECAD
+  Stem_progenitors:
+    - CD34
+  Erythroblast:
+    - CD71
+    - GATA1
+    - GYPC
+  Erythroid:
+    - GYPC
+  CD4+_T_cell:
+    - CD4
+    - CD3e
+  CD8+_T_cell:
+    - CD8
+    - CD3e
+  Plasmacytoid_dendritic_cell:
+    - CD123
+  Moncyte:
+    - CD14
+  Non-classical_Monocyte:
+    - CD11c
+    - HLA-DR
+  GATA1neg_Mks:
+    - CD61
+    - TGFB1
+  GATA1pos_Mks:
+    - CD61
+    - GATA1
+    - TGFB1
+  Adipo-MSC:
+    - FOXC1
+    - CXCL12
+  THY1+ MSC:
+    - CD90
+    - FOXC1
+    - CXCL12
+  Adipocyte:
+    - CD138
+    - CD146
+  Schwann Cells:
+    - CD271
+    - PLP1
+  VSMC:
+    - ASMA

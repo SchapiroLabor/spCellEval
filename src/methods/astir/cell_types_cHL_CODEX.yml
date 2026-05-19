@@ -1,0 +1,41 @@
+cell_types:
+  Cancer:
+    - CD30
+  CD4+_T_cell:
+    - CD4
+    - TCRb
+  CD8+_T_cell:
+    - CD8
+    - TCRb
+  Cytotoxic_CD8+_T_cell:
+    - CD8
+    - TCRb
+    - Granzyme.B
+  Treg:
+    - FoxP3
+    - CD4
+    - TCRb
+  NK_cell:
+    - CD56
+  B_cell:
+    - CD20
+  Neutrophil:
+    - CD15
+  M2_Macrophage:
+    - CD163
+    - CD206
+  Dendritic_cell:
+    - CD11c
+    - HLA.DR
+  M1_Macrophage:
+    - CD68
+  Endothelial:
+    - CD31
+  Monocyte:
+    - CD11b
+  Epithelial:
+    - Cytokeratin
+  Lymphatic:
+    - Podoplanin
+  Mast_cell:
+    - MCT

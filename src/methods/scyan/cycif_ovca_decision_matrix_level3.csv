@@ -1,0 +1,12 @@
+Populations,FOXP3,MHCII,CD8a,SMA,CD11c,CD31,Ki67,CD4,CD20,CK7,CD3d,CD163,Vimentin,Annexin,Ecadherin,Desmin
+Cancer,,,,,,,,,,1,,,,,1,
+B_cell,,,,-1,,-1,,,1,-1,,,,,-1,
+Myofibroblasts,,,-1,1,-1,-1,,-1,,-1,-1,,1,,-1,-1
+Treg,1,,,-1,,,,1,,-1,1,,,,,
+CD4+_T_cell,-1,,,-1,,,,1,,-1,1,,,,,
+Fibroblast,,-1,,-1,,-1,,,-1,-1,-1,,1,,,-1
+M1_Macrophage,,1,,,1,,,,,-1,-1,-1,,,,
+CD8+_T_cell,,,1,-1,,,,,1,-1,,,,,
+VSMC,,,,1,,,,,,-1,,,,,,1
+Endothelial,,,,-1,,1,,,,,,,,,,-1
+M2_Macrophage,,1,,,,,,,,-1,-1,1,,,,

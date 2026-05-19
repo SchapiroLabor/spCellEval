@@ -1,0 +1,44 @@
+# By method and output category
+methods2scalability = {
+    "Clustering_based" : 0.25, 
+    "Supervised": 0.25,
+    "Prior-knowledge based": 0.75,
+    "Baselines": 1,
+    "Pre-trained models": 1
+}
+
+# create scores for all methods for automation
+scaling_scores = {
+    "Phenograph": 0.25,
+    "phenograph_80": 0.25,
+    "leiden_res2_0": 0.25,
+    "Leiden": 0.25,
+    "Starling": 0.25,
+    "CellLENS_Lite": 0.25,
+    "CellLENS_Full": 0.25,
+    "FlowSOM": 0.25,
+    "FlowSOM Meta Clusters": 0.25,
+    "FuseSOM_15": 0.25,
+    "FuseSOM_12": 0.25,
+    "FuseSOM": 0.25,
+    "XGBoost": 0.25,
+    "Logistic Regression": 0.25,
+    "Random Forest": 0.25,
+    "MAPS": 0.25,
+    "Tribus": 0.6,
+    "Scyan": 0.75,
+    "Tacit": 0.75,
+    "Astir": 0.75,
+    "Most Frequent": 0,
+    "Stratified sampler": 0,
+    "Deepcelltypes": 1,
+    "Deepcelltypes_adapted": 1,
+    "RIBCA": 1,
+    "RIBCA_adapted": 1,
+    "nimbus_flowsom_cluster": 0.25,
+    "nimbus_leiden_0_8": 0.25,
+    "nimbus_phenograph_40": 0.25,
+    "Nimbus": 0.25,
+    "CellSighter": 0.25
+
+}

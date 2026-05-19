@@ -1,0 +1,17 @@
+Populations,CD11c,CD15,CD163,CD20,CD206,CD30,CD31,CD4,CD56,CD68,CD8,FoxP3,Granzyme.B,HLA.DR,MCT,Podoplanin,TCRb,CD11b,Cytokeratin
+M2_Macrophage,,,1,,1,,,,,,,,,,,,,,
+Cancer,,,,,,1,,,,,,,,,,,,,
+Treg,,,,,,,,1,,,,1,,,,,1,,
+Neutrophil,,1,,,,,,,,,,,,,,,,,
+CD4+_T_cell,,,,,,,,1,,-1,,-1,,,,,1,,
+CD8+_T_cell,,,,,,,,,,,1,,-1,,,,1,,
+Cytotoxic_CD8+_T_cell,,,,,,,,,,-1,1,,1,,,,1,,
+Dendritic_cell,1,,,,,,,,,,,,,1,,,,,
+M1_Macrophage,,,-1,,,,,,,1,,,,,,,,,
+Endothelial,,,,,,,1,,,,,,,,,,,,
+B_cell,,,,1,,,,,,,,,,,,,,,
+NK_cell,,,,,,,,,1,,,,,,,,-1,,
+Monocyte,,,,,,,,,,-1,,,,,,,-1,1,
+Epithelial,,,,,,,,,,,,,,,,,,,1
+Lymphatic,,,,,,,,,,,,,,,,1,,,
+Mast_cell,,,,,,,,,,,,,,,1,,,,

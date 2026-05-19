@@ -1,0 +1,21 @@
+name: Cell_Sighter
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.9
+  - matplotlib=3.7.0
+  - numpy=1.23.5
+  - pandas=1.5.3
+  - pillow=10.0.0
+  - scikit-image=0.19.3
+  - scikit-learn=1.2.1
+  - scipy=1.11.1
+  - seaborn=0.12.2
+  - pip
+  - pip:
+      - opencv-python==4.7.0.72
+      - tensorboard
+      - torch==1.13.1+cu117
+      - torchvision==0.14.1+cu117
+      - --extra-index-url https://download.pytorch.org/whl/cu117

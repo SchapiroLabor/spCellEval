@@ -1,0 +1,17 @@
+Populations,CD11c,CD14,CD163,CD3,CD31,CD4,CD56,CD68,CD8,CK7,FoxP3,HLA-DR,HLA-G,SMA,Tryptase,VIM,CD206
+EVT1a,,,,,,,,,,1,,,1,,,,
+EVT1b,,,,,,,,,,-1,,,1,,,,
+EVT1c,,,,,,,1,,,,,,1,,,,
+EVT2,,,,,,,,,,1,,,-1,,,,
+Endothelial,,,,,1,,,,,,,,,,,,
+Fibroblast,,-1,,-1,,,,,,-1,,,-1,-1,,1,
+Myofibroblasts,,,,,,,,,,,,,,1,,1,
+muscle,,,,,,,,,,,,,,1,,-1,
+Macrophage,,1,1,,,,,,,,,,,,,,1
+Mast_cell,,,,,,,,,,,,,-1,-1,1,,
+Treg,,,,1,,1,,,,,1,,,,,,
+Dendritic_cell,1,,,,,,,,,,,1,,,,,
+CD4+_T_cell,,,,1,,1,,,,,-1,,,,,,
+CD8+_T_cell,,,,1,,,,,1,,,,,,,,
+NK_T_cell,,,,1,,,1,,,,,,,,,,
+NK_cell,,,,-1,,,1,,,,,,-1,,,,

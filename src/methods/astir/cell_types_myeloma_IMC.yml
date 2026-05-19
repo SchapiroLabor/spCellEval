@@ -1,0 +1,30 @@
+cell_types:
+  Plasma_cell:
+    - CD138
+  Neutrophil:
+    - MPO 
+  Macrophage:
+    - CD68
+  CD8+_T_cell:
+    - CD8
+    - CD3
+  CD4+_T_cell:
+    - CD4
+    - CD3
+  Endothelial:
+    - CD34
+  HSCs:
+    - CD34
+    - CD45
+  Dendritic_cell:
+    - CD11c
+    - HLA-DR
+  Osteoblast:
+    - RUNX2
+  Osteocytes:
+    - CollagenTypeI
+  Osteoclast:
+    - CathepsinK
+  Adipocytes:
+    - Perilipin
+    

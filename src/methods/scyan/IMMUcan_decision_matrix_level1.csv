@@ -1,0 +1,4 @@
+Populations,Ecad,SMA,PDGFRb,CD3,CD4,CD8a,FOXP3,CD7,CD38,CD20,CD15,MPO,CD163,CD68,CD206,CD11c,HLADR,CD303
+Cancer,1,-1,-1,-1,-1,-1,-1,-1,-1,-1,,-1,-1,-1,-1,-1,-1,-1
+Stromal,-1,1,1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,,-1
+Immune,-1,-1,-1,,,,,,,,,,,,,,,

@@ -1,0 +1,44 @@
+cell_types:
+  EVT1a:
+    - CK7
+    - HLA-G
+  EVT1b:
+    - HLA-G
+  EVT1c:
+    - HLA-G
+    - CD56
+  EVT2:
+    - CK7
+  Endothelial:
+    - CD31
+  Fibroblast:
+    - VIM 
+  Myofibroblasts:
+    - SMA
+    - VIM d
+  muscle:
+    - SMA
+  Macrophage:
+    - CD14
+    - CD163
+    - CD206
+  Mast_cell:
+    - Tryptase
+  Treg:
+    - CD3
+    - CD4 
+    - FoxP3
+  Dendritic_cell:
+    - CD11c
+    - HLA-DR
+  CD4+_T_cell:
+    - CD3
+    - CD4
+  CD8+_T_cell:
+    - CD3
+    - CD8
+  NK_T_cell:
+    - CD3
+    - CD56
+  NK_cell:
+    - CD56

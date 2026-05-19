@@ -1,0 +1,13 @@
+Populations,CD138,CD45,MPO,CD11b,CD68,CD3,CD4,CD8,CD34,CD11c,HLA-DR,RUNX2,CathepsinK,CollagenTypeI,IRF4,Perilipin
+Plasma_cell,1,,,,,,,,,,,,,,,
+Neutrophil,,,1,,,,,,,,,,,,,
+Macrophage,,,,,1,,,,,,,,,,,
+CD8+_T_cell,,,,,,1,,1,,,,,,,,
+CD4+_T_cell,,,,,,1,1,,,,,,,,,
+Endothelial,,-1,,,,,,,1,,,,,,,
+HSCs,,1,,,,,,,1,,,,,,,
+Dendritic_cell,,,,,,,,,,1,1,,,,,
+Osteoblast,,,,,,,,,,,,1,,,,
+Osteocyte,,,,,,,,,,,,,,1,,
+Osteoclast,,,,,,,,,,,,,1,,,
+Adipocyte,,,,,,,,,,,,,,,,1

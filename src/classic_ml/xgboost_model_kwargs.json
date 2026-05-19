@@ -1,4 +1,0 @@
-{
-    "early_stopping_rounds": 10,
-    "class_weight": "balanced"
-}
