@@ -22,6 +22,7 @@ parser.add_argument('--mask_type', dest='mask_type',required= False, default='ti
 parser.add_argument('--image_suffix', dest='image_suffix',required= False, default='tiff', choices=['tiff', 'tif', 'ome.tif', 'ome.tiff'], help='Suffix of image files. Choices: tiff, tif, ome.tif, ome.tiff. Default: tiff')
 parser.add_argument('-l', '--log', dest='log', required= False, default='off', choices=['short', 'long', 'off'], help='Logging level: short, long, or off (default: long)')
 parser.add_argument('-it', '--iterations', dest='iterations', type=int, required= False, default=5, help='Number of iterations to run (default: 5)')
+parser.add_argument('--mpp', dest='mpp', type=float, required=True, help='Microns per pixel of input images (e.g. 0.5 for MIBI, 1.0 for IMC). Used to rescale images to model resolution (~1 mpp).')
 args = parser.parse_args()
 
 # Define logging setup function
@@ -75,7 +76,7 @@ def prep_naming_convention(mask_dir):
     return segmentation_naming_convention
 
 # Define function to run nimbus inference
-def run_nimbus(input_dir, mask_dir, output_base, markers, fov, img_suffix, iterations, log):
+def run_nimbus(input_dir, mask_dir, output_base, markers, fov, img_suffix, iterations, log, mpp):
     """Function to run nimbus inference on the input data."""
     # Check if paths exist
     io_utils.validate_paths([input_dir, mask_dir])
@@ -113,7 +114,8 @@ def run_nimbus(input_dir, mask_dir, output_base, markers, fov, img_suffix, itera
             suffix=f'.{img_suffix}',
             include_channels=include_channels,
             segmentation_naming_convention=segmentation_naming_convention,
-            output_dir=output_dir
+            output_dir=output_dir,
+            magnification=10.0 / mpp
         )
 
         nimbus = Nimbus(
@@ -153,7 +155,7 @@ def run_nimbus(input_dir, mask_dir, output_base, markers, fov, img_suffix, itera
 def main():
     if args.log != 'off':
         logging_setup(args.output_path)
-    run_nimbus(args.input, args.seg_mask_dir, args.output_path, args.markers, args.fovs, args.image_suffix, args.iterations, args.log)
+    run_nimbus(args.input, args.seg_mask_dir, args.output_path, args.markers, args.fovs, args.image_suffix, args.iterations, args.log, args.mpp)
 
 if __name__ == "__main__":
     main()

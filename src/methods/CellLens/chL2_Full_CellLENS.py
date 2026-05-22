@@ -1,7 +1,11 @@
+import os
+import sys
+current_script_dir = os.path.dirname(os.path.abspath(__file__))
+project_root = os.path.dirname(current_script_dir)
+sys.path.insert(0, project_root)
 import pandas as pd
 import numpy as np
 from celllens.utils import *
-import os
 import glob
 from skimage.io import imread
 from celllens.preprocessing import *

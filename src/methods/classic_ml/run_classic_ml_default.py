@@ -1,6 +1,10 @@
+import os
+import sys
+current_script_dir = os.path.dirname(os.path.abspath(__file__))
+project_root = os.path.dirname(current_script_dir)
+sys.path.insert(0, project_root)
 from utils.default_classic_ml_models_kfolds import ClassicMLDefault
 import argparse
-import os
 import json
 
 def run_on_datasets(main_dir, model, kfold_method, granularity_level, random_state, n_jobs_model, model_kwargs, verbose, scaling, dumb_columns):

@@ -98,9 +98,12 @@ Output structure
         └── fold_times.txt
 """
 
-# Standard library 
+# Standard library
 import os
 import sys
+current_script_dir = os.path.dirname(os.path.abspath(__file__))
+project_root = os.path.dirname(current_script_dir)
+sys.path.insert(0, project_root)
 import time
 import argparse
 import warnings
