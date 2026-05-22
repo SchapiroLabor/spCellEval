@@ -11,8 +11,6 @@ We present ["spCellEval"](https://huggingface.co/spaces/Arozhada/spcelleval), a 
 
 In order to reproduce the results, the raw datasets currently need to be downloaded from public repositories. Please refer to the public registered Stage 1 manuscript. [IMMUCan](https://zenodo.org/records/12912567) is one example dataset. The downloaded datsets should be added as the following folder structure. 
 
-
-
 ```
 spCellEval/
 ├── src/                          # Core benchmarking logic
@@ -32,7 +30,7 @@ spCellEval/
 ├── results/                      # Results produced by methods or aggregation (See figshare)
 │   ├── method1/
 │   ├── method2/
-│   └── summary/
+│   └── summary/                  # to be downloaded from figshare
 ├── website/                      # Website code (HTML, CSS, JS, assets, deploy configs)
 │   ├── index.html
 │   ├── figures/
@@ -41,7 +39,6 @@ spCellEval/
 ├── .gitignore
 ├── LICENSE
 └── README.md
-
 
 ```
 
@@ -53,7 +50,7 @@ For some datasets, multistack tiffs or channel_names have to be created. Please 
 
 ### Running methods
 
-Scripts to run each method are provided in `src/<method>`. For supervised method, create kfolds first using the `run_kfold_creator.py` file.
+Scripts to run each method are provided in `src/<methods>/run_<method>.py`. For supervised method, create kfolds first using the `run_kfold_creator.py` file.
 
 Datasets and parameter settings can be found in manuscript supplement.
 
@@ -82,5 +79,4 @@ results/
 ├── Dataset2/
 └── Dataset3/
 ```
-
 
