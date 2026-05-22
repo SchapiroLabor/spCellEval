@@ -1,4 +1,4 @@
-# spCellEval - Benchmarking Cell Phenotyping Methods in Spatial Proteomics 
+# <img alt="</> logotype" src="./website/plotly_figures/logo_example.png" style="height: 2em; vertical-align: middle;"> spCellEval - Benchmarking Cell Phenotyping Methods in Spatial Proteomics 
 
 We present ["spCellEval"](https://huggingface.co/spaces/Arozhada/spcelleval), a quantitative comparison of automated/semi-automated cell phenotyping methods for Spatial Proteomics datasets on a diverse set of 10 curated public datasets. The methods are compared with a list of label transfer metrics divided into 4 categories: classification performance, distribution recovery, stability and scalability. This benchmark acts as a foundation to evaluate and improve automated cell phenotyping. 
 
