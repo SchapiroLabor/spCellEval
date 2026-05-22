@@ -1,6 +1,6 @@
 # <img alt="</> logotype" src="./website/plotly_figures/logo_example.png" style="height: 2em; vertical-align: middle;"> spCellEval - Benchmarking Cell Phenotyping Methods in Spatial Proteomics 
 
-We present ["spCellEval"](https://huggingface.co/spaces/Arozhada/spcelleval), a quantitative comparison of automated/semi-automated cell phenotyping methods for Spatial Proteomics datasets on a diverse set of 10 curated public datasets. The methods are compared with a list of label transfer metrics divided into 4 categories: classification performance, distribution recovery, stability and scalability. This benchmark acts as a foundation to evaluate and improve automated cell phenotyping. 
+We present ["spCellEval"](https://huggingface.co/spaces/Arozhada/spcelleval), a quantitative comparison of automated/semi-automated cell phenotyping methods for Spatial Proteomics datasets on a diverse set of 13 curated public datasets. The methods are compared with a list of label transfer metrics divided into 4 categories: classification performance, distribution recovery, stability and scalability. This benchmark acts as a foundation to evaluate and improve automated cell phenotyping. 
 
 ![Alt text](img/fig_1.png "Title")
 
@@ -9,29 +9,39 @@ We present ["spCellEval"](https://huggingface.co/spaces/Arozhada/spcelleval), a 
 
 ## Getting Started
 
-In order to reproduce the results, the raw datasets currently need to be downloaded from public repositories. Please refer to the public registered Stage 1 manuscript. [IMMUCan](https://zenodo.org/records/12912567) is one example dataset. 
+In order to reproduce the results, the raw datasets currently need to be downloaded from public repositories. Please refer to the public registered Stage 1 manuscript. [IMMUCan](https://zenodo.org/records/12912567) is one example dataset. The downloaded datsets should be added as the following folder structure. 
 
 
 
 ```
-Raw Dataset 
-  │
-  ▼
-Preprocessing
-  │
-  ├───────────────────────┬───────────────────────┐
-  ▼                       ▼                       ▼
-Method 1                Method 2              Method n
-  │                       │                       │
-  ▼                       ▼                       ▼
-pred_fold_{1-5}.csv   pred_fold_{1-5}.csv   pred_fold_{1-5}.csv
-  │                       │                       │
-  └───────────────────────┼───────────────────────┘
-                          ▼
-                  Evaluation Scripts
-                          │
-                          ▼
-                        Results
+spCellEval/
+├── src/                          # Core benchmarking logic
+│   ├── QC                        # Main script to QC datasets
+│   ├── evaluation                # Main script to aggregate/collect results
+│   ├── plotting                  # Main script to get plots
+│   ├── preprocessing             # Main script to preprocess datasets
+|   └── methods/                  # Each method gets its own subfolder
+│       ├── method1/
+│       │   ├── run_method.py     # Main script to run specified method     
+│       │   └── ... (scripts, models, configs)
+│       ├── method2/
+│       └── ...
+├── data/                        # To be downloaded from figshare
+│   ├── raw/
+│   └── processed/
+├── results/                      # Results produced by methods or aggregation (See figshare)
+│   ├── method1/
+│   ├── method2/
+│   └── summary/
+├── website/                      # Website code (HTML, CSS, JS, assets, deploy configs)
+│   ├── index.html
+│   ├── figures/
+├── tests/                        # Automated tests for benchmarking and methods
+├── environment.yml               # Dependencies
+├── .gitignore
+├── LICENSE
+└── README.md
+
 
 ```
 
