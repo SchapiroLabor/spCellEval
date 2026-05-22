@@ -138,6 +138,8 @@ def run_deepcelltypes(
                 "Tumor": "Cancer",
                 "CD8T": "CD8+_T_cell",
                 "CD4T": "CD4+_T_cell",
+                "Tcell": "T_cell",
+                "NKT": "NK_T_cell",
                 "BloodVesselEndothelial": "Endothelial",
                 "NK": "NK_cell",
                 "Dendritic": "Dendritic_cell",
@@ -148,7 +150,13 @@ def run_deepcelltypes(
                 "Myofibroblast": "Myofibroblasts",
                 "SmoothMuscle": "muscle",
                 "Nerve": "Neuronal",
+                "Glial": "Neuronal",
+                "Neuron": "Neuronal",
+                "Astrocyte": "Neuronal",
+                "Goblet": "Goblet_cell",
+                "Paneth": "Paneth_cell",
                 "Erythrocyte": "Blood",
+                "EVT": "Trophoblast",
             }
         )
         final_quant_table.to_csv(

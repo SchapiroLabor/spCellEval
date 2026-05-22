@@ -31,8 +31,7 @@ def run_scyan(
     prior_std,
     patience,
     remove_result_cell_types,
-    output_path,
-    save_results,
+    output_path
 ):
 
     random.seed(seed)
@@ -106,31 +105,6 @@ def run_scyan(
 
         df = adata.to_df()
         df = df.join(adata.obs)
-
-        if save_results:
-            cr = classification_report(
-                df[target_col].astype(str), df["scyan_pop"].astype(str)
-            )
-            with open(
-                os.path.join(output_path, f"classification_report_{n}.csv"), "w"
-            ) as f:
-                f.write(cr)
-
-            cm = confusion_matrix(
-                df[target_col].astype(str),
-                df["scyan_pop"].astype(str),
-                normalize="true",
-            )
-            class_labels = sorted(adata.obs[target_col].unique())
-            disp = ConfusionMatrixDisplay(
-                confusion_matrix=cm, display_labels=class_labels
-            )
-            fig, ax = plt.subplots(figsize=(15, 15))
-            disp.plot(cmap="Blues", xticks_rotation="vertical", ax=ax)
-            plt.tight_layout()
-            plt.savefig(os.path.join(output_path, f"confusion_matrix_{n}.png"))
-            plt.close(fig)
-
         df.rename(
             columns={"scyan_pop": "predicted_phenotype", target_col: "true_phenotype"},
             inplace=True,
@@ -241,11 +215,6 @@ def main():
     parser.add_argument(
         "--output_path", type=str, help="Path to save the predictions CSV file"
     )
-    parser.add_argument(
-        "--save_results",
-        action="store_true",
-        help="Whether to save the result plots. Default is False",
-    )
 
     args = parser.parse_args()
 
@@ -266,8 +235,7 @@ def main():
         prior_std=args.prior_std,
         patience=args.patience,
         remove_result_cell_types=args.remove_result_cell_types,
-        output_path=args.output_path,
-        save_results=args.save_results,
+        output_path=args.output_path
     )
 
 

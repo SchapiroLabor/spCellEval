@@ -1,9 +1,13 @@
+import os
+import sys
+current_script_dir = os.path.dirname(os.path.abspath(__file__))
+project_root = os.path.dirname(current_script_dir)
+sys.path.insert(0, project_root)
 import pandas as pd
 import scanpy as sc
 import anndata as ad
 import numpy as np
 import re
-import os
 from utils.greedy_f1_utils import greedy_f1_score
 import warnings
 from anndata._core.aligned_df import ImplicitModificationWarning
