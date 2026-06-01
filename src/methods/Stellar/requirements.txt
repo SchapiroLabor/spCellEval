@@ -1,0 +1,19 @@
+# Stellar IMMUcan — dependency list
+# Install inside nix develop → micromamba activate stellar
+
+# Core
+torch>=2.12.0
+torch_geometric>=2.7.0
+
+# Data / science
+anndata>=0.12
+numpy>=2.0
+pandas>=2.0
+scipy>=1.12
+scikit-learn>=1.3
+scikit-image>=0.21
+tifffile>=2024.0
+tqdm>=4.65
+
+# Misc
+pyyaml>=6.0
