@@ -8,7 +8,7 @@ import pandas as pd
 import torch
 import numpy as np
 from starling import starling, utility
-from lightning_lite import seed_everything
+from lightning_fabric.utilities.seed import seed_everything
 import pytorch_lightning as pl
 import argparse
 import time
