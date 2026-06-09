@@ -180,7 +180,11 @@ class DataSetHandler:
 
         for i, fold in enumerate(fold_data['folds']):
             train_data_original = pd.read_csv(os.path.join(save_path, f'fold_{i+1}_train.csv'))
-            train_data, validation_data = train_test_split(train_data_original, test_size=percentage_validation, random_state=self.random_state, stratify=train_data_original['encoded_phenotype'])
+            try:
+                train_data, validation_data = train_test_split(train_data_original, test_size=percentage_validation, random_state=self.random_state, stratify=train_data_original['encoded_phenotype'])
+            except ValueError as e:
+                print(f"Warning fold {i+1}: stratified split failed ({e}), falling back to random split")
+                train_data, validation_data = train_test_split(train_data_original, test_size=percentage_validation, random_state=self.random_state)
             print(f"Overwriting 'fold_{i+1}_train.csv'... and saving validation")
             train_file_path = os.path.join(save_path, f'fold_{i+1}_train.csv')
             validation_file_path = train_file_path.replace('train.', 'validation.')
