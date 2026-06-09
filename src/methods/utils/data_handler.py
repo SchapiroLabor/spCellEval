@@ -85,8 +85,13 @@ class DataSetHandler:
                 fold_generator = self.kfolds.split(self.X, self.Y)
             else:
                 groups = self.X[batch_identifier_column]
-                self.kfolds = StratifiedGroupKFold(n_splits=k, random_state=self.random_state, shuffle=True)
-                fold_generator = self.kfolds.split(self.X, self.Y, groups)
+                if groups.nunique() < k:
+                    print(f"Only {groups.nunique()} unique group(s) in '{batch_identifier_column}', fewer than n_splits={k}, reverting to StratifiedKFold")
+                    self.kfolds = StratifiedKFold(n_splits=k, random_state=self.random_state, shuffle=True)
+                    fold_generator = self.kfolds.split(self.X, self.Y)
+                else:
+                    self.kfolds = StratifiedGroupKFold(n_splits=k, random_state=self.random_state, shuffle=True)
+                    fold_generator = self.kfolds.split(self.X, self.Y, groups)
         elif method == 'StratifiedKFold':
             self.kfolds = StratifiedKFold(n_splits=k, random_state=self.random_state, shuffle=True)
             fold_generator = self.kfolds.split(self.X, self.Y)
