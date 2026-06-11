@@ -1,0 +1,80 @@
+{
+  "method": "virtues",
+  "defaults": {
+    "device": "cuda:1",
+    "crop_size": null,
+    "stride": 42,
+    "chunk_size": 32,
+    "pad_size": 120,
+    "n_folds": 5,
+    "n_estimators": 200,
+    "n_jobs": -1,
+    "virtues_dir": "/home/juliaoesterle/VirTues"
+  },
+  "datasets": {
+    "immucan": {
+      "data_root": "/home/juliaoesterle/data/phenotyping_benchmark/IMMUcan",
+      "image_dir": "CellTypes/data/images",
+      "label_dir": "CellTypes/cells2labels",
+      "segmentation_dir": "segmentation",
+      "folds_json": "CellTypes/folds.json",
+      "fold_type": "image",
+      "image_format": "npz",
+      "channels": [
+        "MPO", "HistoneH3", "SMA", "CD16", "CD38", "HLADR", "CD27", "CD15",
+        "CD45RA", "CD163", "B2M", "CD20", "CD68", "Ido1", "CD3", "LAG3",
+        "CD11c", "PD1", "PDGFRb", "CD7", "GrzB", "PDL1", "TCF7", "CD45RO",
+        "FOXP3", "ICOS", "CD8a", "CarbonicAnhydrase", "CD33", "Ki67",
+        "VISTA", "CD40", "CD4", "CD14", "Ecad", "CD303", "CD206",
+        "cleavedPARP", "DNA1", "DNA2"
+      ],
+      "exclude_markers": ["DNA1", "DNA2", "HistoneH3"],
+      "uniprot_map": {
+        "MPO": "P05164", "SMA": "P62736", "CD16": "P08637", "CD38": "P28907",
+        "HLADR": "P01903", "CD27": "P26842", "CD15": "P22083", "CD45RA": "P08575-8",
+        "CD163": "Q86VB7", "B2M": "P61769", "CD20": "P11836", "CD68": "P34810",
+        "Ido1": "P14902", "CD3": "P07766", "LAG3": "P18627", "CD11c": "P20701",
+        "PD1": "Q15116", "PDGFRb": "P09619", "CD7": "P09564", "GrzB": "P10144",
+        "PDL1": "Q9NZQ7", "TCF7": "P36402", "CD45RO": "P08575-5", "FOXP3": "Q9BZS1",
+        "ICOS": "Q9Y288", "CD8a": "P01732", "CarbonicAnhydrase": "Q16790",
+        "CD33": "P20138", "Ki67": "P46013", "VISTA": "Q9H7M9", "CD40": "P25942",
+        "CD4": "P01730", "CD14": "P08235", "Ecad": "P12830", "CD303": "Q8WTT0",
+        "CD206": "P22897", "cleavedPARP": "P09874"
+      }
+    },
+    "chl": {
+      "data_root": "/home/juliaoesterle/data/phenotyping_benchmark/cHL_2_MIBI",
+      "quant_csv": "quantification/processed/cHL_2_MIBI_quantification.csv",
+      "folds_json": "quantification/processed/kfolds_StratifiedGroupKFold_level3/fold_indices.json",
+      "image_dir": "raw_images/multistack_tiffs",
+      "segmentation_dir": "segmentation",
+      "fold_type": "cell",
+      "image_format": "ome_tiff",
+      "channels": [
+        "B2-Microglobulin", "CD103", "CD11b", "CD11c", "CD138",
+        "CD14", "CD15", "CD161", "CD163", "CD20", "CD21", "CD28",
+        "CD3", "CD33", "CD38", "CD4", "CD44", "CD45RO", "CD56",
+        "CD68", "CD7", "CD8a", "Collagen1", "Granzyme B", "HLA1",
+        "HLADR", "IL-10", "Ki-67", "Lag3", "MPO", "Na-K ATPase",
+        "PD-1", "PD-L1", "Pax-5", "RORgT", "TCRgd", "Tox",
+        "anti-H2AX", "dsDNA", "pSLP-76", "pSTAT3", "pSTAT5",
+        "pan-Cytokeratin", "pimidazole", "HistoneH3", "SLP-76"
+      ],
+      "exclude_markers": ["dsDNA", "HistoneH3", "anti-H2AX", "pSLP-76", "SLP-76"],
+      "exclude_labels": ["undefined"],
+      "uniprot_map": {
+        "B2-Microglobulin": "P61769", "CD103": "P38570", "CD11b": "P11215",
+        "CD11c": "P20702", "CD138": "P18827", "CD14": "P08235", "CD15": "P15291",
+        "CD161": "P26d85", "CD163": "Q86VB7", "CD20": "P11836", "CD21": "P20023",
+        "CD28": "P10747", "CD3": "P09693", "CD33": "P20138", "CD38": "P28907",
+        "CD4": "P01730", "CD44": "P16070", "CD45RO": "P08575", "CD56": "P13591",
+        "CD68": "P34810", "CD7": "P09564", "CD8a": "P01732", "Collagen1": "P02452",
+        "Granzyme B": "P10144", "HLA1": "P04439", "HLADR": "P01903", "IL-10": "P22301",
+        "Ki-67": "P46013", "Lag3": "P18627", "MPO": "P05164", "Na-K ATPase": "P05023",
+        "PD-1": "Q15116", "PD-L1": "Q9NZQ7", "Pax-5": "Q02548", "RORgT": "P51449",
+        "TCRgd": "P04054", "Tox": "O94900", "pSTAT3": "P40763", "pSTAT5": "P42229",
+        "pan-Cytokeratin": "P04264"
+      }
+    }
+  }
+}

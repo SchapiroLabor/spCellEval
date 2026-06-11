@@ -1,0 +1,71 @@
+{
+  "method": "eva",
+  "defaults": {
+    "device": "cuda:1",
+    "batch_size": 16,
+    "patch_size": 224,
+    "n_folds": 5,
+    "n_estimators": 200,
+    "n_jobs": -1,
+    "leiden_resolution": 2.0,
+    "leiden_n_neighbors": 15,
+    "leiden_subsample": 50000
+  },
+  "datasets": {
+    "immucan": {
+      "data_root": "/home/juliaoesterle/data/phenotyping_benchmark/IMMUcan",
+      "channels_txt": "CellTypes/channels.txt",
+      "image_dir": "CellTypes/data/images",
+      "label_dir": "CellTypes/cells2labels",
+      "segmentation_dir": "segmentation",
+      "labels_csv": "CellTypes/labels_cell_type.csv",
+      "folds_json": "CellTypes/folds.json",
+      "fold_type": "image",
+      "image_format": "npz",
+      "exclude_markers": ["DNA1", "DNA2", "Histone H3"],
+      "marker_name_map": {}
+    },
+    "chl": {
+      "data_root": "/home/juliaoesterle/data/phenotyping_benchmark/cHL_2_MIBI",
+      "quant_csv": "quantification/processed/cHL_2_MIBI_quantification.csv",
+      "folds_json": "quantification/processed/kfolds_StratifiedGroupKFold_level3/fold_indices.json",
+      "image_dir": "raw_images/multistack_tiffs",
+      "segmentation_dir": "segmentation",
+      "fold_type": "cell",
+      "image_format": "ome_tiff",
+      "channels": [
+        "CD4", "CD20", "PD-1", "FoxP3", "CD14", "CD161", "Tbet", "CD25",
+        "CD68", "CD3", "CD57", "Pax-5", "GATA3", "TCRgd", "RORgT", "CD45RO",
+        "Na-K ATPase", "CD56", "Lag3", "CD45RA", "B2-Microglobulin", "TIM3",
+        "SLP-76", "Tox", "Histone H3", "CD30", "CXCR5", "Ki-67", "Granzyme B",
+        "CD8", "PD-L1", "CD45", "HLA1", "CD153 (CD30L)", "pSLP-76", "HLA-DR",
+        "CD16", "dsDNA", "CD86", "CD11c", "CD15", "CD28", "CD123",
+        "anti-H2AX (pS139)", "CD163", "IL-10"
+      ],
+      "exclude_markers": ["Histone H3", "dsDNA", "anti-H2AX (pS139)", "pSLP-76", "SLP-76"],
+      "exclude_labels": ["undefined", "unedfined"],
+      "marker_name_map": {
+        "FoxP3": "FOXP3",
+        "Pax-5": "PAX5",
+        "TCRgd": "TRGV",
+        "RORgT": "RORC",
+        "Na-K ATPase": "ATP1A1",
+        "Lag3": "LAG3",
+        "B2-Microglobulin": "B2M",
+        "TIM3": "HAVCR2",
+        "Tox": "TOX",
+        "Granzyme B": "GZMB",
+        "PD-L1": "CD274",
+        "CD153 (CD30L)": "TNFSF8",
+        "HLA-DR": "HLA-DRA",
+        "CD86": "CD86",
+        "Ki-67": "MKI67",
+        "CXCR5": "CXCR5",
+        "GATA3": "GATA3",
+        "Tbet": "TBX21",
+        "HLA1": "HLA-A",
+        "IL-10": "IL10"
+      }
+    }
+  }
+}

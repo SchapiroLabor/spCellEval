@@ -1,0 +1,43 @@
+{
+  "method": "kronos",
+  "defaults": {
+    "device": "cuda:0",
+    "patch_size": 64,
+    "batch_size": 16,
+    "marker_max_values": 65535.0,
+    "n_folds": 5,
+    "n_trials": 25,
+    "c_low": 1e-10,
+    "c_high": 1e5,
+    "max_iter": 10000,
+    "max_cells_per_type": null,
+    "n_jobs": -1
+  },
+  "datasets": {
+    "immucan": {
+      "data_root": "/home/juliaoesterle/data/phenotyping_benchmark/IMMUcan",
+      "image_dir": "CellTypes/data/images",
+      "label_dir": "CellTypes/cells2labels",
+      "segmentation_dir": "segmentation",
+      "folds_json": "CellTypes/folds.json",
+      "fold_type": "image",
+      "image_format": "npz",
+      "biomarkers": [
+        "MPO", "HistoneH3", "SMA", "CD16", "CD38", "HLADR", "CD27", "CD15",
+        "CD45RA", "CD163", "B2M", "CD20", "CD68", "Ido1", "CD3", "LAG3",
+        "CD11c", "PD1", "PDGFRb", "CD7", "GrzB", "PDL1", "TCF7", "CD45RO",
+        "FOXP3", "ICOS", "CD8a", "CarbonicAnhydrase", "CD33", "Ki67",
+        "VISTA", "CD40", "CD4", "CD14", "Ecad", "CD303", "CD206",
+        "cleavedPARP", "DNA1", "DNA2"
+      ],
+      "exclude_markers": ["DNA1", "DNA2", "HistoneH3"],
+      "name_mappings": {
+        "GrzB": "GZMB",
+        "HLADR": "HLA_DR",
+        "CD8a": "CD8",
+        "cleavedPARP": "CLEAVED_CASP3"
+      },
+      "no_equivalent": ["SMA", "PDGFRb", "TCF7", "CarbonicAnhydrase", "Ecad", "CD33", "CD303"]
+    }
+  }
+}

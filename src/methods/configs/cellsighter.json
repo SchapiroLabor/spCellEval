@@ -1,0 +1,78 @@
+{
+  "method": "cellsighter",
+  "_comment": "One config per method. Pick a dataset with --dataset. 'defaults' = method hyperparameters shared across datasets; 'datasets.<name>' = dataset specifics only. prepare_dataset.py and run_cellsighter.py both read THIS file. Lives in src/methods/configs/cellsighter.json.",
+  "defaults": {
+    "crop_size": 64,
+    "crop_input_size": 32,
+    "to_pad": true,
+    "aug": true,
+    "sample_batch": true,
+    "size_data": 1000,
+    "lr": 0.001,
+    "batch_size": 256,
+    "num_workers": 8,
+    "epoch_max": 100,
+    "early_stopping_patience": 15,
+    "internal_val_fraction": 0.2,
+    "n_runs": 1,
+    "device": "cuda",
+    "hierarchy_match": null
+  },
+  "datasets": {
+    "immucan": {
+      "label_source": "cells2labels",
+      "raw_image_dir": "/home/juliaoesterle/data/phenotyping_benchmark/IMMUcan/CellTypes/data/images",
+      "raw_image_exts": [
+        "npz"
+      ],
+      "segmentation_dir": "/home/juliaoesterle/data/phenotyping_benchmark/IMMUcan/segmentation",
+      "segmentation_exts": [
+        "tiff",
+        "tif"
+      ],
+      "existing_c2l_dir": "/home/juliaoesterle/data/phenotyping_benchmark/IMMUcan/CellTypes/cells2labels",
+      "labels_csv": "/home/juliaoesterle/data/phenotyping_benchmark/IMMUcan/CellTypes/labels_cell_type.csv",
+      "channels_source": "/home/juliaoesterle/data/phenotyping_benchmark/IMMUcan/CellTypes/channels.txt",
+      "excluded_channels": [
+        "DNA1",
+        "DNA2",
+        "HistoneH3"
+      ],
+      "folds_path": "/home/juliaoesterle/data/phenotyping_benchmark/IMMUcan/CellTypes/folds.json",
+      "folds_level": "image",
+      "output_root": "/home/juliaoesterle/data/phenotyping_benchmark/IMMUcan_CellSighter",
+      "_quant_csv_ref": "/home/juliaoesterle/data/phenotyping_benchmark/IMMUcan/quantification/processed/IMMUcan_quantification.csv",
+      "excluded_cell_types": [
+        "undefined"
+      ]
+    },
+    "chl": {
+      "label_source": "quant_csv",
+      "raw_image_dir": "/home/juliaoesterle/data/phenotyping_benchmark/cHL_2_MIBI/CellTypes/data/images",
+      "raw_image_exts": [
+        "ome.tif",
+        "npz",
+        "tiff",
+        "tif"
+      ],
+      "segmentation_dir": "/home/juliaoesterle/data/phenotyping_benchmark/cHL_2_MIBI/segmentation",
+      "segmentation_exts": [
+        "tiff",
+        "tif"
+      ],
+      "quant_csv": "/home/juliaoesterle/data/phenotyping_benchmark/cHL_2_MIBI/quantification/processed/cHL_2_MIBI_quantification.csv",
+      "sample_id_col": "sample_id",
+      "cell_id_col": "cell_id",
+      "cell_type_col": "cell_type",
+      "excluded_cell_types": [
+        "unlabelled",
+        "undefined"
+      ],
+      "channels_source": "/home/juliaoesterle/data/phenotyping_benchmark/cHL_2_MIBI/CellTypes/channels.txt",
+      "excluded_channels": [],
+      "folds_path": "/home/juliaoesterle/data/phenotyping_benchmark/cHL_2_MIBI/fold_indices.json",
+      "folds_level": "cell",
+      "output_root": "/home/juliaoesterle/data/phenotyping_benchmark/cHL_2_MIBI_CellSighter"
+    }
+  }
+}
