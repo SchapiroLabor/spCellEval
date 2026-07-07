@@ -30,6 +30,7 @@ def run_scyan(
     batch_key,
     prior_std,
     patience,
+    temperature,
     remove_result_cell_types,
     output_path
 ):
@@ -78,9 +79,9 @@ def run_scyan(
         if preprocess:
             scyan.preprocess.scale(adata)
         if batch_key is not None:
-            model = scyan.Scyan(adata, table, batch_key=batch_key, prior_std=prior_std)
+            model = scyan.Scyan(adata, table, batch_key=batch_key, prior_std=prior_std, temperature=temperature)
         else:
-            model = scyan.Scyan(adata, table, prior_std=prior_std)
+            model = scyan.Scyan(adata, table, prior_std=prior_std, temperature=temperature)
         model.fit(patience=patience, accelerator=accelerator)
         end_train = time.time()
         start_inference = time.time()
@@ -207,6 +208,12 @@ def main():
         help="patience parameter for scyan",
     )
     parser.add_argument(
+        "--temperature",
+        type=float,
+        default=0.5,
+        help="Temperature to favor small populations",
+    )
+    parser.add_argument(
         "--remove_result_cell_types",
         type=str,
         help="Comma-separated list of cell types to remove from the predictions and groundtruth dataset after the predictions are made (e.g., celltype1,celltype2)",
@@ -234,6 +241,7 @@ def main():
         batch_key=args.batch_key,
         prior_std=args.prior_std,
         patience=args.patience,
+        temperature=args.temperature,
         remove_result_cell_types=args.remove_result_cell_types,
         output_path=args.output_path
     )
