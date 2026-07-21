@@ -3,6 +3,9 @@ library(class)
 library(segmented)
 library(readr)
 library(tidyverse)
+library(future)
+library(future.apply)
+library(parallelly)
 library(TACIT)
 library(argparse)
 
@@ -32,7 +35,7 @@ run_TACIT <- function(n, input_path, separate_col, scaling, log1p, decision_matr
     inference_times[i] <- elapsed
     
     data <- data %>%
-      mutate(predicted_phenotype = TACIT_result[[3]]$mem) %>%
+      mutate(predicted_phenotype = TACIT_result$TACIT) %>%
       mutate(predicted_phenotype = case_when(
         predicted_phenotype == "Others" ~ "undefined",
         TRUE ~ predicted_phenotype
@@ -70,7 +73,7 @@ main <- function() {
   parser$add_argument("--output_path", type="character", required=TRUE,
                       help="Directory to save prediction CSV files")
   args <- parser$parse_args()
-  options(future.globals.maxSize = 4 * 1024^3)
+  options(future.globals.maxSize = 6 * 1024^3)
   run_TACIT(args$iterations, args$input_path,args$separate_col, args$scaling, args$log1p, args$decision_matrix_path, args$r, args$p, args$output_path)
 }
 
