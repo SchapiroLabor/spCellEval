@@ -1,18 +1,12 @@
 #!/usr/bin/env python3
 """
-run_virtues.py — VirTues unified pipeline: IMMUcan + cHL_2_MIBI
-================================================================
-Author: Julia Oesterle
-Date:   June 2026
+run_virtues.py — VirTues config-driven unified pipeline: IMMUcan + cHL_2_MIBI
+=============================================================================
 
-Forked from run_virtues1.py (the working full-tissue compute_cell_tokens
-approach, best result crop64 F1=0.579 on IMMUcan).
+All dataset-specific constants (channel lists, UniProt maps, exclusions, paths)
+live in src/methods/configs/virtues.json and are selected with --dataset.
 
-The IMMUcan path is identical to run_virtues1.py — same utils_foundational_models,
-same preprocessing, same compute_cell_tokens call.
-The cHL path forks only in data loading and fold handling.
-
-IMPORTANT: Run inside nix develop + stellar micromamba env on beauty:
+(Note to Julia) IMPORTANT: run inside nix develop + stellar micromamba env on beauty:
     cd /home/juliaoesterle/VirTues
     nix develop
     micromamba activate stellar
@@ -22,25 +16,16 @@ Usage
 # IMMUcan — all 5 folds, crop64 (best on IMMUcan):
 python run_virtues.py all \
     --dataset     immucan \
-    --virtues-dir /home/juliaoesterle/VirTues \
-    --data-dir    /home/juliaoesterle/data/phenotyping_benchmark/IMMUcan/ \
+    --config      src/methods/configs/virtues.json \
     --output-dir  /home/juliaoesterle/results/virtues/immucan/crop64 \
     --crop-size   64 --stride 21 --device cuda:0
 
 # cHL_2_MIBI — all 5 folds:
 python run_virtues.py all \
     --dataset     chl \
-    --virtues-dir /home/juliaoesterle/VirTues \
+    --config      src/methods/configs/virtues.json \
     --output-dir  /home/juliaoesterle/results/virtues/chl/crop64 \
     --crop-size   64 --stride 21 --device cuda:0
-
-# Single fold smoke test:
-python run_virtues.py all \
-    --dataset immucan --fold 0 --crop-size 64 \
-    --virtues-dir /home/juliaoesterle/VirTues \
-    --data-dir /home/juliaoesterle/data/phenotyping_benchmark/IMMUcan/ \
-    --output-dir /home/juliaoesterle/results/virtues/immucan/crop64 \
-    --device cuda:0
 """
 
 import os
@@ -53,8 +38,7 @@ from pathlib import Path
 
 os.environ.setdefault('CUDA_HOME', '/usr/local/cuda-12.3')
 os.environ.setdefault('LD_LIBRARY_PATH',
-                      '/usr/local/cuda-12.3/lib64:' +
-                      os.environ.get('LD_LIBRARY_PATH', ''))
+                      '/usr/local/cuda-12.3/lib64:' + os.environ.get('LD_LIBRARY_PATH', ''))
 os.environ.setdefault('PYTORCH_CUDA_ALLOC_CONF', 'expandable_segments:True')
 
 import numpy as np
@@ -64,7 +48,7 @@ import torch
 import torch.nn.functional as F
 from tqdm import tqdm
 
-sys.path.insert(0, str(Path(__file__).parent))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / 'utils'))
 from utils_foundational_models import (
     load_label_map, load_folds, get_label,
     save_embeddings, load_embeddings, rebuild_img_feature_store,
@@ -73,62 +57,22 @@ from utils_foundational_models import (
 
 warnings.filterwarnings('ignore')
 
-# Marker Definitions
 
-# IMMUcan 
-ALL_BIOMARKERS = [
-    "MPO","HistoneH3","SMA","CD16","CD38","HLADR","CD27","CD15",
-    "CD45RA","CD163","B2M","CD20","CD68","Ido1","CD3","LAG3",
-    "CD11c","PD1","PDGFRb","CD7","GrzB","PDL1","TCF7","CD45RO",
-    "FOXP3","ICOS","CD8a","CarbonicAnhydrase","CD33","Ki67",
-    "VISTA","CD40","CD4","CD14","Ecad","CD303","CD206",
-    "cleavedPARP","DNA1","DNA2"
-]
-DEFAULT_EXCLUDE = ['DNA1','DNA2','HistoneH3']
+# CONFIG LOADING
 
-IMMUCAN_UNIPROT = {
-    'MPO':'P05164','SMA':'P62736','CD16':'P08637','CD38':'P28907',
-    'HLADR':'P01903','CD27':'P26842','CD15':'P22083','CD45RA':'P08575-8',
-    'CD163':'Q86VB7','B2M':'P61769','CD20':'P11836','CD68':'P34810',
-    'Ido1':'P14902','CD3':'P07766','LAG3':'P18627','CD11c':'P20701',
-    'PD1':'Q15116','PDGFRb':'P09619','CD7':'P09564','GrzB':'P10144',
-    'PDL1':'Q9NZQ7','TCF7':'P36402','CD45RO':'P08575-5','FOXP3':'Q9BZS1',
-    'ICOS':'Q9Y288','CD8a':'P01732','CarbonicAnhydrase':'Q16790',
-    'CD33':'P20138','Ki67':'P46013','VISTA':'Q9H7M9','CD40':'P25942',
-    'CD4':'P01730','CD14':'P08235','Ecad':'P12830','CD303':'Q8WTT0',
-    'CD206':'P22897','cleavedPARP':'P09874',
-}
+def load_config(config_path: str, dataset: str) -> dict:
+    with open(config_path) as f:
+        cfg = json.load(f)
+    if dataset not in cfg["datasets"]:
+        raise ValueError(f"Dataset '{dataset}' not in {config_path}. "
+                         f"Available: {list(cfg['datasets'])}")
+    merged = dict(cfg.get("defaults", {}))
+    merged.update(cfg["datasets"][dataset])
+    merged["dataset"] = dataset
+    return merged
 
-# cHL_2_MIBI
-CHL_ALL_CHANNELS = [
-    "B2-Microglobulin","CD103","CD11b","CD11c","CD138",
-    "CD14","CD15","CD161","CD163","CD20","CD21","CD28",
-    "CD3","CD33","CD38","CD4","CD44","CD45RO","CD56",
-    "CD68","CD7","CD8a","Collagen1","Granzyme B","HLA1",
-    "HLADR","IL-10","Ki-67","Lag3","MPO","Na-K ATPase",
-    "PD-1","PD-L1","Pax-5","RORgT","TCRgd","Tox",
-    "anti-H2AX","dsDNA","pSLP-76","pSTAT3","pSTAT5",
-    "pan-Cytokeratin","pimidazole","HistoneH3","SLP-76",
-]
-CHL_DEFAULT_EXCLUDE = ["dsDNA","HistoneH3","anti-H2AX","pSLP-76","SLP-76"]
-CHL_EXCLUDE_LABELS  = {"undefined"}
 
-CHL_UNIPROT = {
-    "B2-Microglobulin":"P61769","CD103":"P38570","CD11b":"P11215",
-    "CD11c":"P20702","CD138":"P18827","CD14":"P08235","CD15":"P15291",
-    "CD161":"P26d85","CD163":"Q86VB7","CD20":"P11836","CD21":"P20023",
-    "CD28":"P10747","CD3":"P09693","CD33":"P20138","CD38":"P28907",
-    "CD4":"P01730","CD44":"P16070","CD45RO":"P08575","CD56":"P13591",
-    "CD68":"P34810","CD7":"P09564","CD8a":"P01732","Collagen1":"P02452",
-    "Granzyme B":"P10144","HLA1":"P04439","HLADR":"P01903","IL-10":"P22301",
-    "Ki-67":"P46013","Lag3":"P18627","MPO":"P05164","Na-K ATPase":"P05023",
-    "PD-1":"Q15116","PD-L1":"Q9NZQ7","Pax-5":"Q02548","RORgT":"P51449",
-    "TCRgd":"P04054","Tox":"O94900","pSTAT3":"P40763","pSTAT5":"P42229",
-    "pan-Cytokeratin":"P04264",
-    # pimidazole: no UniProt (hypoxia marker) — will be skipped silently
-}
-
-# Marker Index Builder
+# MARKER INDEX BUILDER 
 
 def get_clean_markers(all_channels, exclude, uniprot_map, marker_embedding_dir):
     exclude_set   = set(exclude)
@@ -137,12 +81,7 @@ def get_clean_markers(all_channels, exclude, uniprot_map, marker_embedding_dir):
     sorted_ids = sorted(available_ids)
     embed_idx  = {pid: i for i, pid in enumerate(sorted_ids)}
 
-    clean_indices  = []
-    clean_names    = []
-    channel_mask   = []
-    marker_indices = []
-    no_embedding   = []
-
+    clean_indices, clean_names, channel_mask, marker_indices, no_embedding = [], [], [], [], []
     for i, m in enumerate(all_channels):
         if m in exclude_set:
             continue
@@ -157,19 +96,18 @@ def get_clean_markers(all_channels, exclude, uniprot_map, marker_embedding_dir):
             no_embedding.append(m)
             marker_indices.append(0)
 
-    print(f"  Markers: {len(clean_names)} used | "
-          f"{sum(channel_mask)} with embeddings | "
+    print(f"  Markers: {len(clean_names)} used | {sum(channel_mask)} with embeddings | "
           f"{len(no_embedding)} skipped")
     if no_embedding:
         print(f"  No embedding: {no_embedding}")
 
     channel_mask_t   = torch.tensor(channel_mask, dtype=torch.bool)
     marker_indices_t = torch.tensor(
-        [marker_indices[i] for i, has in enumerate(channel_mask) if has],
-        dtype=torch.long)
+        [marker_indices[i] for i, has in enumerate(channel_mask) if has], dtype=torch.long)
     return clean_indices, clean_names, channel_mask_t, marker_indices_t, no_embedding
 
-#  Model loading
+
+# MODEL LOADING 
 
 def load_virtues_model(virtues_dir, device):
     sys.path.insert(0, str(virtues_dir))
@@ -230,85 +168,65 @@ def load_virtues_model(virtues_dir, device):
     print(f"VirTues loaded on: {device} | embedding_dim={embedding_dim}")
     return model, embedding_dim, conf, marker_embedding_dir
 
-# Preprocessing
+# PREPROCESSING  
 
 def preprocess_image(img_raw, channel_mask):
     from torchvision.transforms import GaussianBlur
     img_t = torch.from_numpy(img_raw).float()
     img_t = img_t[channel_mask]
     C, H, W = img_t.shape
-    quantiles = torch.quantile(img_t.reshape(C,-1), 0.99, dim=1)
-    img_t = torch.clamp(img_t, min=torch.zeros_like(quantiles[:,None,None]),
-                        max=quantiles[:,None,None])
+    quantiles = torch.quantile(img_t.reshape(C, -1), 0.99, dim=1)
+    img_t = torch.clamp(img_t, min=torch.zeros_like(quantiles[:, None, None]),
+                        max=quantiles[:, None, None])
     img_t = torch.log1p(img_t)
     img_t = GaussianBlur(kernel_size=3, sigma=1.0)(img_t)
-    means = img_t.reshape(C,-1).mean(dim=1)
-    stds  = img_t.reshape(C,-1).std(dim=1)
-    img_t = (img_t - means[:,None,None]) / (stds[:,None,None] + 1e-9)
+    means = img_t.reshape(C, -1).mean(dim=1)
+    stds  = img_t.reshape(C, -1).std(dim=1)
+    img_t = (img_t - means[:, None, None]) / (stds[:, None, None] + 1e-9)
     return img_t, means, stds
 
-# Wrapper for compute_cell_tokens with padding 
 
-PAD_SIZE = 120
-
-def run_compute_cell_tokens(img_processed, seg_np, marker_indices,
-                             model, conf, args):
-    """
-    Pad + call compute_cell_tokens exactly as in run_virtues1.py.
-    seg_np passed as numpy (not tensor) — that is what the function expects.
-    """
+def run_compute_cell_tokens(img_processed, seg_np, marker_indices, model, conf, args, pad_size):
     from virtues.utils.cell_tokens import compute_cell_tokens
-
-    mask_t = torch.from_numpy(seg_np.astype(np.int32))
-    img_padded  = F.pad(img_processed,
-                        (PAD_SIZE, PAD_SIZE, PAD_SIZE, PAD_SIZE),
+    mask_t      = torch.from_numpy(seg_np.astype(np.int32))
+    img_padded  = F.pad(img_processed, (pad_size, pad_size, pad_size, pad_size),
                         mode='constant', value=0)
-    mask_padded = F.pad(mask_t,
-                        (PAD_SIZE, PAD_SIZE, PAD_SIZE, PAD_SIZE),
+    mask_padded = F.pad(mask_t, (pad_size, pad_size, pad_size, pad_size),
                         mode='constant', value=0)
-
     crop_size = args.crop_size if args.crop_size else conf.data.crop_size
-
     cell_ids_out, cell_tokens, _, _ = compute_cell_tokens(
-        model=model,
-        img=img_padded,
-        channel=marker_indices,
-        segmentation_mask=mask_padded.numpy(),
-        device=args.device,
-        crop_size=crop_size,
-        patch_size=conf.model.patch_size,
-        stride=args.stride,
-        chunk_size=args.chunk_size,
+        model=model, img=img_padded, channel=marker_indices,
+        segmentation_mask=mask_padded.numpy(), device=args.device,
+        crop_size=crop_size, patch_size=conf.model.patch_size,
+        stride=args.stride, chunk_size=args.chunk_size,
     )
     return cell_ids_out, cell_tokens.numpy()
 
-# IMMUcan Pipeline
+# IMMUcan PIPELINE  (config-driven paths)
 
-def extract_features_immucan(args, model, embedding_dim, conf,
+def extract_features_immucan(args, cfg, model, embedding_dim, conf,
                               all_images, clean_indices, clean_names,
                               channel_mask, marker_indices, label_map):
-    data_dir  = Path(args.data_dir)
+    data_root = Path(cfg["data_root"])
     cache_dir = Path(args.output_dir) / 'embeddings' / 'cache'
     cache_dir.mkdir(parents=True, exist_ok=True)
 
-    NPZ_DIR    = data_dir / 'CellTypes' / 'data' / 'images'
-    MASK_DIR   = data_dir / 'segmentation'
-    LABELS_DIR = data_dir / 'CellTypes' / 'cells2labels'
+    NPZ_DIR    = data_root / cfg["image_dir"]
+    MASK_DIR   = data_root / cfg["segmentation_dir"]
+    LABELS_DIR = data_root / cfg["label_dir"]
 
     img_feature_store = {}
     crop_size = args.crop_size if args.crop_size else conf.data.crop_size
     print(f"\n[IMMUcan] crop_size={crop_size} | stride={args.stride} | "
-          f"pad={PAD_SIZE} | emb_dim={embedding_dim}")
+          f"pad={args.pad_size} | emb_dim={embedding_dim}")
 
     for img_name in tqdm(all_images, desc="VirTues IMMUcan"):
         cache_feat = cache_dir / f"{img_name}_feat.npy"
         cache_meta = cache_dir / f"{img_name}_meta.csv"
-
         if cache_feat.exists() and cache_meta.exists():
             feats = np.load(cache_feat)
             meta  = pd.read_csv(cache_meta)
-            img_feature_store[img_name] = (
-                feats, meta['label'].tolist(), meta['cell_id'].tolist())
+            img_feature_store[img_name] = (feats, meta['label'].tolist(), meta['cell_id'].tolist())
             continue
 
         npz_file   = NPZ_DIR    / f"{img_name}.npz"
@@ -318,8 +236,7 @@ def extract_features_immucan(args, model, embedding_dim, conf,
             print(f"  Skipping {img_name} — missing files")
             continue
 
-        img_raw = np.load(npz_file)['data'].astype(np.float32)
-        img_raw = img_raw[clean_indices]
+        img_raw = np.load(npz_file)['data'].astype(np.float32)[clean_indices]
         img_processed, _, _ = preprocess_image(img_raw, channel_mask)
 
         seg_np = tifffile.imread(mask_file)
@@ -327,17 +244,16 @@ def extract_features_immucan(args, model, embedding_dim, conf,
             cell_labels = [int(l.strip()) for l in f.readlines()]
 
         cell_ids_out, feats_list = run_compute_cell_tokens(
-            img_processed, seg_np, marker_indices, model, conf, args)
+            img_processed, seg_np, marker_indices, model, conf, args, args.pad_size)
 
-        labels_list   = [get_label(int(cid), cell_labels, label_map)
-                         for cid in cell_ids_out]
+        labels_list   = [get_label(int(cid), cell_labels, label_map) for cid in cell_ids_out]
         cell_ids_list = [int(cid) for cid in cell_ids_out]
         feats_arr     = np.array(feats_list)
 
         np.save(cache_feat, feats_arr)
-        pd.DataFrame({'image_id':[img_name]*len(cell_ids_list),
-                      'cell_id':cell_ids_list,'label':labels_list,
-                      }).to_csv(cache_meta, index=False)
+        pd.DataFrame({'image_id': [img_name]*len(cell_ids_list),
+                      'cell_id': cell_ids_list, 'label': labels_list}
+                     ).to_csv(cache_meta, index=False)
         img_feature_store[img_name] = (feats_arr, labels_list, cell_ids_list)
         torch.cuda.empty_cache()
 
@@ -347,52 +263,48 @@ def extract_features_immucan(args, model, embedding_dim, conf,
         all_i.extend(cell_ids); all_n.extend([img_name]*len(cell_ids))
 
     all_feats_arr = np.array(all_f)
-    metadata_all  = pd.DataFrame({'image_id':all_n,'cell_id':all_i,'label':all_l})
+    metadata_all  = pd.DataFrame({'image_id': all_n, 'cell_id': all_i, 'label': all_l})
     save_embeddings(args.output_dir, all_feats_arr, metadata_all)
     print(f"\nExtraction complete: {len(all_feats_arr):,} cells")
-    print(pd.Series(all_l).value_counts().to_string())
     return img_feature_store, all_feats_arr, metadata_all
 
-# cHL Data Loading
 
-BASE_CHL = Path("/home/juliaoesterle/data/phenotyping_benchmark/cHL_2_MIBI")
+# cHL PIPELINE  (config-driven paths)
 
-def load_chl_metadata():
-    meta_df = pd.read_csv(
-        BASE_CHL / "quantification/processed/cHL_2_MIBI_quantification.csv")
-    meta_df["sample_id"] = (meta_df["sample_id"].astype(str)
-                            .str.replace(".csv","",regex=False))
+def load_chl_metadata(cfg):
+    data_root = Path(cfg["data_root"])
+    meta_df = pd.read_csv(data_root / cfg["quant_csv"])
+    meta_df["sample_id"] = meta_df["sample_id"].astype(str).str.replace(".csv", "", regex=False)
     print(f"cHL: {len(meta_df):,} cells, {meta_df['cell_type'].nunique()} types")
 
-    with open(BASE_CHL / "quantification/processed/"
-              "kfolds_StratifiedGroupKFold_level3/fold_indices.json") as f:
+    with open(data_root / cfg["folds_json"]) as f:
         folds = json.load(f)["folds"]
     print(f"cHL: {len(folds)} cell-level folds")
 
-    img_dir  = BASE_CHL / "raw_images/multistack_tiffs"
-    img_paths = {p.name.replace("_stacked.ome.tif",""):p
+    img_dir   = data_root / cfg["image_dir"]
+    img_paths = {p.name.replace("_stacked.ome.tif", ""): p
                  for p in sorted(img_dir.glob("*_stacked.ome.tif"))}
-    print(f"cHL: {len(img_paths)} images: {list(img_paths.keys())}")
+    print(f"cHL: {len(img_paths)} images")
 
     seg_paths = {}
     for img_id in img_paths:
-        d = BASE_CHL / "segmentation" / img_id
-        if not d.exists(): continue
-        hits = [f for f in d.rglob("segmentationMap.tif")
-                if not f.name.startswith(".")]
-        if hits: seg_paths[img_id] = hits[0]
+        d = data_root / cfg["segmentation_dir"] / img_id
+        if not d.exists():
+            continue
+        hits = [f for f in d.rglob("segmentationMap.tif") if not f.name.startswith(".")]
+        if hits:
+            seg_paths[img_id] = hits[0]
     print(f"cHL: {len(seg_paths)} segmentations found")
-
     return meta_df, folds, img_paths, seg_paths
 
-# cHL Pipeline (extract + RF in one go, no image-level store needed)
 
-def extract_features_chl(args, model, embedding_dim, conf,
+def extract_features_chl(args, cfg, model, embedding_dim, conf,
                           clean_indices, channel_mask, marker_indices):
     from sklearn.ensemble import RandomForestClassifier
     from sklearn.metrics import accuracy_score, f1_score, classification_report
 
-    meta_df, folds, img_paths, seg_paths = load_chl_metadata()
+    meta_df, folds, img_paths, seg_paths = load_chl_metadata(cfg)
+    exclude_labels = set(cfg.get("exclude_labels", []))
 
     cache_dir = Path(args.output_dir) / 'embeddings' / 'cache'
     cache_dir.mkdir(parents=True, exist_ok=True)
@@ -402,19 +314,16 @@ def extract_features_chl(args, model, embedding_dim, conf,
 
     crop_size = args.crop_size if args.crop_size else conf.data.crop_size
     print(f"\n[cHL] crop_size={crop_size} | stride={args.stride} | "
-          f"pad={PAD_SIZE} | emb_dim={embedding_dim}")
+          f"pad={args.pad_size} | emb_dim={embedding_dim}")
 
-    feat_store = {}  # row_idx → feature vector
-
-    for img_id, img_path in tqdm(sorted(img_paths.items()),
-                                  desc="VirTues cHL", total=len(img_paths)):
+    feat_store = {}
+    for img_id, img_path in tqdm(sorted(img_paths.items()), desc="VirTues cHL", total=len(img_paths)):
         if img_id not in seg_paths:
             print(f"  [skip] {img_id} — no segmentation")
             continue
 
         cache_feat = cache_dir / f"{img_id}_feat.npy"
         cache_keys = cache_dir / f"{img_id}_keys.npy"
-
         if cache_feat.exists() and cache_keys.exists():
             feats    = np.load(cache_feat)
             row_keys = np.load(cache_keys)
@@ -422,14 +331,13 @@ def extract_features_chl(args, model, embedding_dim, conf,
                 feat_store[int(rk)] = feats[i]
             continue
 
-        img_raw = tifffile.imread(img_path).astype(np.float32)   # (46, H, W)
+        img_raw = tifffile.imread(img_path).astype(np.float32)
         seg_np  = tifffile.imread(seg_paths[img_id]).astype(np.int32)
-
-        img_sel = img_raw[clean_indices]                          # (C_clean, H, W)
+        img_sel = img_raw[clean_indices]
         img_processed, _, _ = preprocess_image(img_sel, channel_mask)
 
         cell_ids_out, feats_list = run_compute_cell_tokens(
-            img_processed, seg_np, marker_indices, model, conf, args)
+            img_processed, seg_np, marker_indices, model, conf, args, args.pad_size)
 
         row_keys_buf, feats_buf = [], []
         for i, cid in enumerate(cell_ids_out):
@@ -447,81 +355,134 @@ def extract_features_chl(args, model, embedding_dim, conf,
 
     print(f"Features extracted: {len(feat_store):,} cells")
 
-    # 5-fold CV (cell-level)
-    fold_range = [args.fold] if args.fold is not None else range(len(folds))
+    pred_dir = Path(args.output_dir) / "VIRTUES_supervised" / "level3"
+    pred_dir.mkdir(parents=True, exist_ok=True)
 
+    fold_range = [args.fold] if args.fold is not None else range(len(folds))
+    fold_times, train_times, predict_times = [], [], []
     for fold_idx in fold_range:
+        fold_start = time.time()
         fold      = folds[fold_idx]
         train_idx = [int(i) for i in fold["train"]]
         test_idx  = [int(i) for i in fold["test"]]
 
         X_tr, y_tr = [], []
         for idx in train_idx:
-            if idx not in feat_store: continue
-            lbl = meta_df.loc[idx,"cell_type"]
-            if lbl in CHL_EXCLUDE_LABELS: continue
+            if idx not in feat_store:
+                continue
+            lbl = meta_df.loc[idx, "cell_type"]
+            if lbl in exclude_labels:
+                continue
             X_tr.append(feat_store[idx]); y_tr.append(lbl)
 
-        X_te, y_te, keys = [], [], []
+        X_te, y_te, keys, sids = [], [], [], []
         for idx in test_idx:
-            if idx not in feat_store: continue
-            lbl = meta_df.loc[idx,"cell_type"]
-            if lbl in CHL_EXCLUDE_LABELS: continue
-            X_te.append(feat_store[idx]); y_te.append(lbl)
-            keys.append(idx)
+            if idx not in feat_store:
+                continue
+            lbl = meta_df.loc[idx, "cell_type"]
+            if lbl in exclude_labels:
+                continue
+            X_te.append(feat_store[idx]); y_te.append(lbl); keys.append(idx)
+            sids.append(meta_df.loc[idx, "sample_id"])
 
         print(f"\n[Fold {fold_idx}] Train={len(X_tr):,} Test={len(X_te):,}")
+
+        train_start = time.time()
         clf = RandomForestClassifier(n_estimators=500, n_jobs=args.n_jobs,
                                      random_state=42, class_weight="balanced")
         clf.fit(np.array(X_tr), y_tr)
-        y_pred = clf.predict(np.array(X_te))
+        train_time = time.time() - train_start
+
+        predict_start = time.time()
+        y_pred  = clf.predict(np.array(X_te))
+        y_proba = clf.predict_proba(np.array(X_te))
+        predict_time = time.time() - predict_start
 
         acc = accuracy_score(y_te, y_pred)
-        mf1 = f1_score(y_te, y_pred, average="macro",    zero_division=0)
+        mf1 = f1_score(y_te, y_pred, average="macro", zero_division=0)
         wf1 = f1_score(y_te, y_pred, average="weighted", zero_division=0)
         print(f"  Acc={acc:.4f}  MacroF1={mf1:.4f}  WF1={wf1:.4f}")
         print(classification_report(y_te, y_pred, zero_division=0))
 
-        pred_dir = Path(args.output_dir) / "VIRTUES_supervised" / "level3"
-        pred_dir.mkdir(parents=True, exist_ok=True)
-        pd.DataFrame({"cell_id":keys,"true_label":y_te,"pred_label":y_pred}
-                     ).to_csv(pred_dir / f"predictions_{fold_idx}.csv", index=False)
+        # Same predictions_{fold}.csv schema as the IMMUcan path (image_id,
+        # cell_id, fold, true_phenotype, predicted_phenotype, confidence) --
+        # was cell_id/true_label/pred_label only before, inconsistent with
+        # every other method's output here.
+        pd.DataFrame({
+            "image_id":            sids,
+            "cell_id":             keys,
+            "fold":                fold_idx,
+            "true_phenotype":      y_te,
+            "predicted_phenotype": y_pred,
+            "confidence":          y_proba.max(axis=1),
+        }).to_csv(pred_dir / f"predictions_{fold_idx}.csv", index=False)
         print(f"  -> {pred_dir}/predictions_{fold_idx}.csv")
 
-# Argument Parser
+        fold_time = time.time() - fold_start
+        fold_times.append(fold_time)
+        train_times.append(train_time)
+        predict_times.append(predict_time)
+        print(f"  Time: {fold_time:.1f}s (train={train_time:.1f}s, predict={predict_time:.1f}s)")
+
+    with open(pred_dir / "fold_times.txt", "w") as f:
+        for i, t, tr, pr in zip(fold_range, fold_times, train_times, predict_times):
+            f.write(f"fold_{i}: {t:.2f}s (train={tr:.2f}s, predict={pr:.2f}s)\n")
+        f.write(f"total: {sum(fold_times):.2f}s\n")
+        f.write(f"total_train: {sum(train_times):.2f}s\n")
+        f.write(f"total_predict: {sum(predict_times):.2f}s\n")
+        f.write(f"mean_fold: {np.mean(fold_times):.2f}s\n")
+    print(f"  -> {pred_dir}/fold_times.txt")
+
+
+# ARGUMENT PARSER
 
 def build_parser():
     parser = argparse.ArgumentParser(
         prog='run_virtues.py',
-        description='VirTues unified pipeline — IMMUcan + cHL_2_MIBI',
+        description='VirTues config-driven pipeline — IMMUcan + cHL_2_MIBI',
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
     sub = parser.add_subparsers(dest='mode', required=True)
-
-    for m in ['extract','supervised','leiden','all']:
+    for m in ['extract', 'supervised', 'leiden', 'all']:
         p = sub.add_parser(m, formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-        p.add_argument('--dataset',     choices=['immucan','chl'], required=True)
-        p.add_argument('--virtues-dir', default='/home/juliaoesterle/VirTues')
-        p.add_argument('--device',      default='cuda:1')
-        p.add_argument('--crop-size',   type=int, default=None,
-                       help='Override crop size (None=128 from config; 64=IMMUcan best)')
-        p.add_argument('--stride',      type=int, default=42,
-                       help='Stride for compute_cell_tokens (42=config default; 21 for crop64)')
-        p.add_argument('--chunk-size',  type=int, default=32)
-        p.add_argument('--fold',        type=int, default=None,
-                       help='Single fold only (default: all 5)')
-        p.add_argument('--exclude-markers', nargs='+', default=DEFAULT_EXCLUDE)
+        p.add_argument('--dataset',     choices=['immucan', 'chl'], required=True)
+        p.add_argument('--config',      required=True, help='Path to virtues.json')
+        p.add_argument('--virtues-dir', default=None)
+        p.add_argument('--device',      default=None)
+        p.add_argument('--crop-size',   type=int, default=None)
+        p.add_argument('--stride',      type=int, default=None)
+        p.add_argument('--chunk-size',  type=int, default=None)
+        p.add_argument('--pad-size',    type=int, default=None)
+        p.add_argument('--fold',        type=int, default=None)
+        p.add_argument('--exclude-markers', nargs='+', default=None)
         add_shared_args(p)   # --data-dir, --output-dir, --n-folds, --n-estimators etc.
-
     return parser
 
-# Main
+
+# MAIN
 
 def main():
     parser = build_parser()
     args   = parser.parse_args()
-
     total_start = time.time()
+
+    cfg = load_config(args.config, args.dataset)
+
+    # Fill unset CLI args from config defaults
+    def fill(attr, key, default=None):
+        if getattr(args, attr, None) is None:
+            setattr(args, attr, cfg.get(key, default))
+    fill('virtues_dir', 'virtues_dir', '/home/juliaoesterle/VirTues')
+    fill('device', 'device', 'cuda:1')
+    fill('crop_size', 'crop_size', None)
+    fill('stride', 'stride', 42)
+    fill('chunk_size', 'chunk_size', 32)
+    fill('pad_size', 'pad_size', 120)
+    if getattr(args, 'n_folds', None) is None:
+        args.n_folds = cfg.get('n_folds', 5)
+    if args.exclude_markers is None:
+        args.exclude_markers = cfg["exclude_markers"]
+
     print(f"\n{'='*60}")
     print(f"run_virtues.py | dataset={args.dataset} | mode={args.mode}")
     print(f"{'='*60}")
@@ -529,43 +490,36 @@ def main():
     virtues_dir = Path(args.virtues_dir)
     emb_dir     = str(virtues_dir / 'assets' / 'example_dataset' / 'marker_embeddings')
 
-    model, embedding_dim, conf, marker_embedding_dir = \
-        load_virtues_model(virtues_dir, args.device)
+    model, embedding_dim, conf, _ = load_virtues_model(virtues_dir, args.device)
 
     if args.dataset == 'immucan':
-        clean_indices, clean_names, channel_mask, marker_indices, _ = \
-            get_clean_markers(ALL_BIOMARKERS, args.exclude_markers,
-                              IMMUCAN_UNIPROT, emb_dir)
+        clean_indices, clean_names, channel_mask, marker_indices, _ = get_clean_markers(
+            cfg["channels"], args.exclude_markers, cfg["uniprot_map"], emb_dir)
 
-        label_map         = load_label_map(args.data_dir)
-        folds, all_images = load_folds(args.data_dir, args.n_folds)
+        data_root         = cfg["data_root"]
+        label_map         = load_label_map(data_root)
+        folds, all_images = load_folds(data_root, args.n_folds)
 
         all_feats_arr, metadata_all = load_embeddings(args.output_dir)
-        if all_feats_arr is not None and args.mode in ('supervised','leiden'):
+        if all_feats_arr is not None and args.mode in ('supervised', 'leiden'):
             img_feature_store = rebuild_img_feature_store(args.output_dir, all_images)
         else:
-            img_feature_store, all_feats_arr, metadata_all = \
-                extract_features_immucan(
-                    args, model, embedding_dim, conf,
-                    all_images, clean_indices, clean_names,
-                    channel_mask, marker_indices, label_map)
+            img_feature_store, all_feats_arr, metadata_all = extract_features_immucan(
+                args, cfg, model, embedding_dim, conf, all_images,
+                clean_indices, clean_names, channel_mask, marker_indices, label_map)
 
-        if args.mode in ('supervised','all'):
-            run_supervised(args, folds, img_feature_store,
-                           all_feats_arr, metadata_all,
+        if args.mode in ('supervised', 'all'):
+            run_supervised(args, folds, img_feature_store, all_feats_arr, metadata_all,
                            method_name='VIRTUES_supervised')
-        if args.mode in ('leiden','all'):
-            run_leiden(args, folds, img_feature_store,
-                       all_feats_arr, metadata_all,
+        if args.mode in ('leiden', 'all'):
+            run_leiden(args, folds, img_feature_store, all_feats_arr, metadata_all,
                        method_name='VIRTUES_leiden')
 
     else:  # chl
-        clean_indices, clean_names, channel_mask, marker_indices, _ = \
-            get_clean_markers(CHL_ALL_CHANNELS, CHL_DEFAULT_EXCLUDE,
-                              CHL_UNIPROT, emb_dir)
-        # cHL runs extract+RF in one go (cell-level folds, no image-level store needed)
-        extract_features_chl(args, model, embedding_dim, conf,
-                              clean_indices, channel_mask, marker_indices)
+        clean_indices, clean_names, channel_mask, marker_indices, _ = get_clean_markers(
+            cfg["channels"], args.exclude_markers, cfg["uniprot_map"], emb_dir)
+        extract_features_chl(args, cfg, model, embedding_dim, conf,
+                             clean_indices, channel_mask, marker_indices)
 
     print(f"\nTotal: {(time.time()-total_start)/60:.1f} min")
 

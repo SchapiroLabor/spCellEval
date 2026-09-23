@@ -1,0 +1,86 @@
+{
+  "method": "virtues",
+  "defaults": {
+    "device": "cuda:1",
+    "stride": 42,
+    "chunk_size": 32,
+    "pad_size": 120,
+    "n_folds": 5,
+    "n_estimators": 200,
+    "n_jobs": -1,
+    "virtues_dir": "/home/juliaoesterle/VirTues"
+  },
+  "datasets": {
+    "immucan": {
+      "data_root": "/home/juliaoesterle/data/phenotyping_benchmark/IMMUcan",
+      "image_dir": "CellTypes/data/images",
+      "label_dir": "CellTypes/cells2labels",
+      "segmentation_dir": "segmentation",
+      "folds_json": "CellTypes/folds.json",
+      "fold_type": "image",
+      "image_format": "npz",
+      "_comment_crop_size": "64px, empirically best on IMMUcan (see run_virtues.py docstring history).",
+      "crop_size": 64,
+      "stride": 21,
+      "channels": [
+        "MPO", "HistoneH3", "SMA", "CD16", "CD38", "HLADR", "CD27", "CD15",
+        "CD45RA", "CD163", "B2M", "CD20", "CD68", "Ido1", "CD3", "LAG3",
+        "CD11c", "PD1", "PDGFRb", "CD7", "GrzB", "PDL1", "TCF7", "CD45RO",
+        "FOXP3", "ICOS", "CD8a", "CarbonicAnhydrase", "CD33", "Ki67",
+        "VISTA", "CD40", "CD4", "CD14", "Ecad", "CD303", "CD206",
+        "cleavedPARP", "DNA1", "DNA2"
+      ],
+      "exclude_markers": ["DNA1", "DNA2", "HistoneH3"],
+      "uniprot_map": {
+        "MPO": "P05164", "SMA": "P62736", "CD16": "P08637", "CD38": "P28907",
+        "HLADR": "P01903", "CD27": "P26842", "CD15": "P22083", "CD45RA": "P08575-8",
+        "CD163": "Q86VB7", "B2M": "P61769", "CD20": "P11836", "CD68": "P34810",
+        "Ido1": "P14902", "CD3": "P07766", "LAG3": "P18627", "CD11c": "P20701",
+        "PD1": "Q15116", "PDGFRb": "P09619", "CD7": "P09564", "GrzB": "P10144",
+        "PDL1": "Q9NZQ7", "TCF7": "P36402", "CD45RO": "P08575-5", "FOXP3": "Q9BZS1",
+        "ICOS": "Q9Y288", "CD8a": "P01732", "CarbonicAnhydrase": "Q16790",
+        "CD33": "P20138", "Ki67": "P46013", "VISTA": "Q9H7M9", "CD40": "P25942",
+        "CD4": "P01730", "CD14": "P08235", "Ecad": "P12830", "CD303": "Q8WTT0",
+        "CD206": "P22897", "cleavedPARP": "P09874"
+      }
+    },
+    "chl": {
+      "data_root": "/home/juliaoesterle/data/phenotyping_benchmark/cHL_2_MIBI",
+      "quant_csv": "quantification/processed/cHL_2_MIBI_quantification.csv",
+      "folds_json": "quantification/processed/kfolds_StratifiedGroupKFold_level3/fold_indices.json",
+      "image_dir": "raw_images/multistack_tiffs",
+      "segmentation_dir": "segmentation",
+      "fold_type": "cell",
+      "image_format": "ome_tiff",
+      "_comment_channels": "VERIFIED 2026-09-18/2026-09-23 against the raw OME-XML metadata of raw_images/multistack_tiffs/1_stacked.ome.tif (tifffile .ome_metadata) and cross-checked against markers.txt at the dataset root -- both agree exactly. The previous list here was stale and never matched the real panel (chl was never actually run through this config before).",
+      "channels": [
+        "CD4", "CD20", "PD-1", "FoxP3", "CD14", "CD161", "Tbet", "CD25",
+        "CD68", "CD3", "CD57", "Pax-5", "GATA3", "TCRgd", "RORgT", "CD45RO",
+        "Na-K ATPase", "CD56", "Lag3", "CD45RA", "B2-Microglobulin", "TIM3",
+        "SLP-76", "Tox", "Histone H3", "CD30", "CXCR5", "Ki-67", "Granzyme B",
+        "CD8", "PD-L1", "CD45", "HLA1", "CD153 (CD30L)", "pSLP-76", "HLA-DR",
+        "CD16", "dsDNA", "CD86", "CD11c", "CD15", "CD28", "CD123",
+        "anti-H2AX (pS139)", "CD163", "IL-10"
+      ],
+      "_comment_exclude": "Matches Eva's cHL exclude set exactly (see results/Eva_results_CHL_2_MIBI/run.log: 46 total, 41 kept).",
+      "exclude_markers": ["Histone H3", "SLP-76", "anti-H2AX (pS139)", "dsDNA", "pSLP-76"],
+      "exclude_labels": ["undefined"],
+      "_comment_crop_size": "Untuned for cHL -- kept equal to IMMUcan's tuned value because measured cell footprint is nearly identical (cHL mean bbox 10.7x10.3px vs IMMUcan's ~9.5x10.6px, see kronos.json). Re-tune empirically before trusting this for the manuscript.",
+      "crop_size": 64,
+      "stride": 21,
+      "uniprot_map": {
+        "CD4": "P01730", "CD20": "P11836", "PD-1": "Q15116", "FoxP3": "Q9BZS1",
+        "CD14": "P08235", "CD161": "Q12918", "Tbet": "Q9UL17", "CD25": "P01589",
+        "CD68": "P34810", "CD3": "P09693", "Pax-5": "Q02548", "GATA3": "P23771",
+        "RORgT": "P51449", "CD45RO": "P08575-5", "Na-K ATPase": "P05023",
+        "CD56": "P13591", "Lag3": "P18627", "CD45RA": "P08575-8",
+        "B2-Microglobulin": "P61769", "TIM3": "Q8TDQ0", "Tox": "O94900",
+        "CD30": "P28908", "CXCR5": "P32302", "Ki-67": "P46013", "Granzyme B": "P10144",
+        "CD8": "P01732", "PD-L1": "Q9NZQ7", "CD45": "P08575", "HLA1": "P04439",
+        "CD153 (CD30L)": "P32971", "HLA-DR": "P01903", "CD16": "P08637", "CD86": "P42081",
+        "CD11c": "P20702", "CD15": "P15291", "CD28": "P10747", "CD123": "P26951",
+        "CD163": "Q86VB7", "IL-10": "P22301"
+      }
+    }
+  }
+}
