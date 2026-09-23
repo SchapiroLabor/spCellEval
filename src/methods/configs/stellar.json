@@ -1,0 +1,61 @@
+{
+  "method": "stellar",
+  "_comment_distance_threshold": "KNOWN CAVEAT (not fixed, flagging for the manuscript): this is a pixel distance, not a physical one. cHL's segmentation dir name states mpp=1.75um/px; IMMUcan's mpp is only ASSUMED at ~1um/px, never confirmed (see HANDOFF). The same 14.28px threshold is therefore ~14.28um on IMMUcan but ~25um on cHL -- not the same physical neighbourhood. This is Stellar's analogue of the tile-size resolution issue Lukas raised for the FMs, even though Stellar has no image tiles. Left as one global default rather than silently guessing a scaled per-dataset value, since IMMUcan's mpp was never verified either.",
+  "defaults": {
+    "hid_dim": 160,
+    "distance_threshold": 14.28,
+    "epochs": 50,
+    "lr": 0.001,
+    "weight_decay": 0.0001,
+    "eval_every": 5,
+    "node_batch_size": 512,
+    "num_neighbors": [10],
+    "device": "cuda:0"
+  },
+  "datasets": {
+    "immucan": {
+      "data_root": "/home/juliaoesterle/data/phenotyping_benchmark/IMMUcan",
+      "image_dir": "CellTypes/data/images",
+      "label_dir": "CellTypes/cells2labels",
+      "segmentation_dir": "segmentation",
+      "folds_json": "CellTypes/folds.json",
+      "output_root": "/home/juliaoesterle/results/stellar/immucan",
+      "fold_type": "image",
+      "n_raw_channels": 40,
+      "excluded_channels": [0, 1, 2],
+      "image_scale": 65535.0,
+      "label_map": {
+        "0": "Cancer",
+        "1": "Stroma",
+        "2": "CD8+_T_cell",
+        "3": "M2_Macrophage",
+        "4": "CD4+_T_cell",
+        "5": "undefined",
+        "6": "Plasma_cell",
+        "7": "Neutrophil",
+        "8": "BnT",
+        "9": "Treg",
+        "10": "Dendritic_cell",
+        "11": "B_cell",
+        "12": "NK_cell",
+        "13": "Plasmacytoid_dendritic_cell"
+      },
+      "excluded_labels": ["undefined"]
+    },
+    "chl": {
+      "data_root": "/home/juliaoesterle/data/phenotyping_benchmark/cHL_2_MIBI",
+      "quant_csv": "quantification/processed/cHL_2_MIBI_quantification.csv",
+      "folds_json": "quantification/processed/kfolds_StratifiedGroupKFold_level3/fold_indices.json",
+      "image_dir": "raw_images/multistack_tiffs",
+      "segmentation_dir": "segmentation",
+      "single_channel_dir": "raw_images/single_channel_tiffs/1",
+      "markers_txt": "markers.txt",
+      "output_root": "/home/juliaoesterle/results/stellar/chl",
+      "fold_type": "cell",
+      "n_raw_channels": 46,
+      "_comment_excluded_markers": "Must match the exact filenames under single_channel_dir / lines in markers.txt -- 'anti-H2AX' alone (no suffix) silently fails to match 'anti-H2AX (pS139)' and would NOT be excluded. Fixed 2026-09-23.",
+      "excluded_markers": ["dsDNA", "Histone H3", "anti-H2AX (pS139)", "pSLP-76", "SLP-76"],
+      "excluded_labels": ["undefined", "unedfined"]
+    }
+  }
+}

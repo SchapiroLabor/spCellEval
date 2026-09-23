@@ -2,7 +2,6 @@
   "method": "kronos",
   "defaults": {
     "device": "cuda:0",
-    "patch_size": 64,
     "batch_size": 16,
     "marker_max_values": 65535.0,
     "n_folds": 5,
@@ -22,6 +21,8 @@
       "folds_json": "CellTypes/folds.json",
       "fold_type": "image",
       "image_format": "npz",
+      "_comment_patch_size": "64px pad, per-cell bbox. Mean IMMUcan cell bbox ~9.5x10.6px (see Eva docstring) -> ample margin.",
+      "patch_size": 64,
       "biomarkers": [
         "MPO", "HistoneH3", "SMA", "CD16", "CD38", "HLADR", "CD27", "CD15",
         "CD45RA", "CD163", "B2M", "CD20", "CD68", "Ido1", "CD3", "LAG3",
@@ -38,6 +39,39 @@
         "cleavedPARP": "CLEAVED_CASP3"
       },
       "no_equivalent": ["SMA", "PDGFRb", "TCF7", "CarbonicAnhydrase", "Ecad", "CD33", "CD303"]
+    },
+    "chl": {
+      "data_root": "/home/juliaoesterle/data/phenotyping_benchmark/cHL_2_MIBI",
+      "quant_csv": "quantification/processed/cHL_2_MIBI_quantification.csv",
+      "folds_json": "quantification/processed/kfolds_StratifiedGroupKFold_level3/fold_indices.json",
+      "image_dir": "raw_images/multistack_tiffs",
+      "segmentation_dir": "segmentation",
+      "fold_type": "cell",
+      "image_format": "ome_tiff",
+      "_comment_patch_size": "Measured directly from segmentationMap.tif (image 1, 38,112 cells): mean bbox 10.7x10.3px, p95 16x15px, max 36x30px -> essentially the same cell footprint as IMMUcan's 9.5x10.6px, so the same 64px pad is kept rather than invented differently. Re-measure if a new dataset has a materially different mpp.",
+      "patch_size": 64,
+      "biomarkers": [
+        "CD4", "CD20", "PD-1", "FoxP3", "CD14", "CD161", "Tbet", "CD25",
+        "CD68", "CD3", "CD57", "Pax-5", "GATA3", "TCRgd", "RORgT", "CD45RO",
+        "Na-K ATPase", "CD56", "Lag3", "CD45RA", "B2-Microglobulin", "TIM3",
+        "SLP-76", "Tox", "Histone H3", "CD30", "CXCR5", "Ki-67", "Granzyme B",
+        "CD8", "PD-L1", "CD45", "HLA1", "CD153 (CD30L)", "pSLP-76", "HLA-DR",
+        "CD16", "dsDNA", "CD86", "CD11c", "CD15", "CD28", "CD123",
+        "anti-H2AX (pS139)", "CD163", "IL-10"
+      ],
+      "exclude_markers": ["Histone H3", "SLP-76", "anti-H2AX (pS139)", "dsDNA", "pSLP-76"],
+      "exclude_labels": ["undefined"],
+      "name_mappings": {
+        "PD-1": "PD1",
+        "Pax-5": "PAX5",
+        "B2-Microglobulin": "B2M",
+        "Ki-67": "KI67",
+        "Granzyme B": "GZMB",
+        "PD-L1": "PDL1",
+        "HLA-DR": "HLA_DR",
+        "IL-10": "IL10"
+      },
+      "no_equivalent": ["CD161", "TCRgd", "RORgT", "Na-K ATPase", "CD153 (CD30L)", "CD86", "CD123", "CD57"]
     }
   }
 }

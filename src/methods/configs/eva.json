@@ -1,9 +1,14 @@
 {
   "method": "eva",
+  "_comment_embedding_mode": "Decision 2026-09: use 'tile' (v3, the authors' full-tile / spatial-token-map approach), not 'bbox' (v7, adaptive bounding box) -- tile scored slightly better on IMMUcan. bbox kept available for comparison, not deleted.",
   "defaults": {
     "device": "cuda:1",
+    "embedding_mode": "tile",
     "batch_size": 16,
     "patch_size": 224,
+    "_comment_tile": "tile_size/tile_stride are for --embedding-mode tile (v3). Same value used on both datasets (no evidence a smaller/larger tile changes token quality), but cHL's images are ~11x more pixels than IMMUcan's (2048x1536 vs 600x600) -> proportionally more forward passes per image. This is a runtime, not accuracy, concern -- flagged, not silently changed.",
+    "tile_size": 224,
+    "tile_stride": 112,
     "n_folds": 5,
     "n_estimators": 200,
     "n_jobs": -1,
