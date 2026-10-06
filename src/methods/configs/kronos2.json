@@ -1,0 +1,46 @@
+{
+  "method": "kronos2",
+  "_comment": "KRONOS2 (MahmoodLab/KRONOS2 on HuggingFace) -- the authors' next-generation, marker-aware successor to KRONOS. Loaded via transformers.AutoModel (trust_remote_code), not the old 'kronos' pip package. No local marker_metadata.csv/model_assets needed -- the model ships its own 288-marker vocabulary and does its own marker-aware z-score via model.preprocess(). name_mappings here are ONLY for aliasing our marker names onto that vocabulary's naming, verified against the bundled marker_metadata.csv's own exact-match logic (marker_utils.marker_match_key), not invented.",
+  "defaults": {
+    "device": "cuda:0",
+    "patch_size": 64,
+    "batch_size": 16,
+    "n_folds": 5,
+    "n_trials": 25,
+    "c_low": 1e-10,
+    "c_high": 1e5,
+    "max_iter": 10000,
+    "max_cells_per_type": null,
+    "n_jobs": -1
+  },
+  "datasets": {
+    "immucan": {
+      "data_root": "/home/juliaoesterle/data/phenotyping_benchmark/IMMUcan",
+      "image_dir": "CellTypes/data/images",
+      "label_dir": "CellTypes/cells2labels",
+      "segmentation_dir": "segmentation",
+      "folds_json": "CellTypes/folds.json",
+      "fold_type": "image",
+      "image_format": "npz",
+      "biomarkers": [
+        "MPO", "HistoneH3", "SMA", "CD16", "CD38", "HLADR", "CD27", "CD15",
+        "CD45RA", "CD163", "B2M", "CD20", "CD68", "Ido1", "CD3", "LAG3",
+        "CD11c", "PD1", "PDGFRb", "CD7", "GrzB", "PDL1", "TCF7", "CD45RO",
+        "FOXP3", "ICOS", "CD8a", "CarbonicAnhydrase", "CD33", "Ki67",
+        "VISTA", "CD40", "CD4", "CD14", "Ecad", "CD303", "CD206",
+        "cleavedPARP", "DNA1", "DNA2"
+      ],
+      "_comment_exclude_markers": "DNA1/DNA2/HistoneH3 excluded for the same reason as every other method (nuclear/housekeeping stains, not phenotypic markers). CD33/Ecad/cleavedPARP additionally excluded because KRONOS2's marker-conditioning forward() (unlike its z-score preprocess() step) has NO fallback for an unmatched marker -- it hard-fails with 'No (fuzzy) match found', verified directly against model.backbone.marker_builder for all three. This means KRONOS2 sees 34 markers here, not KRONOS1's 37 -- a real, disclosed difference in available input, not a choice.",
+      "exclude_markers": ["DNA1", "DNA2", "HistoneH3", "CD33", "Ecad", "cleavedPARP"],
+      "_comment_name_mappings": "Checked against KRONOS2's bundled marker_metadata.csv (288 markers) AND verified directly against model.backbone.marker_builder's real fuzzy matcher (not just the CSV lookup) for all six: SMA/GrzB/CD8a/TCF7/CD303/CarbonicAnhydrase have no match under their IMMUcan spelling but a confident biological-identity alias passes (A-SMA=SMA, GZMB=GrzB, CD8=CD8a, TCF1=TCF7 [same gene, alt name], BDCA-2=CD303 [same molecule], CA9=CarbonicAnhydrase IX).",
+      "name_mappings": {
+        "SMA": "A-SMA",
+        "GrzB": "GZMB",
+        "CD8a": "CD8",
+        "TCF7": "TCF1",
+        "CD303": "BDCA-2",
+        "CarbonicAnhydrase": "CA9"
+      }
+    }
+  }
+}
