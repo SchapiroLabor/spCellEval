@@ -47,29 +47,25 @@
         "CD16", "dsDNA", "CD86", "CD11c", "CD15", "CD28", "CD123",
         "anti-H2AX (pS139)", "CD163", "IL-10"
       ],
-      "exclude_markers": ["Histone H3", "dsDNA", "anti-H2AX (pS139)", "pSLP-76", "SLP-76"],
-      "exclude_labels": ["undefined", "unedfined"],
+      "_comment_exclude_markers": "Histone H3/dsDNA/anti-H2AX (pS139)/pSLP-76/SLP-76: same 5 excluded for every method on cHL. CD161/CD153 (CD30L)/CD28/IL-10 additionally excluded: Eva's marker_to_gene dict (eva/project/utils/constant.py, 213 entries) has no matching key for any of these under any plausible spelling -- verified directly, not assumed. Eva's embedding layer does a plain dict lookup with no fallback, so an unmapped/unmatched name is a hard KeyError, not a soft default (same failure mode as KRONOS2's marker_builder). This means Eva sees 37 markers here, not KRONOS1's 41.",
+      "exclude_markers": ["Histone H3", "dsDNA", "anti-H2AX (pS139)", "pSLP-76", "SLP-76", "CD161", "CD153 (CD30L)", "CD28", "IL-10"],
+      "_comment_exclude_labels": "Per Lukas 2026-10: 'undefined' is kept as a real, scored class on cHL for every method -- other supervised methods in the benchmark predict and are scored on it too, so dropping it here would be inconsistent.",
+      "exclude_labels": [],
+      "_comment_marker_name_map": "Verified 2026-10 against eva/project/utils/constant.py's marker_to_gene dict directly (sys.path to eva/project, from utils.constant import marker_to_gene, checked every clean marker's mapped name is an actual key). The map inherited from before this check had 9 silently wrong entries (e.g. Tbet->TBX21, RORgT->RORC, PD-L1->CD274 -- none of those are real keys; Eva's vocabulary uses its own inconsistent naming, e.g. 'Tbet' unmapped, 'RORgammaT', 'PDL1') and 3 markers mapped to keys that don't exist at all (now moved to exclude_markers above since there's no correct target). Every entry below now resolves.",
       "marker_name_map": {
         "FoxP3": "FOXP3",
-        "Pax-5": "PAX5",
-        "TCRgd": "TRGV",
-        "RORgT": "RORC",
-        "Na-K ATPase": "ATP1A1",
+        "PD-1": "PD1",
+        "Pax-5": "Pax5",
+        "TCRgd": "TCRgammadelta",
+        "RORgT": "RORgammaT",
+        "Na-K ATPase": "Na/K ATPase",
         "Lag3": "LAG3",
         "B2-Microglobulin": "B2M",
-        "TIM3": "HAVCR2",
         "Tox": "TOX",
-        "Granzyme B": "GZMB",
-        "PD-L1": "CD274",
-        "CD153 (CD30L)": "TNFSF8",
-        "HLA-DR": "HLA-DRA",
-        "CD86": "CD86",
-        "Ki-67": "MKI67",
-        "CXCR5": "CXCR5",
-        "GATA3": "GATA3",
-        "Tbet": "TBX21",
-        "HLA1": "HLA-A",
-        "IL-10": "IL10"
+        "Ki-67": "Ki67",
+        "Granzyme B": "GranzymeB",
+        "PD-L1": "PDL1",
+        "HLA1": "HLA-ABC"
       }
     }
   }
