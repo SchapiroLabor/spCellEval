@@ -167,10 +167,18 @@ def extract_patches(args, cfg, all_images, clean_indices, clean_names, label_map
 
             ch, cw = crop.shape[:2]
             if ch > args.patch_size or cw > args.patch_size:
+                # Keep y_min/x_min in sync with the center-crop so the mask
+                # slice below reads the same region as `crop`/`padded` --
+                # previously it re-sliced the full, un-cropped bbox, giving
+                # 'mask' a different shape than the marker datasets in the
+                # same h5 file whenever a cell's bbox exceeded patch_size.
                 cy, cx = ch // 2, cw // 2
                 half   = args.patch_size // 2
-                crop   = crop[max(0, cy-half):cy+half, max(0, cx-half):cx+half, :]
+                y_lo, x_lo = max(0, cy - half), max(0, cx - half)
+                crop   = crop[y_lo:cy+half, x_lo:cx+half, :]
+                y_min, x_min = y_min + y_lo, x_min + x_lo
                 ch, cw = crop.shape[:2]
+                y_max, x_max = y_min + ch - 1, x_min + cw - 1
 
             pad_h = args.patch_size - ch
             pad_w = args.patch_size - cw
@@ -293,10 +301,18 @@ def extract_patches_chl(args, cfg, clean_indices, clean_names, meta_df, img_path
 
             ch, cw = crop.shape[:2]
             if ch > args.patch_size or cw > args.patch_size:
+                # Keep y_min/x_min in sync with the center-crop so the mask
+                # slice below reads the same region as `crop`/`padded` --
+                # previously it re-sliced the full, un-cropped bbox, giving
+                # 'mask' a different shape than the marker datasets in the
+                # same h5 file whenever a cell's bbox exceeded patch_size.
                 cy, cx = ch // 2, cw // 2
                 half   = args.patch_size // 2
-                crop   = crop[max(0, cy-half):cy+half, max(0, cx-half):cx+half, :]
+                y_lo, x_lo = max(0, cy - half), max(0, cx - half)
+                crop   = crop[y_lo:cy+half, x_lo:cx+half, :]
+                y_min, x_min = y_min + y_lo, x_min + x_lo
                 ch, cw = crop.shape[:2]
+                y_max, x_max = y_min + ch - 1, x_min + cw - 1
 
             pad_h = args.patch_size - ch
             pad_w = args.patch_size - cw
@@ -307,7 +323,14 @@ def extract_patches_chl(args, cfg, clean_indices, clean_names, meta_df, img_path
             cell_mask_pad  = np.pad(cell_mask_crop, ((pad_h//2, pad_h-pad_h//2),
                                                      (pad_w//2, pad_w-pad_w//2)))
 
-            label = label_lookup.get((img_id, int(cell_id)), 'undefined')
+            # 'Unknown' (not the real 'undefined' class) marks a segmented
+            # cell with no matching metadata row -- distinct sentinel so it's
+            # never mistaken for a biologist-labeled 'undefined' cell. This
+            # h5 attr is informational only: run_logreg_optuna_chl() gets its
+            # labels from row_map (built straight from the quantification
+            # CSV), never from this attribute, so it has no effect on
+            # training or scoring either way -- verified directly.
+            label = label_lookup.get((img_id, int(cell_id)), 'Unknown')
 
             with h5py.File(h5_path, 'w') as f:
                 f.create_dataset('mask', data=cell_mask_pad, dtype=np.uint8)
