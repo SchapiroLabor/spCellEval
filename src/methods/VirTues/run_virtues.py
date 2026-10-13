@@ -75,11 +75,17 @@ def load_config(config_path: str, dataset: str) -> dict:
 # MARKER INDEX BUILDER 
 
 def get_clean_markers(all_channels, exclude, uniprot_map, marker_embedding_dir):
-    exclude_set   = set(exclude)
-    available_ids = {f.removesuffix('.pt')
-                     for f in os.listdir(marker_embedding_dir) if f.endswith('.pt')}
-    sorted_ids = sorted(available_ids)
-    embed_idx  = {pid: i for i, pid in enumerate(sorted_ids)}
+    exclude_set = set(exclude)
+    # MUST sort by filename (not the stripped id) to match
+    # load_marker_embeddings' own sort key exactly (virtues/utils/utils.py:
+    # `files = sorted(os.listdir(embedding_dir))`, filtered to .pt afterwards)
+    # -- sorting stripped ids instead silently reorders rows whenever one id
+    # is a hyphenated prefix of another (e.g. P08575 vs P08575-5/P08575-8:
+    # '-' < '.' in ASCII, so full-filename order and stripped-id order
+    # disagree), which swaps marker identity embeddings with no error.
+    pt_files      = sorted(f for f in os.listdir(marker_embedding_dir) if f.endswith('.pt'))
+    available_ids = {f.removesuffix('.pt') for f in pt_files}
+    embed_idx     = {f.removesuffix('.pt'): i for i, f in enumerate(pt_files)}
 
     clean_indices, clean_names, channel_mask, marker_indices, no_embedding = [], [], [], [], []
     for i, m in enumerate(all_channels):
@@ -109,7 +115,7 @@ def get_clean_markers(all_channels, exclude, uniprot_map, marker_embedding_dir):
 
 # MODEL LOADING 
 
-def load_virtues_model(virtues_dir, device):
+def load_virtues_model(virtues_dir, device, marker_embedding_dir=None):
     sys.path.insert(0, str(virtues_dir))
     os.chdir(str(virtues_dir))
 
@@ -131,8 +137,13 @@ def load_virtues_model(virtues_dir, device):
     if weights_path is None:
         raise FileNotFoundError("model.safetensors not found.")
 
-    marker_embedding_dir = str(
-        Path(virtues_dir) / 'assets' / 'example_dataset' / 'marker_embeddings')
+    if marker_embedding_dir is None:
+        # Model's prior_bias_embeddings table and get_clean_markers's
+        # embed_idx MUST be built from the same directory (both derive index
+        # positions from the same sorted file listing) -- caller should pass
+        # this explicitly per dataset; this fallback is IMMUcan's own dir.
+        marker_embedding_dir = str(
+            Path(virtues_dir) / 'assets' / 'example_dataset' / 'marker_embeddings')
     marker_embeddings = load_marker_embeddings(marker_embedding_dir)
     print(f"Loaded {len(marker_embeddings)} marker embeddings")
 
@@ -488,9 +499,15 @@ def main():
     print(f"{'='*60}")
 
     virtues_dir = Path(args.virtues_dir)
-    emb_dir     = str(virtues_dir / 'assets' / 'example_dataset' / 'marker_embeddings')
+    # marker_embedding_dir is config-driven per dataset -- the shipped
+    # assets/example_dataset/marker_embeddings folder is NOT a general marker
+    # library, it is an exact 1:1 match to IMMUcan's own 37 clean markers
+    # (verified empirically). Other datasets need their own embedding dir
+    # (see virtues.json's cHL _comment_marker_embedding_dir).
+    emb_dir = str(virtues_dir / cfg.get('marker_embedding_dir', 'assets/example_dataset/marker_embeddings'))
 
-    model, embedding_dim, conf, _ = load_virtues_model(virtues_dir, args.device)
+    model, embedding_dim, conf, _ = load_virtues_model(
+        virtues_dir, args.device, marker_embedding_dir=emb_dir)
 
     if args.dataset == 'immucan':
         clean_indices, clean_names, channel_mask, marker_indices, _ = get_clean_markers(
