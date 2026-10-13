@@ -249,9 +249,11 @@ def run_supervised(args, folds, img_feature_store, all_feats_arr, metadata_all,
           f"n_jobs={args.n_jobs} | folds={args.n_folds}")
     print("=" * 60)
 
-    fold_times   = []
-    fold_reports = {}
-    all_preds    = []
+    fold_times    = []
+    train_times   = []
+    predict_times = []
+    fold_reports  = {}
+    all_preds     = []
 
     for fold_idx in range(args.n_folds):
         fold_start   = time.time()
@@ -273,16 +275,19 @@ def run_supervised(args, folds, img_feature_store, all_feats_arr, metadata_all,
         y_train = np.array(y_train)
         print(f"  Train: {len(X_train):,} cells | {len(train_images)} images")
 
+        train_start = time.time()
         clf = RandomForestClassifier(
             n_estimators=args.n_estimators,
             min_samples_leaf=2,
             n_jobs=args.n_jobs,          # user-controlled parallelism
             random_state=42,
-            class_weight='balanced',     # corrects for Cancer class dominance -> tbd! 
+            class_weight='balanced',     # corrects for Cancer class dominance -> tbd!
         )
         clf.fit(X_train, y_train)
+        train_time = time.time() - train_start
 
         # Predict test cells
+        predict_start = time.time()
         fold_preds = []
         for img_name in test_images:
             if img_name not in img_feature_store:
@@ -302,6 +307,7 @@ def run_supervised(args, folds, img_feature_store, all_feats_arr, metadata_all,
                     'predicted_phenotype': pred_label,
                     'confidence':          proba.max(),
                 })
+        predict_time = time.time() - predict_start
 
         fold_df = pd.DataFrame(fold_preds)
 
@@ -321,6 +327,8 @@ def run_supervised(args, folds, img_feature_store, all_feats_arr, metadata_all,
 
         fold_time = time.time() - fold_start
         fold_times.append(fold_time)
+        train_times.append(train_time)
+        predict_times.append(predict_time)
 
         # Evaluate on known labels
         known  = fold_df[fold_df['true_phenotype'] != 'Unknown']
@@ -332,11 +340,12 @@ def run_supervised(args, folds, img_feature_store, all_feats_arr, metadata_all,
         print(f"  Test:     {len(fold_df):,} cells | {len(test_images)} images")
         print(f"  Accuracy: {report['accuracy']:.3f} | "
               f"Macro F1: {report['macro avg']['f1-score']:.3f}")
-        print(f"  Time:     {fold_time:.1f}s")
+        print(f"  Time:     {fold_time:.1f}s (train={train_time:.1f}s, predict={predict_time:.1f}s)")
         all_preds.append(fold_df)
 
     # Save fold_times.txt
-    _save_fold_times(out_dir, fold_times, prefix='fold')
+    _save_fold_times(out_dir, fold_times, prefix='fold',
+                     train_times=train_times, predict_times=predict_times)
 
     # Print summary
     accs  = [fold_reports[i]['accuracy']                 for i in range(args.n_folds)]
@@ -467,10 +476,17 @@ def run_leiden(args, folds, img_feature_store, all_feats_arr, metadata_all,
     }]).to_csv(emb_dir / f'greedy_f1_metrics_{method_name}.csv', index=False)
 
     # Assign Leiden clusters to ALL cells via KNN
+    # "train" = clustering + fitting the propagation KNN; "predict" = applying
+    # it to the full (often much larger, un-subsampled) cell population.
     print("\n  Assigning clusters to all cells via KNN...")
+    knn_train_start = time.time()
     knn = KNeighborsClassifier(n_neighbors=5, n_jobs=args.n_jobs)
     knn.fit(adata.X, adata.obs['leiden'].values)
+    knn_train_time = time.time() - knn_train_start
+
+    knn_predict_start = time.time()
     all_leiden = knn.predict(all_feats_arr)
+    knn_predict_time = time.time() - knn_predict_start
 
     metadata_all = metadata_all.copy()
     metadata_all['leiden_cluster']   = all_leiden
@@ -509,9 +525,12 @@ def run_leiden(args, folds, img_feature_store, all_feats_arr, metadata_all,
               f"predictions_{fold_idx}.csv ({fold_time:.1f}s)")
 
     # Save fold_times.txt
+    # "train" time = clustering (Leiden fit) + KNN propagation fit;
+    # "predict" time = KNN propagation to all cells (the actual inference step).
     _save_fold_times(out_dir, fold_times,
                      prefix='fold_assignment',
-                     extra={'leiden_clustering': leiden_cluster_time})
+                     extra={'leiden_clustering_train': leiden_cluster_time + knn_train_time,
+                            'knn_propagation_predict':  knn_predict_time})
 
     print(f"\n{method_name} complete | output: {out_dir}")
     return greedy
@@ -519,15 +538,28 @@ def run_leiden(args, folds, img_feature_store, all_feats_arr, metadata_all,
 
 #  Output Helpers 
 
-def _save_fold_times(out_dir, fold_times, prefix='fold', extra=None):
-    """Save fold timing to fold_times.txt in spCellEval format."""
+def _save_fold_times(out_dir, fold_times, prefix='fold', extra=None,
+                     train_times=None, predict_times=None):
+    """
+    Save fold timing to fold_times.txt in spCellEval format.
+    If train_times/predict_times are given (same length as fold_times), each
+    fold line also reports the train/predict split, plus totals for each.
+    """
     with open(Path(out_dir) / 'fold_times.txt', 'w') as f:
         if extra:
             for key, val in extra.items():
                 f.write(f"{key}: {val:.2f}s\n")
         for i, t in enumerate(fold_times):
-            f.write(f"{prefix}_{i}: {t:.2f}s\n")
+            if train_times is not None and predict_times is not None:
+                f.write(f"{prefix}_{i}: {t:.2f}s "
+                       f"(train={train_times[i]:.2f}s, predict={predict_times[i]:.2f}s)\n")
+            else:
+                f.write(f"{prefix}_{i}: {t:.2f}s\n")
         f.write(f"total: {sum(fold_times) + sum((extra or {}).values()):.2f}s\n")
+        if train_times is not None:
+            f.write(f"total_train: {sum(train_times):.2f}s\n")
+        if predict_times is not None:
+            f.write(f"total_predict: {sum(predict_times):.2f}s\n")
         f.write(f"mean_fold: {np.mean(fold_times):.2f}s\n")
 
 
@@ -540,8 +572,12 @@ def add_shared_args(parser):
     after adding model-specific arguments.
     """
     # Required paths
-    parser.add_argument('--data-dir', required=True,
-                        help='Root of IMMUcan dataset (contains CellTypes/, segmentation/)')
+    # Optional, not required: config-driven scripts (run_virtues.py) get their
+    # data root from --config's data_root instead and never read args.data_dir.
+    # Kept here (rather than removed) for scripts that still pass it explicitly.
+    parser.add_argument('--data-dir', required=False, default=None,
+                        help='Root of IMMUcan dataset (contains CellTypes/, segmentation/) '
+                             '-- unused by config-driven scripts')
     parser.add_argument('--output-dir', required=True,
                         help='Output directory for embeddings and predictions')
     parser.add_argument('--spceleval-dir', default=None,

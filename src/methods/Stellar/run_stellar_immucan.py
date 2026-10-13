@@ -5,7 +5,7 @@ Based on the dav3794/IMC-models refactor of snap-stanford/stellar.
 
 Architecture:
   - Per-image spatial neighbor graphs (distance threshold on cell centroids)
-  - GNN encoder (SAGEConv) + NormedLinear classification head
+  - GNN encoder (SAGEConv) + nn.Linear classification head
   - Purely supervised cross-entropy training (no semi-supervised STELLAR, like in dav3794/IMC-models)
   - Uses predefined image-level 5-fold CV splits from folds.json
 

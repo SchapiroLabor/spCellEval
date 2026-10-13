@@ -1,243 +1,253 @@
 #!/usr/bin/env python3
 """
-run_eva.py — Eva Foundation Model: IMMUcan Benchmark CLI
+run_eva.py — Eva Foundation Model: config-driven unified benchmark CLI
+======================================================================
 
-Eva-specific script: model loading + feature extraction only.
-Supervised RF, Leiden clustering, greedy F1, output saving
-are all handled by utils_benchmark.py (shared with run_kronos.py etc.)
+Supports the IMMUcan and cHL_2_MIBI datasets via --dataset + --config.
+All dataset-specific constants (markers, exclusions, name maps, paths) live in
+src/methods/configs/eva.json. The script stays dataset-agnostic.
+Eva-specific: model loading + feature extraction only. Supervised RF, Leiden
+clustering, greedy F1, output saving are handled by utils_benchmark.py (shared).
 
-Usage examples
---------------
-# Extract embeddings only (reusable for supervised + leiden steps)
-python run_eva.py extract \\
-    --data-dir      /path/to/IMMUcan \\
-    --eva-dir       /path/to/eva/project \\
-    --output-dir    /path/to/output \\
-    --embedding-mode bbox \\
-    --device        cuda:1
-
-# Supervised Random Forest (loads precomputed embeddings if available)
-python run_eva.py supervised \\
-    --data-dir      /path/to/IMMUcan \\
-    --eva-dir       /path/to/eva/project \\
-    --output-dir    /path/to/output \\
-    --embedding-mode bbox \\
-    --n-estimators  200 \\
-    --n-jobs        -1
-
-# Leiden + greedy F1 (loads precomputed embeddings if available)
-python run_eva.py leiden \\
-    --data-dir          /path/to/IMMUcan \\
-    --eva-dir           /path/to/eva/project \\
-    --output-dir        /path/to/output \\
-    --embedding-mode    bbox \\
-    --leiden-resolution 2.0
-
-# Run all three steps in sequence
-python run_eva.py all \\
-    --data-dir      /path/to/IMMUcan \\
-    --eva-dir       /path/to/eva/project \\
-    --output-dir    /path/to/output \\
-    --embedding-mode bbox \\
-    --device        cuda:1 \\
-    --n-jobs        -1
-
-# For Julia
-python run_eva.py all \\
-    --data-dir   /home/juliaoesterle/data/phenotyping_benchmark/IMMUcan/ \\
-    --eva-dir    /home/juliaoesterle/eva/project \\
-    --output-dir /home/juliaoesterle/results/eva_bbox \\
-    --embedding-mode bbox \\
-    --device cuda:1
-
-Embedding modes (--embedding-mode)
------------------------------------
-bbox  Adaptive bounding box from segmentation mask -> zero-pad to 224x224.
-      Each cell gets exactly its own pixels. CLS token as feature.
-      Most IMMUcan cells: mean bbox 9.5x10.6px, mean area 78.7px²
-
-tile  224x224 overlapping tissue tiles -> full spatial token map ->
-      mean spatial tokens over cell mask pixels as feature.
-      ~9 Eva forward passes per image (~18 min total for 179 images)
-
-Output structure
-----------------
-{output_dir}/
-├── embeddings/
-│   ├── cache/                             <- per-image cache (crash-safe)
-│   ├── all_cell_features.npy              <- (N_cells x 768)
-│   ├── all_cell_metadata.csv              <- image_id, cell_id, label
-│   └── leiden_clusters_res{X}.csv         <- Leiden + UMAP (leiden mode)
-├── EVA_supervised_{embedding}/
-│   └── level3/
-│       ├── predictions_0.csv ... predictions_4.csv
-│       └── fold_times.txt
-└── EVA_leiden_{embedding}/
-    └── level3/
-        ├── predictions_0.csv ... predictions_4.csv
-        └── fold_times.txt
-
-Notes
+Usage
 -----
-- Eva requires 224x224 input (hard-coded assertion in patch_embed layer)
-- .contiguous() is required after .permute() before Eva forward pass
-- CLS token (index 0) used as cell feature in bbox mode
-- Mean spatial tokens used as cell feature in tile mode
-- Per-image cache enables crash-safe resumption of long runs
-- Embeddings are reused across supervised/leiden runs automatically
+# IMMUcan — full pipeline
+python run_eva.py all \
+    --dataset    immucan \
+    --config     src/methods/configs/eva.json \
+    --eva-dir    /home/juliaoesterle/eva/project \
+    --output-dir /home/juliaoesterle/results/eva_immucan/bbox \
+    --device     cuda:1
+
+# cHL — extract embeddings only
+python run_eva.py extract \
+    --dataset    chl \
+    --config     src/methods/configs/eva.json \
+    --eva-dir    /home/juliaoesterle/eva/project \
+    --output-dir /home/juliaoesterle/results/eva_chl/bbox \
+    --device     cuda:1 --batch-size 4
 """
 
-# Standard library
+# stdlib
+import argparse
+import json
 import os
 import sys
-current_script_dir = os.path.dirname(os.path.abspath(__file__))
-project_root = os.path.dirname(current_script_dir)
-sys.path.insert(0, project_root)
 import time
-import argparse
-import warnings
 from pathlib import Path
 
-#  CUDA env vars
-os.environ.setdefault('CUDA_HOME', '/usr/local/cuda-12.3')
-os.environ.setdefault('LD_LIBRARY_PATH',
-                      '/usr/local/cuda-12.3/lib64:' +
-                      os.environ.get('LD_LIBRARY_PATH', ''))
-os.environ.setdefault('PYTORCH_CUDA_ALLOC_CONF', 'expandable_segments:True')
-
-#  Third-party
+# third-party
 import numpy as np
 import pandas as pd
 import tifffile
 import torch
-from tqdm import tqdm
 
-#  Shared benchmark utilities
-from utils.utils_foundational_models import (
-    load_label_map,
-    load_folds,
-    get_label,
-    save_embeddings,
-    load_embeddings,
-    rebuild_img_feature_store,
-    run_supervised,
-    run_leiden,
-    add_shared_args,
-)
+# CONFIG LOADING
 
-#  Eva model utilities 
-# OmegaConf and Eva.utils are imported inside load_eva_model() because
-# Eva must first be added to sys.path using the runtime --eva-dir argument.
-# Importing them here would raise ModuleNotFoundError before --eva-dir is parsed.
+def load_config(config_path: str, dataset: str) -> dict:
+    with open(config_path) as f:
+        cfg = json.load(f)
+    if dataset not in cfg["datasets"]:
+        raise ValueError(f"Dataset '{dataset}' not in {config_path}. "
+                         f"Available: {list(cfg['datasets'])}")
+    merged = dict(cfg.get("defaults", {}))
+    merged.update(cfg["datasets"][dataset])
+    merged["dataset"] = dataset
+    return merged
 
-warnings.filterwarnings('ignore', category=FutureWarning)
-warnings.filterwarnings('ignore', category=UserWarning)
-
-
-# Marker definitions 
-
-ALL_BIOMARKERS = [
-    "MPO", "HistoneH3", "SMA", "CD16", "CD38", "HLADR", "CD27", "CD15",
-    "CD45RA", "CD163", "B2M", "CD20", "CD68", "Ido1", "CD3", "LAG3",
-    "CD11c", "PD1", "PDGFRb", "CD7", "GrzB", "PDL1", "TCF7", "CD45RO",
-    "FOXP3", "ICOS", "CD8a", "CarbonicAnhydrase", "CD33", "Ki67",
-    "VISTA", "CD40", "CD4", "CD14", "Ecad", "CD303", "CD206",
-    "cleavedPARP", "DNA1", "DNA2"
-]
-
-DEFAULT_EXCLUDE = ['DNA1', 'DNA2', 'HistoneH3']
-
-
-def get_clean_markers(exclude):
-    exclude_set = set(exclude)
-    clean_idx   = [i for i, m in enumerate(ALL_BIOMARKERS) if m not in exclude_set]
-    clean_names = [m for m in ALL_BIOMARKERS if m not in exclude_set]
-    print(f"Using {len(clean_names)} markers (excluded: {exclude_set})")
-    return clean_idx, clean_names
-
-
-#  Eva model loading 
+# EVA MODEL LOADING
 
 def load_eva_model(eva_dir, device):
-    """
-    Load Eva model from HuggingFace checkpoint.
-    OmegaConf and Eva.utils are imported here because Eva must first be added
-    to sys.path using the runtime --eva-dir argument.
-    Requires HuggingFace authentication: huggingface-cli auth login
-    Model: yandrewl/Eva (public gated repo — access request required)
-    """
+    eva_dir = Path(eva_dir)
     sys.path.insert(0, str(eva_dir))
-    from omegaconf import OmegaConf       # requires Eva venv
-    from Eva.utils import load_from_hf    # requires eva_dir on sys.path
-
     os.chdir(str(eva_dir))
-    conf  = OmegaConf.load(Path(eva_dir) / 'config.yaml')
+
+    from omegaconf import OmegaConf
+    from Eva.utils import load_from_hf
+
+    conf  = OmegaConf.load(eva_dir / 'config.yaml')
     model = load_from_hf(repo_id='yandrewl/Eva', conf=conf, device=device)
     model.eval()
-    print(f"Eva loaded on: {next(model.parameters()).device}")
+    print(f"Eva loaded on {next(model.parameters()).device}")
     return model
 
+# MARKER HELPERS  (config-driven)
 
-#  Eva-specific patch extraction 
+def get_immucan_markers(cfg, data_root):
+    """Read IMMUcan markers from channels.txt; exclude + map names from config."""
+    channels_path = data_root / cfg["channels_txt"]
+    with open(channels_path) as f:
+        all_markers = [line.strip() for line in f if line.strip()]
+
+    exclude_set   = set(cfg["exclude_markers"])
+    name_map      = cfg.get("marker_name_map", {})
+    clean_indices = [i for i, m in enumerate(all_markers) if m not in exclude_set]
+    biomarkers    = [name_map.get(all_markers[i], all_markers[i]) for i in clean_indices]
+
+    print(f"IMMUcan markers: {len(all_markers)} total, "
+          f"{len(clean_indices)} kept (excluded: {sorted(exclude_set)})")
+    return clean_indices, biomarkers
+
+
+def get_chl_markers(cfg):
+    """Build channel indices + Eva-compatible names for cHL from config."""
+    channels    = cfg["channels"]
+    exclude_set = set(cfg["exclude_markers"])
+    name_map    = cfg.get("marker_name_map", {})
+
+    clean_indices = [i for i, c in enumerate(channels) if c not in exclude_set]
+    clean_names   = [c for c in channels if c not in exclude_set]
+    biomarkers    = [name_map.get(m, m) for m in clean_names]
+
+    print(f"cHL markers: {len(channels)} total, "
+          f"{len(clean_indices)} kept (excluded: {sorted(exclude_set)})")
+    for orig, eva in zip(clean_names, biomarkers):
+        if orig != eva:
+            print(f"  Mapped: {orig!r} -> {eva!r}")
+    return clean_indices, biomarkers
+
+# DATA LOADING  (config-driven paths)
+
+def load_immucan_data(cfg, data_root):
+    ct_dir   = data_root / "CellTypes"
+    img_dir  = data_root / cfg["image_dir"]
+    c2l_dir  = data_root / cfg["label_dir"]
+    seg_dir  = data_root / cfg["segmentation_dir"]
+
+    lbl_csv   = pd.read_csv(data_root / cfg["labels_csv"])
+    int2type  = dict(zip(lbl_csv['label'], lbl_csv['phenotype']))
+    label_map = dict(zip(lbl_csv['phenotype'], lbl_csv['label']))
+
+    img_paths, seg_paths, records = {}, {}, []
+    for npz_path in sorted(img_dir.glob('*.npz')):
+        if npz_path.name.startswith('.'):
+            continue
+        img_id = npz_path.stem
+        img_paths[img_id] = npz_path
+
+        seg_path = seg_dir / f'{img_id}.tiff'
+        if seg_path.exists():
+            seg_paths[img_id] = seg_path
+
+        c2l_path = c2l_dir / f'{img_id}.txt'
+        if not c2l_path.exists():
+            continue
+        with open(c2l_path) as f:
+            label_ints = [int(line.strip()) for line in f if line.strip()]
+        for cell_id, lbl_int in enumerate(label_ints, start=1):
+            if lbl_int == -1:
+                continue
+            records.append({
+                'cell_id':   cell_id,
+                'sample_id': img_id,
+                'cell_type': int2type.get(lbl_int, f'unknown_{lbl_int}'),
+                'label_int': lbl_int,
+            })
+
+    meta_df = pd.DataFrame(records)
+    print(f"Loaded IMMUcan metadata: {len(meta_df):,} cells")
+    print(f"Found {len(img_paths)} images, {len(seg_paths)} segmentation masks")
+
+    with open(data_root / cfg["folds_json"]) as f:
+        raw_folds = json.load(f)
+    fold_indices = sorted({int(k.split('_')[1]) for k in raw_folds if k.startswith('fold_')})
+    folds = [{'train': raw_folds.get(f'fold_{i}_train_set', []),
+              'test':  raw_folds.get(f'fold_{i}_test_set',  [])} for i in fold_indices]
+    print(f"Loaded {len(folds)} folds (image-level splits)")
+
+    return meta_df, folds, img_paths, seg_paths, label_map
+
+
+def load_chl_data(cfg, data_root):
+    proc_dir = data_root / "quantification" / "processed"
+
+    meta_df = pd.read_csv(data_root / cfg["quant_csv"])
+    meta_df['sample_id'] = (meta_df['sample_id'].astype(str)
+                                                 .str.replace('.csv', '', regex=False))
+    exclude_labels = set(cfg.get("exclude_labels", []))
+    n_before = len(meta_df)
+    meta_df  = meta_df[~meta_df['cell_type'].isin(exclude_labels)].copy()
+    print(f"Loaded cHL metadata: {len(meta_df):,} cells "
+          f"(dropped {n_before - len(meta_df):,} undefined)")
+
+    with open(data_root / cfg["folds_json"]) as f:
+        fold_data = json.load(f)
+    folds = fold_data['folds']
+    print(f"Loaded {len(folds)} folds (cell-level splits)")
+
+    img_dir   = data_root / cfg["image_dir"]
+    img_paths = {}
+    for tif in sorted(img_dir.glob('*_stacked.ome.tif')):
+        if tif.name.startswith('.'):
+            continue
+        img_paths[tif.name.replace('_stacked.ome.tif', '')] = tif
+    print(f"Found {len(img_paths)} images")
+
+    seg_dir   = data_root / cfg["segmentation_dir"]
+    seg_paths = {}
+    for img_id in img_paths:
+        seg_files = [p for p in (seg_dir / img_id).rglob('segmentationMap.tif')
+                     if not p.name.startswith('.')]
+        if seg_files:
+            seg_paths[img_id] = seg_files[0]
+    print(f"Found {len(seg_paths)} segmentation maps")
+
+    all_labels = sorted(meta_df['cell_type'].dropna().unique())
+    label_map  = {lbl: i for i, lbl in enumerate(all_labels)}
+    return meta_df, folds, img_paths, seg_paths, label_map
+
+
+# IMAGE / SEGMENTATION READING
+
+def read_immucan_image(img_path, clean_indices):
+    arr = np.load(img_path, allow_pickle=True)
+    img = arr['data'].astype(np.float32)
+    return img[clean_indices]
+
+
+def read_chl_image(img_path, clean_indices):
+    img = tifffile.imread(str(img_path)).astype(np.float32)
+    return img[clean_indices]
+
+
+def read_segmentation(seg_path):
+    return tifffile.imread(str(seg_path)).astype(np.int32)
+
+# FEATURE EXTRACTION
 
 def get_bbox_patch(img, ys, xs, patch_size=224):
-    """
-    Adaptive bounding box: crop exact cell bbox from segmentation mask
-    pixels -> symmetrically zero-pad to patch_size x patch_size.
-
-    Unlike fixed crops, captures the full cell regardless of shape/size.
-    Mean IMMUcan cell: 9.5x10.6px bbox, 78.7px² area.
-
-    Returns: (patch, bbox_h, bbox_w)
-    """
-    y_min, y_max   = int(ys.min()), int(ys.max())
-    x_min, x_max   = int(xs.min()), int(xs.max())
-    crop           = img[y_min:y_max+1, x_min:x_max+1, :]
-    crop_h, crop_w = crop.shape[:2]
-
-    # Safety: centre-crop if bbox exceeds patch_size (I imagine this to be a rare edge case)
-    if crop_h > patch_size or crop_w > patch_size:
-        cy, cx = crop_h // 2, crop_w // 2
-        half   = patch_size // 2
-        crop   = crop[max(0, cy-half):cy+half, max(0, cx-half):cx+half, :]
-        crop_h, crop_w = crop.shape[:2]
-
-    pad_h = patch_size - crop_h
-    pad_w = patch_size - crop_w
-    patch = np.pad(crop, ((pad_h // 2, pad_h - pad_h // 2),
-                          (pad_w // 2, pad_w - pad_w // 2),
-                          (0, 0)))
-    return patch, crop_h, crop_w
+    C, H, W = img.shape
+    y_min, y_max = int(ys.min()), int(ys.max())
+    x_min, x_max = int(xs.min()), int(xs.max())
+    crop = img[:, y_min:y_max + 1, x_min:x_max + 1]
+    pad  = np.zeros((C, patch_size, patch_size), dtype=np.float32)
+    ch   = min(crop.shape[1], patch_size)
+    cw   = min(crop.shape[2], patch_size)
+    pad[:, :ch, :cw] = crop[:, :ch, :cw]
+    return pad
 
 
 def extract_features_batch(patches, model, biomarkers, device):
-    """
-    Bbox mode: batched Eva forward pass on 224x224 patches.
-    Returns CLS token (index 0) as cell feature: (N, 768).
-
-    CRITICAL: .contiguous() after .permute() is required.
-    Eva's patch_embed uses .view() which needs contiguous memory.
-    Without this: RuntimeError: view size is not compatible.
-    """
-    batch       = np.stack(patches)
-    batch_t     = torch.from_numpy(batch).to(device)
-    batch_input = batch_t.permute(0, 3, 1, 2).contiguous()  # (N, C, 224, 224)
+    batch_input = torch.tensor(np.stack(patches), dtype=torch.float32).to(device)
     batch_bms   = [biomarkers] * len(patches)
     with torch.no_grad():
         token_out, _ = model.model.forward_encoder(batch_input, batch_bms)
-    return token_out[:, 0, 0, :].contiguous().cpu().numpy()  # (N, 768)
+        cls_tokens = token_out[:, 0, :].cpu().numpy()
+    return cls_tokens
 
 
-def extract_token_map(img, model, biomarkers, device, patch_size):
+def extract_token_map(img, model, biomarkers, device, patch_size, stride=None):
     """
-    Tile mode (v3): overlapping 224x224 patches -> HxWx768 token map.
-    Tokens are averaged where patches overlap.
-    Per-cell feature = mean of token vectors over cell mask pixels.
-    ~9 forward passes per 600x600 image.
+    Tile mode (v3) — the authors' full-tile / spatial-token-map approach, as
+    opposed to v7's per-cell adaptive-bbox crop. Overlapping patch_size x
+    patch_size tiles cover the whole image -> one H x W x 768 spatial token
+    map. Tokens are averaged where tiles overlap. Per-cell feature = mean of
+    token vectors over that cell's mask pixels (done by the caller).
+    img: (H, W, C) float32.
     """
     H, W, C  = img.shape
     feat_dim = 768
-    stride   = patch_size // 2
+    stride   = stride if stride else patch_size // 2
 
     feat_accum  = np.zeros((H, W, feat_dim), dtype=np.float32)
     count_accum = np.zeros((H, W), dtype=np.float32)
@@ -261,7 +271,7 @@ def extract_token_map(img, model, biomarkers, device, patch_size):
                     t.permute(0, 3, 1, 2).contiguous(), [biomarkers]
                 )
 
-            # Drop CLS, mean over marker channels -> (784, 768) -> (28, 28, 768)
+            # Drop CLS, mean over marker channels -> (n_patches, 768) -> (grid, grid, 768)
             spatial    = token_out[0, :, 1:, :].mean(dim=0).cpu().numpy()
             grid_size  = int(np.sqrt(spatial.shape[0]))
             token_grid = spatial.reshape(grid_size, grid_size, feat_dim)
@@ -280,229 +290,302 @@ def extract_token_map(img, model, biomarkers, device, patch_size):
     return feat_accum / count_accum[:, :, np.newaxis]
 
 
-#  Feature extraction 
-
-def extract_features(args, model, all_images, clean_indices, biomarkers, label_map):
-    """
-    Extract Eva cell embeddings for all images.
-    Supports both 'bbox' (v7) and 'tile' (v3) embedding modes.
-    Results are cached per image for crash-safe resumption.
-    """
-    data_dir  = Path(args.data_dir)
-    cache_dir = Path(args.output_dir) / 'embeddings' / 'cache'
-    cache_dir.mkdir(parents=True, exist_ok=True)
-
-    NPZ_DIR    = data_dir / 'CellTypes' / 'data' / 'images'
-    MASK_DIR   = data_dir / 'segmentation'
-    LABELS_DIR = data_dir / 'CellTypes' / 'cells2labels'
-
+def extract_features(args, model, all_images, clean_indices, biomarkers,
+                     label_map, meta_df, img_paths, seg_paths, read_img_fn):
     img_feature_store = {}
+    all_feats_list    = []
+    meta_records      = []
+    t0_total = time.time()
 
-    print(f"\nExtracting Eva features | mode={args.embedding_mode} | "
-          f"patch_size={args.patch_size} | device={args.device}")
-    if args.embedding_mode == 'bbox':
-        print(f"  batch_size={args.batch_size} cells per forward pass")
-    print("=" * 60)
-
-    for img_name in tqdm(all_images, desc=f"Eva ({args.embedding_mode})"):
-        cache_feat = cache_dir / f"{img_name}_feat.npy"
-        cache_meta = cache_dir / f"{img_name}_meta.csv"
-
-        # Load from cache
-        if cache_feat.exists() and cache_meta.exists():
-            feats = np.load(cache_feat)
-            meta  = pd.read_csv(cache_meta)
-            img_feature_store[img_name] = (
-                feats, meta['label'].tolist(), meta['cell_id'].tolist()
-            )
+    for img_id in sorted(all_images):
+        if img_id not in img_paths or img_id not in seg_paths:
+            print(f"  [skip] {img_id}: missing image or segmentation")
             continue
 
-        npz_file   = NPZ_DIR    / f"{img_name}.npz"
-        mask_file  = MASK_DIR   / f"{img_name}.tiff"
-        label_file = LABELS_DIR / f"{img_name}.txt"
-        if not all(f.exists() for f in [npz_file, mask_file, label_file]):
-            print(f"  Skipping {img_name} — missing files")
+        t0 = time.time()
+        print(f"\n-- {img_id} --")
+        img = read_img_fn(img_paths[img_id], clean_indices)
+        seg = read_segmentation(seg_paths[img_id])
+
+        meta_img = meta_df[meta_df['sample_id'] == img_id].copy()
+        if meta_img.empty:
+            print(f"  [skip] {img_id}: no metadata rows")
             continue
 
-        # Load and normalise image
-        img = np.load(npz_file)['data'].astype(np.float32)
-        img = img[clean_indices]
-        img = img / (img.max() + 1e-8)
-        img = img.transpose(1, 2, 0)  # (H, W, C)
+        feats_list, labels_list, cell_ids_list = [], [], []
+        patches_buf, cids_buf, lbls_buf = [], [], []
 
-        # Load mask and ground truth labels
-        mask = tifffile.imread(mask_file)
-        with open(label_file) as f:
-            cell_labels = [int(line.strip()) for line in f.readlines()]
+        for _, row in meta_img.iterrows():
+            cid   = row['cell_id']
+            ltype = row['cell_type']
+            label_int = label_map.get(ltype, -1)
+            ys, xs = np.where(seg == cid)
+            if len(ys) == 0:
+                continue
+            patches_buf.append(get_bbox_patch(img, ys, xs, patch_size=args.patch_size))
+            cids_buf.append(cid)
+            lbls_buf.append(label_int)
+            if len(patches_buf) >= args.batch_size:
+                feats = extract_features_batch(patches_buf, model, biomarkers, args.device)
+                feats_list.extend(feats); labels_list.extend(lbls_buf); cell_ids_list.extend(cids_buf)
+                patches_buf, cids_buf, lbls_buf = [], [], []
 
-        cell_ids = np.unique(mask)
-        cell_ids = cell_ids[cell_ids > 0]
+        if patches_buf:
+            feats = extract_features_batch(patches_buf, model, biomarkers, args.device)
+            feats_list.extend(feats); labels_list.extend(lbls_buf); cell_ids_list.extend(cids_buf)
 
-        if args.embedding_mode == 'bbox':
-            # Adaptive bounding box
-            patches_buf, labels_buf, cell_ids_buf = [], [], []
-            for cell_id in cell_ids:
-                label  = get_label(int(cell_id), cell_labels, label_map)
-                ys, xs = np.where(mask == cell_id)
-                patch, _, _ = get_bbox_patch(img, ys, xs, args.patch_size)
-                patches_buf.append(patch)
-                labels_buf.append(label)
-                cell_ids_buf.append(int(cell_id))
+        if not feats_list:
+            print(f"  [skip] {img_id}: no cells extracted")
+            continue
 
-            all_feats = []
-            for i in range(0, len(patches_buf), args.batch_size):
-                batch_feats = extract_features_batch(
-                    patches_buf[i:i + args.batch_size],
-                    model, biomarkers, args.device
-                )
-                all_feats.extend(batch_feats)
-                torch.cuda.empty_cache()
+        feats_arr  = np.array(feats_list,  dtype=np.float32)
+        labels_arr = np.array(labels_list, dtype=np.int32)
+        cids_arr   = np.array(cell_ids_list)
 
-        else:
-            # Tile-based spatial token map
-            token_map = extract_token_map(
-                img, model, biomarkers, args.device, args.patch_size
-            )
-            all_feats, labels_buf, cell_ids_buf = [], [], []
-            for cell_id in cell_ids:
-                label  = get_label(int(cell_id), cell_labels, label_map)
-                ys, xs = np.where(mask == cell_id)
-                feat   = token_map[ys, xs, :].mean(axis=0)
-                all_feats.append(feat)
-                labels_buf.append(label)
-                cell_ids_buf.append(int(cell_id))
+        img_feature_store[img_id] = {'feats': feats_arr, 'labels': labels_arr, 'cell_ids': cids_arr}
+        all_feats_list.append(feats_arr)
 
-        feats_arr = np.array(all_feats)
+        for cid, ltype_int, ltype_str in zip(
+                cids_arr, labels_arr,
+                [meta_img.loc[meta_img['cell_id'] == c, 'cell_type'].values[0] for c in cids_arr]):
+            meta_records.append({'cell_id': cid, 'sample_id': img_id,
+                                 'cell_type': ltype_str, 'label_int': int(ltype_int)})
 
-        # Save per-image cache
-        np.save(cache_feat, feats_arr)
-        pd.DataFrame({
-            'image_id': [img_name] * len(cell_ids_buf),
-            'cell_id':  cell_ids_buf,
-            'label':    labels_buf,
-        }).to_csv(cache_meta, index=False)
+        print(f"  {len(feats_arr)} cells | {time.time() - t0:.1f}s")
 
-        img_feature_store[img_name] = (feats_arr, labels_buf, cell_ids_buf)
+    all_feats_arr = np.concatenate(all_feats_list, axis=0)
+    metadata_all  = pd.DataFrame(meta_records)
+    print(f"\nExtracted {len(all_feats_arr):,} cells total in {time.time() - t0_total:.1f}s")
 
-    # Combine all images into single arrays
-    all_feats_list, all_labels_list, all_ids_list, all_imgs_list = [], [], [], []
-    for img_name, (feats, labels, cell_ids) in img_feature_store.items():
-        all_feats_list.extend(feats)
-        all_labels_list.extend(labels)
-        all_ids_list.extend(cell_ids)
-        all_imgs_list.extend([img_name] * len(cell_ids))
-
-    all_feats_arr = np.array(all_feats_list)
-    metadata_all  = pd.DataFrame({
-        'image_id': all_imgs_list,
-        'cell_id':  all_ids_list,
-        'label':    all_labels_list,
-    })
-
-    save_embeddings(args.output_dir, all_feats_arr, metadata_all)
-
-    print(f"\nExtraction complete: {len(all_feats_arr):,} cells")
-    print(pd.Series(all_labels_list).value_counts().to_string())
+    out_dir = Path(args.output_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    np.save(out_dir / 'embeddings.npy', all_feats_arr)
+    metadata_all.to_csv(out_dir / 'metadata.csv', index=False)
+    import pickle
+    with open(out_dir / 'img_feature_store.pkl', 'wb') as f:
+        pickle.dump(img_feature_store, f)
+    print(f"Saved embeddings -> {out_dir}")
 
     return img_feature_store, all_feats_arr, metadata_all
 
 
-#  Argument Parser 
+def extract_features_tile(args, model, all_images, clean_indices, biomarkers,
+                          label_map, meta_df, img_paths, seg_paths, read_img_fn):
+    """
+    v3 full-tile pipeline: one token map per image (extract_token_map), then
+    per-cell feature = mean token vector over the cell's segmentation-mask
+    pixels. No per-cell forward pass, unlike the bbox path.
+    """
+    img_feature_store = {}
+    all_feats_list    = []
+    meta_records      = []
+    t0_total = time.time()
+
+    for img_id in sorted(all_images):
+        if img_id not in img_paths or img_id not in seg_paths:
+            print(f"  [skip] {img_id}: missing image or segmentation")
+            continue
+
+        t0 = time.time()
+        print(f"\n-- {img_id} --")
+        img_chw = read_img_fn(img_paths[img_id], clean_indices)    # (C, H, W)
+        img_hwc = np.ascontiguousarray(img_chw.transpose(1, 2, 0)) # (H, W, C)
+        seg     = read_segmentation(seg_paths[img_id])
+
+        meta_img = meta_df[meta_df['sample_id'] == img_id].copy()
+        if meta_img.empty:
+            print(f"  [skip] {img_id}: no metadata rows")
+            continue
+
+        token_map = extract_token_map(img_hwc, model, biomarkers, args.device,
+                                      patch_size=args.tile_size, stride=args.tile_stride)
+
+        feats_list, labels_list, cell_ids_list = [], [], []
+        for _, row in meta_img.iterrows():
+            cid   = row['cell_id']
+            ltype = row['cell_type']
+            label_int  = label_map.get(ltype, -1)
+            cell_pixels = seg == cid
+            if not cell_pixels.any():
+                continue
+            feats_list.append(token_map[cell_pixels].mean(axis=0))
+            labels_list.append(label_int)
+            cell_ids_list.append(cid)
+
+        if not feats_list:
+            print(f"  [skip] {img_id}: no cells extracted")
+            continue
+
+        feats_arr  = np.array(feats_list,  dtype=np.float32)
+        labels_arr = np.array(labels_list, dtype=np.int32)
+        cids_arr   = np.array(cell_ids_list)
+
+        img_feature_store[img_id] = {'feats': feats_arr, 'labels': labels_arr, 'cell_ids': cids_arr}
+        all_feats_list.append(feats_arr)
+
+        for cid, ltype_int, ltype_str in zip(
+                cids_arr, labels_arr,
+                [meta_img.loc[meta_img['cell_id'] == c, 'cell_type'].values[0] for c in cids_arr]):
+            meta_records.append({'cell_id': cid, 'sample_id': img_id,
+                                 'cell_type': ltype_str, 'label_int': int(ltype_int)})
+
+        print(f"  {len(feats_arr)} cells | {time.time() - t0:.1f}s")
+
+    all_feats_arr = np.concatenate(all_feats_list, axis=0)
+    metadata_all  = pd.DataFrame(meta_records)
+    print(f"\nExtracted {len(all_feats_arr):,} cells total in {time.time() - t0_total:.1f}s")
+
+    out_dir = Path(args.output_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    np.save(out_dir / 'embeddings.npy', all_feats_arr)
+    metadata_all.to_csv(out_dir / 'metadata.csv', index=False)
+    import pickle
+    with open(out_dir / 'img_feature_store.pkl', 'wb') as f:
+        pickle.dump(img_feature_store, f)
+    print(f"Saved embeddings -> {out_dir}")
+
+    return img_feature_store, all_feats_arr, metadata_all
+
+
+def load_embeddings(output_dir):
+    out_dir = Path(output_dir)
+    emb_path  = out_dir / 'embeddings.npy'
+    meta_path = out_dir / 'metadata.csv'
+    if emb_path.exists() and meta_path.exists():
+        print(f"Loading precomputed embeddings from {out_dir}")
+        return np.load(emb_path), pd.read_csv(meta_path)
+    return None, None
+
+
+def rebuild_img_feature_store(output_dir, all_images):
+    import pickle
+    pkl_path = Path(output_dir) / 'img_feature_store.pkl'
+    if pkl_path.exists():
+        with open(pkl_path, 'rb') as f:
+            return pickle.load(f)
+    raise FileNotFoundError(f"img_feature_store.pkl not found in {output_dir}. Run 'extract' first.")
+
+# ARGUMENT PARSER
 
 def build_parser():
     parser = argparse.ArgumentParser(
         prog='run_eva.py',
-        description='Eva Foundation Model — IMMUcan Benchmark CLI',
+        description='Eva config-driven pipeline — IMMUcan + cHL_2_MIBI',
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
-
-    sub = parser.add_subparsers(dest='mode', required=True,
-                                help='Pipeline mode')
-    for m in ['extract', 'supervised', 'leiden', 'all']:
-        p = sub.add_parser(
-            m,
-            formatter_class=argparse.ArgumentDefaultsHelpFormatter,
-            help={
-                'extract':    'Extract Eva embeddings only (reusable downstream)',
-                'supervised': 'Supervised Random Forest + 5-fold CV',
-                'leiden':     'Leiden clustering + greedy F1',
-                'all':        'extract -> supervised -> leiden in sequence',
-            }[m]
-        )
-
-        # Eva-specific arguments
-        p.add_argument('--eva-dir', required=True,
-                       help='Eva project directory (contains config.yaml, Eva/)')
-        p.add_argument('--embedding-mode', choices=['bbox', 'tile'], default='bbox',
-                       help='bbox: adaptive bounding box (v7) | '
-                            'tile: spatial token map (v3)')
-        p.add_argument('--patch-size', type=int, default=224,
-                       help='Eva input size — do not change (hard-coded at 224)')
-        p.add_argument('--batch-size', type=int, default=16,
-                       help='[bbox only] Cells per Eva forward pass')
-        p.add_argument('--exclude-markers', nargs='+',
-                       default=DEFAULT_EXCLUDE,
-                       help='Markers to exclude (no GenePT equivalent)')
-        p.add_argument('--device', default='cuda:1',
-                       help='PyTorch device (cuda:0, cuda:1, cpu)')
-
-        # Shared arguments from utils_benchmark
-        add_shared_args(p)
-
+    sub = parser.add_subparsers(dest='mode', required=True)
+    for mode in ['extract', 'supervised', 'leiden', 'all']:
+        p = sub.add_parser(mode, formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+        p.add_argument('--dataset', choices=['immucan', 'chl'], required=True)
+        p.add_argument('--config',  required=True, help='Path to eva.json')
+        p.add_argument('--eva-dir', required=True, help='Eva project root')
+        p.add_argument('--output-dir', required=True)
+        # optional overrides (default None -> config)
+        p.add_argument('--device',     default=None)
+        p.add_argument('--batch-size', type=int, default=None)
+        p.add_argument('--embedding-mode', choices=['bbox', 'tile'], default=None,
+                       help='tile (v3, authors full-tile, default) or bbox (v7, adaptive bbox)')
+        p.add_argument('--patch-size', type=int, default=None,
+                       help='[bbox mode] per-cell crop size')
+        p.add_argument('--tile-size',   type=int, default=None,
+                       help='[tile mode] sliding-tile size over the whole image')
+        p.add_argument('--tile-stride', type=int, default=None,
+                       help='[tile mode] sliding-tile stride (default: tile-size // 2)')
+        p.add_argument('--exclude-markers', nargs='+', default=None)
+        p.add_argument('--n-folds',    type=int, default=None)
+        p.add_argument('--fold',       type=int, default=None)
+        p.add_argument('--n-estimators', type=int, default=None)
+        p.add_argument('--n-jobs',     type=int, default=None)
+        p.add_argument('--leiden-resolution',  type=float, default=None)
+        p.add_argument('--leiden-n-neighbors', type=int,   default=None)
+        p.add_argument('--leiden-subsample',   type=int,   default=None)
+        p.add_argument('--spceleval-dir', default=None)
     return parser
 
 
-#  Main 
+# MAIN
 
 def main():
     parser = build_parser()
     args   = parser.parse_args()
-
     total_start = time.time()
+
+    cfg = load_config(args.config, args.dataset)
+
+    # Fill any unset CLI args from config
+    def fill(attr, key, default=None):
+        if getattr(args, attr) is None:
+            setattr(args, attr, cfg.get(key, default))
+    fill('device', 'device', 'cuda:1')
+    fill('batch_size', 'batch_size', 16)
+    fill('embedding_mode', 'embedding_mode', 'tile')
+    fill('patch_size', 'patch_size', 224)
+    fill('tile_size', 'tile_size', 224)
+    fill('tile_stride', 'tile_stride', 112)
+    fill('n_folds', 'n_folds', 5)
+    fill('n_estimators', 'n_estimators', 200)
+    fill('n_jobs', 'n_jobs', -1)
+    fill('leiden_resolution', 'leiden_resolution', 2.0)
+    fill('leiden_n_neighbors', 'leiden_n_neighbors', 15)
+    fill('leiden_subsample', 'leiden_subsample', 50000)
+    if args.exclude_markers is None:
+        args.exclude_markers = cfg["exclude_markers"]
+
     print(f"\n{'='*60}")
-    print(f"run_eva.py | mode={args.mode} | embedding={args.embedding_mode}")
+    print(f"run_eva.py | mode={args.mode} | dataset={args.dataset} | embedding_mode={args.embedding_mode}")
     print(f"{'='*60}")
 
-    # Setup
-    clean_indices, biomarkers = get_clean_markers(args.exclude_markers)
-    label_map                 = load_label_map(args.data_dir)
-    folds, all_images         = load_folds(args.data_dir, args.n_folds)
+    if args.spceleval_dir:
+        sys.path.insert(0, str(Path(args.spceleval_dir) / 'src' / 'methods' / 'utils'))
+    else:
+        # fall back to the utils/ dir two levels up (src/methods/utils) when
+        # this script lives at src/methods/Eva/run_eva.py
+        sys.path.insert(0, str(Path(__file__).resolve().parent.parent / 'utils'))
+    from utils_foundational_models import run_supervised, run_leiden
 
-    # Output folder names for spCellEval structure
-    supervised_name = f"EVA_supervised_{args.embedding_mode}"
-    leiden_name     = f"EVA_leiden_{args.embedding_mode}"
+    data_root = Path(cfg["data_root"])
 
-    # Try loading precomputed embeddings — skip extraction if available
+    if args.dataset == 'immucan':
+        # allow CLI override of exclude markers to flow into marker resolution
+        cfg_local = dict(cfg); cfg_local["exclude_markers"] = args.exclude_markers
+        meta_df, folds, img_paths, seg_paths, label_map = load_immucan_data(cfg, data_root)
+        clean_indices, biomarkers = get_immucan_markers(cfg_local, data_root)
+        read_img_fn = read_immucan_image
+    else:
+        cfg_local = dict(cfg); cfg_local["exclude_markers"] = args.exclude_markers
+        meta_df, folds, img_paths, seg_paths, label_map = load_chl_data(cfg, data_root)
+        clean_indices, biomarkers = get_chl_markers(cfg_local)
+        read_img_fn = read_chl_image
+
+    all_images = sorted(img_paths.keys())
+    if args.fold is not None:
+        folds = [folds[args.fold]]
+        print(f"Running single fold: {args.fold}")
+
+    supervised_name = f"EVA_supervised_{args.dataset}_{args.embedding_mode}"
+    leiden_name     = f"EVA_leiden_{args.dataset}_{args.embedding_mode}"
+
     all_feats_arr, metadata_all = load_embeddings(args.output_dir)
-
     if all_feats_arr is not None and args.mode in ('supervised', 'leiden'):
         img_feature_store = rebuild_img_feature_store(args.output_dir, all_images)
     else:
-        # Load Eva model and extract features
         model = load_eva_model(args.eva_dir, args.device)
-        img_feature_store, all_feats_arr, metadata_all = extract_features(
-            args, model, all_images, clean_indices, biomarkers, label_map
+        extract_fn = extract_features_tile if args.embedding_mode == 'tile' else extract_features
+        img_feature_store, all_feats_arr, metadata_all = extract_fn(
+            args, model, all_images, clean_indices, biomarkers,
+            label_map, meta_df, img_paths, seg_paths, read_img_fn,
         )
 
-    # Run requested mode(s)
     if args.mode in ('supervised', 'all'):
-        run_supervised(
-            args, folds, img_feature_store,
-            all_feats_arr, metadata_all,
-            method_name=supervised_name
-        )
-
+        run_supervised(args, folds, img_feature_store, all_feats_arr, metadata_all,
+                       method_name=supervised_name)
     if args.mode in ('leiden', 'all'):
-        run_leiden(
-            args, folds, img_feature_store,
-            all_feats_arr, metadata_all,
-            method_name=leiden_name
-        )
+        run_leiden(args, folds, img_feature_store, all_feats_arr, metadata_all,
+                   method_name=leiden_name)
 
     total_time = time.time() - total_start
     print(f"\n{'='*60}")
-    print(f"run_eva.py complete | total: {total_time:.1f}s "
-          f"({total_time/3600:.2f}h)")
+    print(f"run_eva.py complete | dataset={args.dataset} | total: {total_time:.1f}s")
     print(f"{'='*60}\n")
 
 
