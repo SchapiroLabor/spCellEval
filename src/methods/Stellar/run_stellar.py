@@ -186,12 +186,21 @@ def merge_graphs_for_loader(graphs: List[Data]) -> Data:
 
 def build_adata_from_arrays(
     expressions, pos_x, pos_y, sample_ids, cell_ids, cell_types,
-    categories, cat_to_idx,
-) -> anndata.AnnData:
-    X    = expressions.astype(np.float32)
-    mean = X.mean(axis=0, keepdims=True)
-    std  = X.std(axis=0, keepdims=True)
-    X    = (X - mean) / (std + 1e-8)
+    categories, cat_to_idx, mean=None, std=None,
+) -> Tuple[anndata.AnnData, np.ndarray, np.ndarray]:
+    """
+    mean/std: if given (the training split's stats), applied as-is -- this is
+    the test-split call. If None (the train-split call), computed from X here
+    and returned so the caller can pass them into the matching test call.
+    Previously each split computed its own mean/std independently, a methods
+    inconsistency (the review that caught it: test stats should never be
+    computed from the test set itself). Fixed 2026-10.
+    """
+    X = expressions.astype(np.float32)
+    if mean is None or std is None:
+        mean = X.mean(axis=0, keepdims=True)
+        std  = X.std(axis=0, keepdims=True)
+    X = (X - mean) / (std + 1e-8)
 
     obs = pd.DataFrame({
         "sample_id":      pd.Categorical(sample_ids),
@@ -206,7 +215,7 @@ def build_adata_from_arrays(
     adata = anndata.AnnData(X=X, obs=obs)
     adata.layers["exprs"] = X.copy()
     print(f"  -> {adata.n_obs:,} cells | {obs['sample_id'].nunique()} images")
-    return adata
+    return adata, mean, std
 
 
 # prepared AnnData loading and subsetting
@@ -280,7 +289,8 @@ def load_immucan_image_data(img_name, cfg, paths):
 
 
 def build_immucan_anndata(img_names, cfg, paths, label_map, categories,
-                          cat_to_idx, excluded_labels, desc="Loading"):
+                          cat_to_idx, excluded_labels, desc="Loading",
+                          mean=None, std=None):
     all_exprs, all_sample, all_cell_id = [], [], []
     all_pos_x, all_pos_y, all_labels   = [], [], []
 
@@ -314,7 +324,7 @@ def build_immucan_anndata(img_names, cfg, paths, label_map, categories,
         expressions=np.concatenate(all_exprs, axis=0),
         pos_x=np.array(all_pos_x), pos_y=np.array(all_pos_y),
         sample_ids=all_sample, cell_ids=all_cell_id, cell_types=all_labels,
-        categories=categories, cat_to_idx=cat_to_idx,
+        categories=categories, cat_to_idx=cat_to_idx, mean=mean, std=std,
     )
 
 
@@ -382,7 +392,7 @@ def extract_chl_expressions(img_path, mask, keep_idx):
 
 
 def build_chl_anndata(subset_df, img_paths, keep_idx, categories, cat_to_idx,
-                      excluded_labels, paths, desc="Loading"):
+                      excluded_labels, paths, desc="Loading", mean=None, std=None):
     all_exprs, all_sample, all_cell_id = [], [], []
     all_pos_x, all_pos_y, all_labels   = [], [], []
 
@@ -424,7 +434,7 @@ def build_chl_anndata(subset_df, img_paths, keep_idx, categories, cat_to_idx,
         expressions=np.stack(all_exprs, axis=0),
         pos_x=np.array(all_pos_x), pos_y=np.array(all_pos_y),
         sample_ids=all_sample, cell_ids=all_cell_id, cell_types=all_labels,
-        categories=categories, cat_to_idx=cat_to_idx,
+        categories=categories, cat_to_idx=cat_to_idx, mean=mean, std=std,
     )
 
 
@@ -659,12 +669,13 @@ def main():
         all_metrics = []
         for fi in fold_range:
             t0 = time.time()
-            train_adata = build_immucan_anndata(train_folds[fi], cfg, paths, label_map,
-                                                 categories, cat_to_idx, excluded_labels,
-                                                 desc=f"F{fi} train")
-            test_adata  = build_immucan_anndata(test_folds[fi], cfg, paths, label_map,
-                                                 categories, cat_to_idx, excluded_labels,
-                                                 desc=f"F{fi} test")
+            train_adata, tr_mean, tr_std = build_immucan_anndata(
+                train_folds[fi], cfg, paths, label_map,
+                categories, cat_to_idx, excluded_labels, desc=f"F{fi} train")
+            test_adata, _, _ = build_immucan_anndata(
+                test_folds[fi], cfg, paths, label_map,
+                categories, cat_to_idx, excluded_labels, desc=f"F{fi} test",
+                mean=tr_mean, std=tr_std)
             m = run_fold(fi, train_adata, test_adata, categories, args, output_dir)
             m["total_time_s"] = time.time() - t0
             all_metrics.append(m)
@@ -696,10 +707,13 @@ def main():
             train_df  = meta_df.iloc[train_idx].copy()
             test_df   = meta_df.iloc[test_idx].copy()
             print(f"\n[cHL] Fold {fi}: {len(train_df):,} train / {len(test_df):,} test cells")
-            train_adata = build_chl_anndata(train_df, img_paths, keep_idx, categories,
-                                            cat_to_idx, excluded_labels, paths, desc=f"F{fi} train")
-            test_adata  = build_chl_anndata(test_df, img_paths, keep_idx, categories,
-                                            cat_to_idx, excluded_labels, paths, desc=f"F{fi} test")
+            train_adata, tr_mean, tr_std = build_chl_anndata(
+                train_df, img_paths, keep_idx, categories,
+                cat_to_idx, excluded_labels, paths, desc=f"F{fi} train")
+            test_adata, _, _ = build_chl_anndata(
+                test_df, img_paths, keep_idx, categories,
+                cat_to_idx, excluded_labels, paths, desc=f"F{fi} test",
+                mean=tr_mean, std=tr_std)
             m = run_fold(fi, train_adata, test_adata, categories, args, output_dir)
             m["total_time_s"] = time.time() - t0
             all_metrics.append(m)
