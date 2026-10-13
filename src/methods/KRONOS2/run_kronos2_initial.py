@@ -81,6 +81,7 @@ import tifffile
 import torch
 from torch.utils.data import DataLoader
 from tqdm import tqdm
+from scipy import ndimage
 
 # Shared benchmark utilities
 from utils.utils_foundational_models import (
@@ -158,10 +159,18 @@ def extract_patches(args, cfg, all_images, clean_indices, clean_names, label_map
 
             ch, cw = crop.shape[:2]
             if ch > args.patch_size or cw > args.patch_size:
+                # Keep y_min/x_min in sync with the center-crop so the mask
+                # slice below reads the same region as `crop`/`padded` --
+                # previously it re-sliced the full, un-cropped bbox, giving
+                # 'mask' a different shape than the marker datasets in the
+                # same h5 file whenever a cell's bbox exceeded patch_size.
                 cy, cx = ch // 2, cw // 2
                 half   = args.patch_size // 2
-                crop   = crop[max(0, cy-half):cy+half, max(0, cx-half):cx+half, :]
+                y_lo, x_lo = max(0, cy - half), max(0, cx - half)
+                crop   = crop[y_lo:cy+half, x_lo:cx+half, :]
+                y_min, x_min = y_min + y_lo, x_min + x_lo
                 ch, cw = crop.shape[:2]
+                y_max, x_max = y_min + ch - 1, x_min + cw - 1
 
             pad_h = args.patch_size - ch
             pad_w = args.patch_size - cw
@@ -185,6 +194,149 @@ def extract_patches(args, cfg, all_images, clean_indices, clean_names, label_map
             n_cells_total += 1
 
     print(f"\nPatch extraction complete: {n_cells_total:,} cells | {n_skipped} images skipped")
+    return patch_dir
+
+
+# cHL_2_MIBI SUPPORT (config-driven)
+# Ported unchanged from run_kronos_initial.py (KRONOS1) -- patch extraction
+# and fold bookkeeping are model-agnostic, so nothing here is KRONOS2-specific.
+
+def load_chl_metadata(cfg):
+    """
+    Load cHL_2_MIBI master quantification table, cell-level 5-fold split
+    (row-index based, from fold_indices.json), image paths, and segmentation
+    paths. Returns meta_df, folds, img_paths, seg_paths, row_map, where
+    row_map: {row_idx: (sample_id, cell_id, cell_type)} keyed the same way
+    fold_indices.json's train/test row indices are.
+    """
+    data_root = Path(cfg["data_root"])
+    meta_df = pd.read_csv(data_root / cfg["quant_csv"])
+    meta_df["sample_id"] = meta_df["sample_id"].astype(str).str.replace(".csv", "", regex=False)
+    print(f"cHL: {len(meta_df):,} cells, {meta_df['cell_type'].nunique()} types")
+
+    with open(data_root / cfg["folds_json"]) as f:
+        folds = json.load(f)["folds"]
+    print(f"cHL: {len(folds)} cell-level folds")
+
+    img_dir   = data_root / cfg["image_dir"]
+    img_paths = {p.name.replace("_stacked.ome.tif", ""): p
+                 for p in sorted(img_dir.glob("*_stacked.ome.tif"))}
+    print(f"cHL: {len(img_paths)} images")
+
+    seg_paths = {}
+    for img_id in img_paths:
+        d = data_root / cfg["segmentation_dir"] / img_id
+        if not d.exists():
+            continue
+        hits = [f for f in d.rglob("segmentationMap.tif") if not f.name.startswith(".")]
+        if hits:
+            seg_paths[img_id] = hits[0]
+    print(f"cHL: {len(seg_paths)} segmentations found")
+
+    row_map = {idx: (sid, int(cid), ct) for idx, sid, cid, ct in
+               zip(meta_df.index, meta_df["sample_id"], meta_df["cell_id"], meta_df["cell_type"])}
+    return meta_df, folds, img_paths, seg_paths, row_map
+
+
+def extract_patches_chl(args, cfg, clean_indices, clean_names, meta_df, img_paths, seg_paths):
+    """
+    cHL equivalent of extract_patches(). Same .h5 schema (mask + one dataset
+    per marker + label/image_id/cell_id attrs), so extract_features_from_patches()
+    is reused unmodified.
+
+    Uses scipy.ndimage.find_objects (one O(pixels) pass per image) instead of
+    a per-cell np.where(mask==cell_id) full-image scan -- the latter measured
+    at ~2 patches/s on cHL's 2048x1536 images (would be ~32h total); this is
+    ~290 patches/s. IMMUcan's images are small enough (600x600) that the
+    per-cell scan in extract_patches() above was never a practical problem,
+    so that function is left as-is.
+
+    Images here are float32 (already-processed intensities, not raw uint16
+    counts like IMMUcan). Values are rounded (not truncated) to uint16 for
+    h5 storage -- negligible precision loss given the value range (~0-3100).
+    """
+    patch_dir = Path(args.output_dir) / 'patches'
+    patch_dir.mkdir(parents=True, exist_ok=True)
+
+    label_lookup = {(sid, cid): ct for sid, cid, ct in
+                     zip(meta_df["sample_id"], meta_df["cell_id"].astype(int), meta_df["cell_type"])}
+
+    print(f"\nExtracting cHL patches -> {patch_dir}")
+    print(f"  patch_size={args.patch_size} | markers={len(clean_names)}")
+    print("=" * 60)
+
+    n_cells_total = n_skipped = 0
+    for img_id, img_path in tqdm(sorted(img_paths.items()), desc="Patch extraction (cHL)"):
+        if img_id not in seg_paths:
+            n_skipped += 1
+            continue
+
+        img_raw = tifffile.imread(img_path).astype(np.float32)   # (46, H, W)
+        img     = img_raw[clean_indices].transpose(1, 2, 0)       # (H, W, C_clean)
+        mask    = tifffile.imread(seg_paths[img_id]).astype(np.int32)
+
+        cell_ids = np.unique(mask)
+        cell_ids = cell_ids[cell_ids > 0]
+        objects  = ndimage.find_objects(mask)
+
+        for cell_id in cell_ids:
+            h5_path = patch_dir / f"{img_id}_{int(cell_id):06d}.h5"
+            if h5_path.exists():
+                continue
+
+            box = objects[int(cell_id) - 1] if int(cell_id) - 1 < len(objects) else None
+            if box is None:
+                continue
+            y_min, y_max = box[0].start, box[0].stop - 1
+            x_min, x_max = box[1].start, box[1].stop - 1
+            crop = img[y_min:y_max+1, x_min:x_max+1, :]
+
+            ch, cw = crop.shape[:2]
+            if ch > args.patch_size or cw > args.patch_size:
+                # Keep y_min/x_min in sync with the center-crop so the mask
+                # slice below reads the same region as `crop`/`padded` --
+                # previously it re-sliced the full, un-cropped bbox, giving
+                # 'mask' a different shape than the marker datasets in the
+                # same h5 file whenever a cell's bbox exceeded patch_size.
+                cy, cx = ch // 2, cw // 2
+                half   = args.patch_size // 2
+                y_lo, x_lo = max(0, cy - half), max(0, cx - half)
+                crop   = crop[y_lo:cy+half, x_lo:cx+half, :]
+                y_min, x_min = y_min + y_lo, x_min + x_lo
+                ch, cw = crop.shape[:2]
+                y_max, x_max = y_min + ch - 1, x_min + cw - 1
+
+            pad_h = args.patch_size - ch
+            pad_w = args.patch_size - cw
+            padded = np.pad(crop, ((pad_h//2, pad_h-pad_h//2),
+                                   (pad_w//2, pad_w-pad_w//2), (0, 0)))
+
+            cell_mask_crop = (mask[y_min:y_max+1, x_min:x_max+1] == cell_id).astype(np.uint8)
+            cell_mask_pad  = np.pad(cell_mask_crop, ((pad_h//2, pad_h-pad_h//2),
+                                                     (pad_w//2, pad_w-pad_w//2)))
+
+            # 'Unknown' (not the real 'undefined' class) marks a segmented
+            # cell with no matching metadata row -- distinct sentinel so it's
+            # never mistaken for a biologist-labeled 'undefined' cell. This
+            # h5 attr is informational only: run_logreg_optuna_chl() gets its
+            # labels from row_map (built straight from the quantification
+            # CSV), never from this attribute, so it has no effect on
+            # training or scoring either way -- verified directly.
+            label = label_lookup.get((img_id, int(cell_id)), 'Unknown')
+
+            with h5py.File(h5_path, 'w') as f:
+                f.create_dataset('mask', data=cell_mask_pad, dtype=np.uint8)
+                f.attrs['label']    = label
+                f.attrs['image_id'] = img_id
+                f.attrs['cell_id']  = int(cell_id)
+                for c, marker_name in enumerate(clean_names):
+                    f.create_dataset(marker_name,
+                                     data=np.round(padded[:, :, c]).astype(np.uint16),
+                                     dtype=np.uint16)
+
+            n_cells_total += 1
+
+    print(f"\ncHL patch extraction complete: {n_cells_total:,} cells | {n_skipped} images skipped")
     return patch_dir
 
 
@@ -388,6 +540,137 @@ def run_logreg_optuna(args, folds, feature_dir, metadata_df):
     print(f"  Output: {out_dir}")
 
 
+def run_logreg_optuna_chl(args, folds, row_map, feature_dir):
+    """
+    cHL equivalent of run_logreg_optuna(). Folds are CELL-level (row indices
+    into the master quantification table, from fold_indices.json), not
+    image-level like IMMUcan. Same LogReg+Optuna/StandardScaler procedure
+    and the same train/predict timing split otherwise. Ported from KRONOS1's
+    run_kronos_initial.py, with multi_class='multinomial' dropped (this env's
+    scikit-learn removed that argument; multinomial is the lbfgs default now).
+    """
+    import optuna
+    from sklearn.preprocessing import StandardScaler
+    from sklearn.linear_model import LogisticRegression
+    from sklearn.metrics import classification_report, f1_score
+    optuna.logging.set_verbosity(optuna.logging.WARNING)
+
+    method_name = 'KRONOS2_original_supervised'
+    out_dir     = Path(args.spceleval_dir or args.output_dir) / method_name / 'level3'
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    print(f"\nLogReg + Optuna (cHL) | n_trials={args.n_trials} | folds={len(folds)}")
+    print("=" * 60)
+
+    def feat_path_for(row_idx):
+        sid, cid, label = row_map[row_idx]
+        return feature_dir / f"{sid}_{cid:06d}.npy", label
+
+    fold_times, train_times, predict_times, fold_reports = [], [], [], {}
+    for fold_idx, fold in enumerate(folds):
+        fold_start = time.time()
+        train_rows = [int(i) for i in fold['train']]
+        test_rows  = [int(i) for i in fold['test']]
+        print(f"\n-- Fold {fold_idx} --")
+
+        X_train_list, y_train_list = [], []
+        for idx in train_rows:
+            fpath, label = feat_path_for(idx)
+            if label in args.exclude_labels or not fpath.exists():
+                continue
+            X_train_list.append(np.load(fpath))
+            y_train_list.append(label)
+
+        X_train = np.array(X_train_list)
+        y_train = np.array(y_train_list)
+
+        if args.max_cells_per_type is not None:
+            idx_balanced = []
+            for cls in np.unique(y_train):
+                idx_cls = np.where(y_train == cls)[0]
+                chosen  = np.random.RandomState(42).choice(
+                    idx_cls, min(len(idx_cls), args.max_cells_per_type), replace=False)
+                idx_balanced.extend(chosen)
+            X_train = X_train[idx_balanced]
+            y_train = y_train[idx_balanced]
+
+        print(f"  Train: {len(X_train):,} cells")
+
+        train_start = time.time()
+        scaler  = StandardScaler()
+        X_train = scaler.fit_transform(X_train)
+
+        def objective(trial):
+            C = trial.suggest_float('C', args.c_low, args.c_high, log=True)
+            clf = LogisticRegression(C=C, max_iter=args.max_iter, random_state=42,
+                                     class_weight='balanced', solver='lbfgs',
+                                     n_jobs=args.n_jobs)
+            n_val   = max(1, int(0.2 * len(X_train)))
+            idx_val = np.random.RandomState(fold_idx).choice(len(X_train), n_val, replace=False)
+            idx_tr  = np.setdiff1d(np.arange(len(X_train)), idx_val)
+            clf.fit(X_train[idx_tr], y_train[idx_tr])
+            y_pred = clf.predict(X_train[idx_val])
+            return f1_score(y_train[idx_val], y_pred, average='macro', zero_division=0)
+
+        study = optuna.create_study(direction='maximize')
+        study.optimize(objective, n_trials=args.n_trials, show_progress_bar=False)
+        best_C = study.best_params['C']
+        print(f"  Best C={best_C:.2e} (Optuna, {args.n_trials} trials)")
+
+        clf = LogisticRegression(C=best_C, max_iter=args.max_iter, random_state=42,
+                                 class_weight='balanced', solver='lbfgs',
+                                 n_jobs=args.n_jobs)
+        clf.fit(X_train, y_train)
+        train_time = time.time() - train_start
+
+        predict_start = time.time()
+        fold_preds = []
+        for idx in test_rows:
+            fpath, label = feat_path_for(idx)
+            if label in args.exclude_labels or not fpath.exists():
+                continue
+            sid, cid, _ = row_map[idx]
+            feat   = scaler.transform(np.load(fpath).reshape(1, -1))
+            y_pred = clf.predict(feat)[0]
+            y_prob = clf.predict_proba(feat)[0].max()
+            fold_preds.append({'image_id': sid, 'cell_id': cid, 'row_idx': idx, 'fold': fold_idx,
+                               'true_phenotype': label, 'predicted_phenotype': y_pred,
+                               'confidence': float(y_prob)})
+        predict_time = time.time() - predict_start
+
+        fold_df = pd.DataFrame(fold_preds)
+        fold_df.to_csv(out_dir / f"predictions_{fold_idx}.csv", index=False)
+
+        fold_time = time.time() - fold_start
+        fold_times.append(fold_time)
+        train_times.append(train_time)
+        predict_times.append(predict_time)
+
+        report = classification_report(fold_df['true_phenotype'], fold_df['predicted_phenotype'],
+                                       output_dict=True, zero_division=0)
+        fold_reports[fold_idx] = report
+        print(f"  Test:     {len(fold_df):,} cells")
+        print(f"  Accuracy: {report['accuracy']:.3f} | Macro F1: {report['macro avg']['f1-score']:.3f}")
+        print(f"  Time:     {fold_time:.1f}s (train={train_time:.1f}s, predict={predict_time:.1f}s)")
+
+    with open(out_dir / 'fold_times.txt', 'w') as f:
+        for i, t in enumerate(fold_times):
+            f.write(f"fold_{i}: {t:.2f}s (train={train_times[i]:.2f}s, predict={predict_times[i]:.2f}s)\n")
+        f.write(f"total: {sum(fold_times):.2f}s\n")
+        f.write(f"total_train: {sum(train_times):.2f}s\n")
+        f.write(f"total_predict: {sum(predict_times):.2f}s\n")
+        f.write(f"mean:  {np.mean(fold_times):.2f}s\n")
+
+    accs = [fold_reports[i]['accuracy']              for i in range(len(folds))]
+    f1s  = [fold_reports[i]['macro avg']['f1-score'] for i in range(len(folds))]
+    wf1s = [fold_reports[i]['weighted avg']['f1-score'] for i in range(len(folds))]
+    print(f"\n{method_name} Results (cHL, LogReg + Optuna):")
+    print(f"  Accuracy:    {np.mean(accs):.3f} ± {np.std(accs):.3f}")
+    print(f"  Macro F1:    {np.mean(f1s):.3f} ± {np.std(f1s):.3f}")
+    print(f"  Weighted F1: {np.mean(wf1s):.3f} ± {np.std(wf1s):.3f}")
+    print(f"  Output: {out_dir}")
+
+
 # MODEL LOADING
 
 def load_kronos2_model(device):
@@ -409,7 +692,7 @@ def build_parser():
     sub = parser.add_subparsers(dest='mode', required=True)
     for m in ['extract_patches', 'extract_features', 'classify', 'all']:
         p = sub.add_parser(m, formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-        p.add_argument('--dataset',  required=True, choices=['immucan'])
+        p.add_argument('--dataset',  required=True, choices=['immucan', 'chl'])
         p.add_argument('--config',   required=True, help='Path to kronos2.json')
         p.add_argument('--output-dir',  required=True)
         p.add_argument('--spceleval-dir', default=None)
@@ -450,6 +733,7 @@ def main():
     fill('n_jobs', 'n_jobs', -1)
     if args.exclude_markers is None:
         args.exclude_markers = cfg["exclude_markers"]
+    args.exclude_labels = set(cfg.get('exclude_labels', []))
 
     total_start = time.time()
     print(f"\n{'='*60}")
@@ -457,16 +741,24 @@ def main():
     print(f"KRONOS2 authors' approach: marker-aware ViT-B/16, LogReg + Optuna")
     print(f"{'='*60}")
 
+    is_chl        = (args.dataset == 'chl')
     data_root     = cfg["data_root"]
     biomarkers    = cfg["biomarkers"]
     name_mappings = cfg.get("name_mappings", {})
 
     clean_indices, clean_names = get_clean_markers(biomarkers, args.exclude_markers)
 
+    if is_chl and args.mode in ('extract_patches', 'classify', 'all'):
+        chl_meta_df, chl_folds, chl_img_paths, chl_seg_paths, chl_row_map = load_chl_metadata(cfg)
+
     if args.mode in ('extract_patches', 'all'):
-        label_map     = load_label_map(data_root)
-        _, all_images = load_folds(data_root, args.n_folds)
-        patch_dir     = extract_patches(args, cfg, all_images, clean_indices, clean_names, label_map)
+        if is_chl:
+            patch_dir = extract_patches_chl(args, cfg, clean_indices, clean_names,
+                                            chl_meta_df, chl_img_paths, chl_seg_paths)
+        else:
+            label_map     = load_label_map(data_root)
+            _, all_images = load_folds(data_root, args.n_folds)
+            patch_dir     = extract_patches(args, cfg, all_images, clean_indices, clean_names, label_map)
     else:
         patch_dir = Path(args.output_dir) / 'patches'
 
@@ -480,8 +772,11 @@ def main():
         metadata_df = pd.read_csv(meta_path) if meta_path.exists() else None
 
     if args.mode in ('classify', 'all'):
-        folds, _ = load_folds(data_root, args.n_folds)
-        run_logreg_optuna(args, folds, feature_dir, metadata_df)
+        if is_chl:
+            run_logreg_optuna_chl(args, chl_folds, chl_row_map, feature_dir)
+        else:
+            folds, _ = load_folds(data_root, args.n_folds)
+            run_logreg_optuna(args, folds, feature_dir, metadata_df)
 
     total_time = time.time() - total_start
     print(f"\n{'='*60}")

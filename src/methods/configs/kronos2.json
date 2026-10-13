@@ -41,6 +41,35 @@
         "CD303": "BDCA-2",
         "CarbonicAnhydrase": "CA9"
       }
+    },
+    "chl": {
+      "data_root": "/home/juliaoesterle/data/phenotyping_benchmark/cHL_2_MIBI",
+      "quant_csv": "quantification/processed/cHL_2_MIBI_quantification.csv",
+      "folds_json": "quantification/processed/kfolds_StratifiedGroupKFold_level3/fold_indices.json",
+      "image_dir": "raw_images/multistack_tiffs",
+      "segmentation_dir": "segmentation",
+      "fold_type": "cell",
+      "image_format": "ome_tiff",
+      "_comment_patch_size": "Same 64px as IMMUcan -- see kronos.json's cHL comment for the measured cell-footprint justification.",
+      "patch_size": 64,
+      "biomarkers": [
+        "CD4", "CD20", "PD-1", "FoxP3", "CD14", "CD161", "Tbet", "CD25",
+        "CD68", "CD3", "CD57", "Pax-5", "GATA3", "TCRgd", "RORgT", "CD45RO",
+        "Na-K ATPase", "CD56", "Lag3", "CD45RA", "B2-Microglobulin", "TIM3",
+        "SLP-76", "Tox", "Histone H3", "CD30", "CXCR5", "Ki-67", "Granzyme B",
+        "CD8", "PD-L1", "CD45", "HLA1", "CD153 (CD30L)", "pSLP-76", "HLA-DR",
+        "CD16", "dsDNA", "CD86", "CD11c", "CD15", "CD28", "CD123",
+        "anti-H2AX (pS139)", "CD163", "IL-10"
+      ],
+      "_comment_exclude_markers": "Histone H3/SLP-76/anti-H2AX (pS139)/dsDNA/pSLP-76: same 5 excluded for every method on cHL (housekeeping/nuclear, not phenotypic). CD153 (CD30L) additionally excluded -- verified directly against the model's own marker_metadata.csv (288 rows): no row's marker_name OR marker_full_name matches CD153/CD30L/TNFSF8/'CD30 ligand' under any plausible spelling. RORgT was ALSO excluded here previously on the claim that the near-string vocabulary entry 'RORGD' had no evidence of being the same marker -- that claim was wrong: RORGD's own marker_full_name column (row 263) reads 'Retinoic acid-related orphan receptor gamma t', i.e. RORgammaT itself, and model.backbone.marker_builder._fuzzy_match(['RORGD']) succeeds (returns index 263). Fixed 2026-10 -- see name_mappings below. This means KRONOS2 sees 40 markers here, not 39.",
+      "exclude_markers": ["Histone H3", "SLP-76", "anti-H2AX (pS139)", "dsDNA", "pSLP-76", "CD153 (CD30L)"],
+      "exclude_labels": [],
+      "_comment_name_mappings": "Verified directly against model.backbone.marker_builder (both the real fuzzy matcher and, for RORgT, the model's own marker_full_name text): B2M, NAKATP, and RORGD all pass as exact vocabulary entries.",
+      "name_mappings": {
+        "B2-Microglobulin": "B2M",
+        "Na-K ATPase": "NAKATP",
+        "RORgT": "RORGD"
+      }
     }
   }
 }
