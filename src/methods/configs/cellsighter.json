@@ -33,20 +33,18 @@
       "existing_c2l_dir": "/home/juliaoesterle/data/phenotyping_benchmark/IMMUcan/CellTypes/cells2labels",
       "labels_csv": "/home/juliaoesterle/data/phenotyping_benchmark/IMMUcan/CellTypes/labels_cell_type.csv",
       "channels_source": "/home/juliaoesterle/data/phenotyping_benchmark/IMMUcan/CellTypes/channels.txt",
+      "_comment_excluded_channels": "Per Lukas: a CNN that looks at the actual crop can use nuclear size/morphology signal (e.g. larger nuclei in cancer cells raise mean DNA/Histone intensity), unlike a clustering method. Keep at least one of DNA1/DNA2/HistoneH3 rather than dropping all three; HistoneH3 kept, DNA1/DNA2 (redundant duplicate DAPI channels) excluded.",
       "excluded_channels": [
         "DNA1",
-        "DNA2",
-        "HistoneH3"
+        "DNA2"
       ],
       "folds_path": "/home/juliaoesterle/data/phenotyping_benchmark/IMMUcan/CellTypes/folds.json",
       "folds_level": "image",
       "output_root": "/home/juliaoesterle/data/phenotyping_benchmark/IMMUcan_CellSighter",
       "_quant_csv_ref": "/home/juliaoesterle/data/phenotyping_benchmark/IMMUcan/quantification/processed/IMMUcan_quantification.csv",
-      "excluded_cell_types": [
-        "undefined"
-      ]
+      "excluded_cell_types": []
     },
-    "chl": {
+    "cHL_2_MIBI": {
       "label_source": "quant_csv",
       "raw_image_dir": "/home/juliaoesterle/data/phenotyping_benchmark/cHL_2_MIBI/CellTypes/data/images",
       "raw_image_exts": [
@@ -64,10 +62,7 @@
       "sample_id_col": "sample_id",
       "cell_id_col": "cell_id",
       "cell_type_col": "cell_type",
-      "excluded_cell_types": [
-        "unlabelled",
-        "undefined"
-      ],
+      "excluded_cell_types": [],
       "channels_source": "/home/juliaoesterle/data/phenotyping_benchmark/cHL_2_MIBI/CellTypes/channels.txt",
       "excluded_channels": [],
       "folds_path": "/home/juliaoesterle/data/phenotyping_benchmark/cHL_2_MIBI/fold_indices.json",
