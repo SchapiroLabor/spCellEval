@@ -21,7 +21,7 @@ python run_eva.py all \
 
 # cHL — extract embeddings only
 python run_eva.py extract \
-    --dataset    chl \
+    --dataset    cHL_2_MIBI \
     --config     src/methods/configs/eva.json \
     --eva-dir    /home/juliaoesterle/eva/project \
     --output-dir /home/juliaoesterle/results/eva_chl/bbox \
@@ -44,6 +44,22 @@ import torch
 
 # CONFIG LOADING
 
+def _rebase_local_paths(obj, prefix="/home/juliaoesterle", env_var="SPCELLEVAL_ROOT"):
+    """Configs hardcode absolute paths rooted at beauty (/home/juliaoesterle).
+    Set SPCELLEVAL_ROOT to re-root every such path onto another machine
+    (e.g. Helix's /mnt/sds-hd/sd22c003) without editing the JSON files."""
+    root = os.environ.get(env_var)
+    if not root:
+        return obj
+    if isinstance(obj, str):
+        return root.rstrip('/') + obj[len(prefix):] if obj.startswith(prefix) else obj
+    if isinstance(obj, dict):
+        return {k: _rebase_local_paths(v, prefix, env_var) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_rebase_local_paths(v, prefix, env_var) for v in obj]
+    return obj
+
+
 def load_config(config_path: str, dataset: str) -> dict:
     with open(config_path) as f:
         cfg = json.load(f)
@@ -53,7 +69,7 @@ def load_config(config_path: str, dataset: str) -> dict:
     merged = dict(cfg.get("defaults", {}))
     merged.update(cfg["datasets"][dataset])
     merged["dataset"] = dataset
-    return merged
+    return _rebase_local_paths(merged)
 
 # EVA MODEL LOADING
 
@@ -476,7 +492,7 @@ def build_parser():
     sub = parser.add_subparsers(dest='mode', required=True)
     for mode in ['extract', 'supervised', 'leiden', 'all']:
         p = sub.add_parser(mode, formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-        p.add_argument('--dataset', choices=['immucan', 'chl'], required=True)
+        p.add_argument('--dataset', choices=['immucan', 'cHL_2_MIBI'], required=True)
         p.add_argument('--config',  required=True, help='Path to eva.json')
         p.add_argument('--eva-dir', required=True, help='Eva project root')
         p.add_argument('--output-dir', required=True)

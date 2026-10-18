@@ -9,7 +9,7 @@ constants live in this file (Lukas' request — all specifics in the config).
     python run_cellsighter.py --dataset immucan \
         --config src/methods/configs/cellsighter.json
 
-    python run_cellsighter.py --dataset chl \
+    python run_cellsighter.py --dataset cHL_2_MIBI \
         --config src/methods/configs/cellsighter.json --fold 0 --n_runs 1
 
 Pipeline per fold k:
@@ -39,6 +39,22 @@ import pandas as pd
 HERE = Path(__file__).resolve().parent     # the CellSighter repo dir
 
 
+def _rebase_local_paths(obj, prefix="/home/juliaoesterle", env_var="SPCELLEVAL_ROOT"):
+    """Configs hardcode absolute paths rooted at beauty (/home/juliaoesterle).
+    Set SPCELLEVAL_ROOT to re-root every such path onto another machine
+    (e.g. Helix's /mnt/sds-hd/sd22c003) without editing the JSON files."""
+    root = os.environ.get(env_var)
+    if not root:
+        return obj
+    if isinstance(obj, str):
+        return root.rstrip('/') + obj[len(prefix):] if obj.startswith(prefix) else obj
+    if isinstance(obj, dict):
+        return {k: _rebase_local_paths(v, prefix, env_var) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_rebase_local_paths(v, prefix, env_var) for v in obj]
+    return obj
+
+
 def load_config(config_path: str, dataset: str) -> dict:
     with open(config_path) as f:
         cfg = json.load(f)
@@ -49,7 +65,7 @@ def load_config(config_path: str, dataset: str) -> dict:
     merged.update(cfg["datasets"][dataset])
     merged["method"] = cfg.get("method", "cellsighter")
     merged["dataset"] = dataset
-    return merged
+    return _rebase_local_paths(merged)
 
 
 def write_cellsighter_config(base: Path, cfg: dict, root_dir: Path,

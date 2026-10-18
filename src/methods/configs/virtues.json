@@ -44,7 +44,7 @@
         "CD206": "P22897", "cleavedPARP": "P09874"
       }
     },
-    "chl": {
+    "cHL_2_MIBI": {
       "data_root": "/home/juliaoesterle/data/phenotyping_benchmark/cHL_2_MIBI",
       "quant_csv": "quantification/processed/cHL_2_MIBI_quantification.csv",
       "folds_json": "quantification/processed/kfolds_StratifiedGroupKFold_level3/fold_indices.json",
@@ -64,7 +64,7 @@
       ],
       "_comment_exclude": "Matches Eva's original cHL exclude set (46 total, 41 kept) -- NOT the same as Eva's current 37, since VirTues's marker-conditioning has a soft channel-mask fallback for unmatched markers (no hard KeyError like Eva/KRONOS2), so there was never a correctness reason to exclude more here.",
       "exclude_markers": ["Histone H3", "SLP-76", "anti-H2AX (pS139)", "dsDNA", "pSLP-76"],
-      "_comment_marker_embedding_dir": "Fixed 2026-10: get_clean_markers's marker_embedding_dir was hardcoded in run_virtues.py/run_virtues_sp32.py to assets/example_dataset/marker_embeddings, which is NOT a general marker library -- verified it is an exact 1:1 match to IMMUcan's 37 clean markers (37/37 covered) and nothing else, i.e. the demo's own precomputed embeddings. Reusing it for cHL silently left 24/41 markers with no embedding (soft-masked to zero signal, not an error -- easy to miss). Fixed by generating the missing 22 markers' ESM embeddings via virtues/utils/compute_esm_embeddings.py from UniProt-fetched FASTA sequences (assets/chl_fastas/), copied alongside the original 60 into assets/chl_dataset/marker_embeddings/ (82 files total). This brings cHL coverage to 39/41. CD57 and TCRgd remain unmapped in uniprot_map (None) and so stay unembedded -- both are not single-gene products (CD57 is a carbohydrate epitope, TCRgd is a multi-chain receptor complex), a genuine biological limitation, not an oversight.",
+      "_comment_marker_embedding_dir": "assets/example_dataset/marker_embeddings (the demo's shipped embeddings) only covers IMMUcan's 37 markers, not cHL's. The missing 22 cHL markers' ESM embeddings were generated via virtues/utils/compute_esm_embeddings.py from UniProt-fetched FASTA sequences (assets/chl_fastas/) and copied alongside the original 60 into assets/chl_dataset/marker_embeddings/ (82 files total), bringing cHL coverage to 39/41. CD57 and TCRgd stay unembedded -- neither is a single-gene product (CD57 is a carbohydrate epitope, TCRgd a multi-chain receptor complex), so no UniProt entry applies.",
       "marker_embedding_dir": "assets/chl_dataset/marker_embeddings",
       "_comment_exclude_labels": "Per Lukas 2026-10: 'undefined' is kept as a real, scored class on cHL for every method -- other supervised methods in the benchmark predict and are scored on it too, so dropping it here would be inconsistent.",
       "exclude_labels": [],

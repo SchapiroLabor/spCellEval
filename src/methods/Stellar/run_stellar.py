@@ -30,7 +30,7 @@ Usage:
     python run_stellar.py --dataset immucan --config src/methods/configs/stellar.json
 
     # cHL - all 5 cell-level folds:
-    python run_stellar.py --dataset chl --config src/methods/configs/stellar.json
+    python run_stellar.py --dataset cHL_2_MIBI --config src/methods/configs/stellar.json
 
     # Single fold, quick smoke test:
     python run_stellar.py --dataset immucan --config src/methods/configs/stellar.json \
@@ -43,6 +43,7 @@ Usage:
 
 import argparse
 import json
+import os
 import time
 from pathlib import Path
 from typing import List, Tuple
@@ -66,6 +67,22 @@ import anndata
 
 # config loading 
 
+def _rebase_local_paths(obj, prefix="/home/juliaoesterle", env_var="SPCELLEVAL_ROOT"):
+    """Configs hardcode absolute paths rooted at beauty (/home/juliaoesterle).
+    Set SPCELLEVAL_ROOT to re-root every such path onto another machine
+    (e.g. Helix's /mnt/sds-hd/sd22c003) without editing the JSON files."""
+    root = os.environ.get(env_var)
+    if not root:
+        return obj
+    if isinstance(obj, str):
+        return root.rstrip('/') + obj[len(prefix):] if obj.startswith(prefix) else obj
+    if isinstance(obj, dict):
+        return {k: _rebase_local_paths(v, prefix, env_var) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_rebase_local_paths(v, prefix, env_var) for v in obj]
+    return obj
+
+
 def load_config(config_path: str, dataset: str) -> dict:
     """Load per-method config, merge defaults with the selected dataset block."""
     with open(config_path) as f:
@@ -76,7 +93,7 @@ def load_config(config_path: str, dataset: str) -> dict:
     merged = dict(cfg.get("defaults", {}))
     merged.update(cfg["datasets"][dataset])
     merged["dataset"] = dataset
-    return merged
+    return _rebase_local_paths(merged)
 
 
 # model
@@ -552,7 +569,7 @@ def run_fold(fold_idx, train_adata, test_adata, categories, args, output_dir):
 
 def main():
     parser = argparse.ArgumentParser(description="Supervised Stellar GNN — config-driven")
-    parser.add_argument("--dataset", choices=["immucan", "chl"], required=True)
+    parser.add_argument("--dataset", choices=["immucan", "cHL_2_MIBI"], required=True)
     parser.add_argument("--config",  required=True, help="Path to stellar.json")
     parser.add_argument("--fold", type=int, default=None, help="Single fold (0-based). Default: all.")
     parser.add_argument("--prepared", type=str, default=None,

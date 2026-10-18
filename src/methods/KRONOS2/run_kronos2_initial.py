@@ -93,6 +93,22 @@ warnings.filterwarnings('ignore')
 
 # CONFIG LOADING
 
+def _rebase_local_paths(obj, prefix="/home/juliaoesterle", env_var="SPCELLEVAL_ROOT"):
+    """Configs hardcode absolute paths rooted at beauty (/home/juliaoesterle).
+    Set SPCELLEVAL_ROOT to re-root every such path onto another machine
+    (e.g. Helix's /mnt/sds-hd/sd22c003) without editing the JSON files."""
+    root = os.environ.get(env_var)
+    if not root:
+        return obj
+    if isinstance(obj, str):
+        return root.rstrip('/') + obj[len(prefix):] if obj.startswith(prefix) else obj
+    if isinstance(obj, dict):
+        return {k: _rebase_local_paths(v, prefix, env_var) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_rebase_local_paths(v, prefix, env_var) for v in obj]
+    return obj
+
+
 def load_config(config_path: str, dataset: str) -> dict:
     with open(config_path) as f:
         cfg = json.load(f)
@@ -102,7 +118,7 @@ def load_config(config_path: str, dataset: str) -> dict:
     merged = dict(cfg.get("defaults", {}))
     merged.update(cfg["datasets"][dataset])
     merged["dataset"] = dataset
-    return merged
+    return _rebase_local_paths(merged)
 
 
 def get_clean_markers(biomarkers, exclude):
@@ -692,7 +708,7 @@ def build_parser():
     sub = parser.add_subparsers(dest='mode', required=True)
     for m in ['extract_patches', 'extract_features', 'classify', 'all']:
         p = sub.add_parser(m, formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-        p.add_argument('--dataset',  required=True, choices=['immucan', 'chl'])
+        p.add_argument('--dataset',  required=True, choices=['immucan', 'cHL_2_MIBI'])
         p.add_argument('--config',   required=True, help='Path to kronos2.json')
         p.add_argument('--output-dir',  required=True)
         p.add_argument('--spceleval-dir', default=None)
@@ -741,7 +757,7 @@ def main():
     print(f"KRONOS2 authors' approach: marker-aware ViT-B/16, LogReg + Optuna")
     print(f"{'='*60}")
 
-    is_chl        = (args.dataset == 'chl')
+    is_chl        = (args.dataset == 'cHL_2_MIBI')
     data_root     = cfg["data_root"]
     biomarkers    = cfg["biomarkers"]
     name_mappings = cfg.get("name_mappings", {})

@@ -1,6 +1,6 @@
 {
   "method": "kronos2",
-  "_comment": "KRONOS2 (MahmoodLab/KRONOS2 on HuggingFace) -- the authors' next-generation, marker-aware successor to KRONOS. Loaded via transformers.AutoModel (trust_remote_code), not the old 'kronos' pip package. No local marker_metadata.csv/model_assets needed -- the model ships its own 288-marker vocabulary and does its own marker-aware z-score via model.preprocess(). name_mappings here are ONLY for aliasing our marker names onto that vocabulary's naming, verified against the bundled marker_metadata.csv's own exact-match logic (marker_utils.marker_match_key), not invented.",
+  "_comment": "KRONOS2 (MahmoodLab/KRONOS2 on HuggingFace) -- the authors' next-generation, marker-aware successor to KRONOS. Loaded via transformers.AutoModel (trust_remote_code), not the old 'kronos' pip package. No local marker_metadata.csv/model_assets needed -- the model ships its own 288-marker vocabulary and does its own marker-aware z-score via model.preprocess(). name_mappings here alias our marker names onto that vocabulary, checked against the bundled marker_metadata.csv's exact-match logic (marker_utils.marker_match_key).",
   "defaults": {
     "device": "cuda:0",
     "patch_size": 64,
@@ -30,9 +30,9 @@
         "VISTA", "CD40", "CD4", "CD14", "Ecad", "CD303", "CD206",
         "cleavedPARP", "DNA1", "DNA2"
       ],
-      "_comment_exclude_markers": "DNA1/DNA2/HistoneH3 excluded for the same reason as every other method (nuclear/housekeeping stains, not phenotypic markers). CD33/Ecad/cleavedPARP additionally excluded because KRONOS2's marker-conditioning forward() (unlike its z-score preprocess() step) has NO fallback for an unmatched marker -- it hard-fails with 'No (fuzzy) match found', verified directly against model.backbone.marker_builder for all three. This means KRONOS2 sees 34 markers here, not KRONOS1's 37 -- a real, disclosed difference in available input, not a choice.",
+      "_comment_exclude_markers": "DNA1/DNA2/HistoneH3 excluded for the same reason as every other method (nuclear/housekeeping stains, not phenotypic markers). CD33/Ecad/cleavedPARP additionally excluded: KRONOS2's marker-conditioning forward() (unlike its z-score preprocess() step) has no fallback for an unmatched marker -- it hard-fails with 'No (fuzzy) match found' against model.backbone.marker_builder for all three. KRONOS2 sees 34 markers here vs. KRONOS1's 37.",
       "exclude_markers": ["DNA1", "DNA2", "HistoneH3", "CD33", "Ecad", "cleavedPARP"],
-      "_comment_name_mappings": "Checked against KRONOS2's bundled marker_metadata.csv (288 markers) AND verified directly against model.backbone.marker_builder's real fuzzy matcher (not just the CSV lookup) for all six: SMA/GrzB/CD8a/TCF7/CD303/CarbonicAnhydrase have no match under their IMMUcan spelling but a confident biological-identity alias passes (A-SMA=SMA, GZMB=GrzB, CD8=CD8a, TCF1=TCF7 [same gene, alt name], BDCA-2=CD303 [same molecule], CA9=CarbonicAnhydrase IX).",
+      "_comment_name_mappings": "Checked against KRONOS2's bundled marker_metadata.csv (288 markers) and model.backbone.marker_builder's fuzzy matcher: SMA/GrzB/CD8a/TCF7/CD303/CarbonicAnhydrase have no match under their IMMUcan spelling but a biological-identity alias passes (A-SMA=SMA, GZMB=GrzB, CD8=CD8a, TCF1=TCF7, BDCA-2=CD303, CA9=CarbonicAnhydrase IX).",
       "name_mappings": {
         "SMA": "A-SMA",
         "GrzB": "GZMB",
@@ -42,7 +42,7 @@
         "CarbonicAnhydrase": "CA9"
       }
     },
-    "chl": {
+    "cHL_2_MIBI": {
       "data_root": "/home/juliaoesterle/data/phenotyping_benchmark/cHL_2_MIBI",
       "quant_csv": "quantification/processed/cHL_2_MIBI_quantification.csv",
       "folds_json": "quantification/processed/kfolds_StratifiedGroupKFold_level3/fold_indices.json",
@@ -61,10 +61,10 @@
         "CD16", "dsDNA", "CD86", "CD11c", "CD15", "CD28", "CD123",
         "anti-H2AX (pS139)", "CD163", "IL-10"
       ],
-      "_comment_exclude_markers": "Histone H3/SLP-76/anti-H2AX (pS139)/dsDNA/pSLP-76: same 5 excluded for every method on cHL (housekeeping/nuclear, not phenotypic). CD153 (CD30L) additionally excluded -- verified directly against the model's own marker_metadata.csv (288 rows): no row's marker_name OR marker_full_name matches CD153/CD30L/TNFSF8/'CD30 ligand' under any plausible spelling. RORgT was ALSO excluded here previously on the claim that the near-string vocabulary entry 'RORGD' had no evidence of being the same marker -- that claim was wrong: RORGD's own marker_full_name column (row 263) reads 'Retinoic acid-related orphan receptor gamma t', i.e. RORgammaT itself, and model.backbone.marker_builder._fuzzy_match(['RORGD']) succeeds (returns index 263). Fixed 2026-10 -- see name_mappings below. This means KRONOS2 sees 40 markers here, not 39.",
+      "_comment_exclude_markers": "Histone H3/SLP-76/anti-H2AX (pS139)/dsDNA/pSLP-76: same 5 excluded for every method on cHL (housekeeping/nuclear, not phenotypic). CD153 (CD30L) additionally excluded: no row in the model's marker_metadata.csv (288 rows) matches CD153/CD30L/TNFSF8/'CD30 ligand' under any spelling. RORgT maps to the vocabulary entry 'RORGD' (marker_full_name: 'Retinoic acid-related orphan receptor gamma t') -- see name_mappings below. KRONOS2 sees 40 markers here.",
       "exclude_markers": ["Histone H3", "SLP-76", "anti-H2AX (pS139)", "dsDNA", "pSLP-76", "CD153 (CD30L)"],
       "exclude_labels": [],
-      "_comment_name_mappings": "Verified directly against model.backbone.marker_builder (both the real fuzzy matcher and, for RORgT, the model's own marker_full_name text): B2M, NAKATP, and RORGD all pass as exact vocabulary entries.",
+      "_comment_name_mappings": "Checked against model.backbone.marker_builder's fuzzy matcher: B2M, NAKATP, and RORGD all pass as exact vocabulary entries.",
       "name_mappings": {
         "B2-Microglobulin": "B2M",
         "Na-K ATPase": "NAKATP",
