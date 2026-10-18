@@ -56,29 +56,34 @@ SEG_DIR     = IMMUCAN_DIR / "segmentation"
 FOLDS_JSON  = IMMUCAN_DIR / "CellTypes" / "folds.json"
 OUTPUT_BASE = Path("/home/juliaoesterle/results/stellar")
 
-# IMMUcan-specific 
-# NOTE: verify channel indices against your panel if results look off
-EXCLUDED_CHANNELS = [0, 1, 2]
+# IMMUcan-specific
+# Channel indices follow CellTypes/channels.txt's line order (0-indexed):
+# 1=HistoneH3, 38=DNA1, 39=DNA2 -- same nuclear/housekeeping exclusion as
+# every other method. Checked directly against channels.txt.
+EXCLUDED_CHANNELS = [1, 38, 39]
 KEEP_CHANNELS     = [i for i in range(40) if i not in EXCLUDED_CHANNELS]
 N_CHANNELS_USED   = len(KEEP_CHANNELS)  # 37
 
-# Integer -->  string cell type mapping for IMMUcan
-# -1 = Unknown, excluded from training/evaluation
+# Integer --> string cell type mapping for IMMUcan.
+# -1 = Unknown, excluded from training/evaluation.
+# Checked directly against quantification/processed/IMMUcan_quantification.csv's
+# (sample_id, cell_id) -> cell_type strings for a full image; matches
+# CellTypes/labels_cell_type.csv's mapping exactly.
 LABEL_MAP = {
-    0:  "Cancer",
-    1:  "Stroma",
-    2:  "CD8+_T_cell",
-    3:  "M2_Macrophage",
-    4:  "CD4+_T_cell",
-    5:  "undefined",
-    6:  "Plasma_cell",
-    7:  "Neutrophil",
-    8:  "BnT",
-    9:  "Treg",
-    10: "Dendritic_cell",
-    11: "B_cell",
-    12: "NK_cell",
-    13: "Plasmacytoid_dendritic_cell",
+    0:  "B_cell",
+    1:  "BnT",
+    2:  "CD4+_T_cell",
+    3:  "CD8+_T_cell",
+    4:  "Cancer",
+    5:  "Dendritic_cell",
+    6:  "M2_Macrophage",
+    7:  "NK_cell",
+    8:  "Neutrophil",
+    9:  "Plasma_cell",
+    10: "Plasmacytoid_dendritic_cell",
+    11: "Stroma",
+    12: "Treg",
+    13: "undefined",
 }
 # Sorted category list — consistent label encoding across all folds
 CATEGORIES = np.array(sorted(LABEL_MAP.values()))
