@@ -1,0 +1,120 @@
+{
+  "method": "virtues_zeroshot",
+  "_comment": "Zero-shot cell phenotyping with VirTues's own pretrained segmentation head (per Aroj's review on PR #27, notebooks/3_demo_segmentation.ipynb). No training, no folds, no classifier fit -- this runs VirTues's pretrained 9-class semantic head directly and reports its raw predictions. We discard VirTues's own instance-segmentation branch entirely and assign its per-pixel class predictions onto OUR OWN existing segmentation masks (same masks every other method in this benchmark uses), via per-cell majority vote.",
+  "_comment_virtues_dir": "Requires VirTues's VirtuesSegmentationHead (commit 2c9c6cb on bunnelab/virtues, 2026-xx), which does not exist in the commit pinned for run_virtues.py/run_virtues_sp32.py (414d9bb, used by PR #27) -- that older commit's MultiplexVirtues constructor has an incompatible signature (no 'return_intermediate_layers' support the segmentation head needs). Rather than upgrading the shared checkout and risking a silent regression in the already-reviewed sp32/legacy pipelines, this points at a SEPARATE checkout: a 'git worktree add' of the same bunnelab/virtues repo at origin/main, living at /home/juliaoesterle/VirTues_zeroshot. This second checkout (plus its downloaded checkpoints and a copy of our custom cHL marker_embeddings) is NOT tracked by any git repo and will need the same manual transfer to Helix as the original VirTues checkout.",
+  "defaults": {
+    "device": "cuda:1",
+    "virtues_dir": "/home/juliaoesterle/VirTues_zeroshot",
+    "checkpoint": "sp32",
+    "tile_size": 128,
+    "overlap": 32,
+    "batch_size": 16,
+    "large_tissue_threshold": 1500,
+    "_comment_cell_type_mapping": "Fixed architectural output of the sp32 segmentation head (dim_out=5 instance channels, discarded here + num_celltypes=9 semantic channels), per notebooks/3_demo_segmentation.ipynb. Not configurable -- a different checkpoint's head would need its own entry in CHECKPOINT_HEADS in run_virtues_zeroshot.py.",
+    "cell_type_mapping": {
+      "0": "None", "1": "B cell", "2": "CD4 T cell", "3": "CD8 T cell",
+      "4": "Fibroblasts /Stroma", "5": "Myeloid", "6": "Tumor",
+      "7": "Unknown", "8": "Vessel / Endo."
+    },
+    "suppressed_classes": ["None"]
+  },
+  "datasets": {
+    "immucan": {
+      "data_root": "/home/juliaoesterle/data/phenotyping_benchmark/IMMUcan",
+      "image_dir": "CellTypes/data/images",
+      "label_dir": "CellTypes/cells2labels",
+      "segmentation_dir": "segmentation",
+      "labels_csv": "CellTypes/labels_cell_type.csv",
+      "folds_json": "CellTypes/folds.json",
+      "fold_type": "image",
+      "image_format": "npz",
+      "channels": [
+        "MPO", "HistoneH3", "SMA", "CD16", "CD38", "HLADR", "CD27", "CD15",
+        "CD45RA", "CD163", "B2M", "CD20", "CD68", "Ido1", "CD3", "LAG3",
+        "CD11c", "PD1", "PDGFRb", "CD7", "GrzB", "PDL1", "TCF7", "CD45RO",
+        "FOXP3", "ICOS", "CD8a", "CarbonicAnhydrase", "CD33", "Ki67",
+        "VISTA", "CD40", "CD4", "CD14", "Ecad", "CD303", "CD206",
+        "cleavedPARP", "DNA1", "DNA2"
+      ],
+      "exclude_markers": ["DNA1", "DNA2", "HistoneH3"],
+      "marker_embedding_dir": "assets/example_dataset/marker_embeddings",
+      "uniprot_map": {
+        "MPO": "P05164", "SMA": "P62736", "CD16": "P08637", "CD38": "P28907",
+        "HLADR": "P01903", "CD27": "P26842", "CD15": "P22083", "CD45RA": "P08575-8",
+        "CD163": "Q86VB7", "B2M": "P61769", "CD20": "P11836", "CD68": "P34810",
+        "Ido1": "P14902", "CD3": "P07766", "LAG3": "P18627", "CD11c": "P20701",
+        "PD1": "Q15116", "PDGFRb": "P09619", "CD7": "P09564", "GrzB": "P10144",
+        "PDL1": "Q9NZQ7", "TCF7": "P36402", "CD45RO": "P08575-5", "FOXP3": "Q9BZS1",
+        "ICOS": "Q9Y288", "CD8a": "P01732", "CarbonicAnhydrase": "Q16790",
+        "CD33": "P20138", "Ki67": "P46013", "VISTA": "Q9H7M9", "CD40": "P25942",
+        "CD4": "P01730", "CD14": "P08235", "Ecad": "P12830", "CD303": "Q8WTT0",
+        "CD206": "P22897", "cleavedPARP": "P09874"
+      },
+      "_comment_ground_truth_to_virtues9class": "PROPOSED DEFAULT, NOT YET CONFIRMED by Lukas/Aroj -- a many-to-one harmonization of IMMUcan's 14 classes onto VirTues's own fixed 9-class zero-shot vocabulary (needed to score the raw predictions at all). Treg collapsed into 'CD4 T cell' (Tregs are a CD4+ subset). NK_cell, BnT, Plasma_cell and undefined have no clean biological match in VirTues's 9 classes and are mapped to 'Unknown' as the least-wrong option, not because they mean the same thing -- flag before using any resulting accuracy/F1 for the manuscript. 'undefined' specifically is NOT dropped (kept as a real class per Lukas's standing instruction), just mapped into the closest available bucket.",
+      "ground_truth_to_virtues9class": {
+        "Cancer": "Tumor",
+        "Stroma": "Fibroblasts /Stroma",
+        "CD8+_T_cell": "CD8 T cell",
+        "CD4+_T_cell": "CD4 T cell",
+        "Treg": "CD4 T cell",
+        "B_cell": "B cell",
+        "Plasma_cell": "B cell",
+        "Neutrophil": "Myeloid",
+        "Dendritic_cell": "Myeloid",
+        "M2_Macrophage": "Myeloid",
+        "Plasmacytoid_dendritic_cell": "Myeloid",
+        "NK_cell": "Unknown",
+        "BnT": "Unknown",
+        "undefined": "Unknown"
+      }
+    },
+    "cHL_2_MIBI": {
+      "data_root": "/home/juliaoesterle/data/phenotyping_benchmark/cHL_2_MIBI",
+      "quant_csv": "quantification/processed/cHL_2_MIBI_quantification.csv",
+      "folds_json": "quantification/processed/kfolds_StratifiedGroupKFold_level3/fold_indices.json",
+      "image_dir": "raw_images/multistack_tiffs",
+      "segmentation_dir": "segmentation",
+      "fold_type": "cell",
+      "image_format": "ome_tiff",
+      "channels": [
+        "CD4", "CD20", "PD-1", "FoxP3", "CD14", "CD161", "Tbet", "CD25",
+        "CD68", "CD3", "CD57", "Pax-5", "GATA3", "TCRgd", "RORgT", "CD45RO",
+        "Na-K ATPase", "CD56", "Lag3", "CD45RA", "B2-Microglobulin", "TIM3",
+        "SLP-76", "Tox", "Histone H3", "CD30", "CXCR5", "Ki-67", "Granzyme B",
+        "CD8", "PD-L1", "CD45", "HLA1", "CD153 (CD30L)", "pSLP-76", "HLA-DR",
+        "CD16", "dsDNA", "CD86", "CD11c", "CD15", "CD28", "CD123",
+        "anti-H2AX (pS139)", "CD163", "IL-10"
+      ],
+      "exclude_markers": ["Histone H3", "SLP-76", "anti-H2AX (pS139)", "dsDNA", "pSLP-76"],
+      "marker_embedding_dir": "assets/chl_dataset/marker_embeddings",
+      "uniprot_map": {
+        "CD4": "P01730", "CD20": "P11836", "PD-1": "Q15116", "FoxP3": "Q9BZS1",
+        "CD14": "P08235", "CD161": "Q12918", "Tbet": "Q9UL17", "CD25": "P01589",
+        "CD68": "P34810", "CD3": "P09693", "Pax-5": "Q02548", "GATA3": "P23771",
+        "RORgT": "P51449", "CD45RO": "P08575-5", "Na-K ATPase": "P05023",
+        "CD56": "P13591", "Lag3": "P18627", "CD45RA": "P08575-8",
+        "B2-Microglobulin": "P61769", "TIM3": "Q8TDQ0", "Tox": "O94900",
+        "CD30": "P28908", "CXCR5": "P32302", "Ki-67": "P46013", "Granzyme B": "P10144",
+        "CD8": "P01732", "PD-L1": "Q9NZQ7", "CD45": "P08575", "HLA1": "P04439",
+        "CD153 (CD30L)": "P32971", "HLA-DR": "P01903", "CD16": "P08637", "CD86": "P42081",
+        "CD11c": "P20702", "CD15": "P15291", "CD28": "P10747", "CD123": "P26951",
+        "CD163": "Q86VB7", "IL-10": "P22301"
+      },
+      "_comment_ground_truth_to_virtues9class": "PROPOSED DEFAULT, NOT YET CONFIRMED by Lukas/Aroj -- see immucan's comment for the same caveat. Endothelial maps cleanly to 'Vessel / Endo.'. M1/M2_Macrophage both collapse into 'Myeloid'. NK_cell and undefined have no clean match and are mapped to 'Unknown' as the least-wrong option.",
+      "ground_truth_to_virtues9class": {
+        "Cancer": "Tumor",
+        "CD4+_T_cell": "CD4 T cell",
+        "Treg": "CD4 T cell",
+        "CD8+_T_cell": "CD8 T cell",
+        "B_cell": "B cell",
+        "M1_Macrophage": "Myeloid",
+        "M2_Macrophage": "Myeloid",
+        "Dendritic_cell": "Myeloid",
+        "Neutrophil": "Myeloid",
+        "Endothelial": "Vessel / Endo.",
+        "NK_cell": "Unknown",
+        "undefined": "Unknown"
+      }
+    }
+  }
+}
