@@ -1,9 +1,11 @@
 """
-utils_benchmark.py — Shared benchmark utilities for foundation model evaluation
+utils_foundational_models.py — Shared benchmark utilities for foundation
+model evaluation.
 
 Shared functions used by run_eva.py, run_kronos.py, run_virtues.py etc.
 Each model script only implements model loading + feature extraction.
-Everything else (supervised RF, Leiden, greedy F1, output saving) can be found here.
+Everything else (supervised LogReg, Leiden, greedy F1, output saving) can be
+found here.
 
 Functions
 ---------
@@ -12,8 +14,8 @@ load_folds(data_dir, n_folds)
 get_label(cell_id, cell_labels, label_map)
 load_embeddings(output_dir)
 save_embeddings(output_dir, all_feats_arr, metadata_all)
-run_supervised(args, folds, img_feature_store, all_feats_arr, metadata_all)
-run_leiden(args, folds, img_feature_store, all_feats_arr, metadata_all)
+run_supervised(args, folds, img_feature_store, all_feats_arr, metadata_all, fold_type='image')
+run_leiden(args, folds, img_feature_store, all_feats_arr, metadata_all, fold_type='image')
 greedy_f1_score(df, true_label_col, predicted_cluster_col, tie_strategy)
 add_shared_args(parser)
 """
@@ -197,7 +199,7 @@ def load_greedy_f1(spceleval_dir=None):
     Falls back to local reimplementation if not found.
     """
     if spceleval_dir is not None:
-        greedy_path = Path(spceleval_dir) / 'src' / 'clustering_methods'
+        greedy_path = Path(spceleval_dir) / 'src' / 'methods' / 'utils'
         if greedy_path.exists():
             sys.path.insert(0, str(greedy_path))
             try:
@@ -210,12 +212,15 @@ def load_greedy_f1(spceleval_dir=None):
     return greedy_f1_score
 
 
-#  Supervised: Random Forest 
+#  Supervised: Logistic Regression
 
 def run_supervised(args, folds, img_feature_store, all_feats_arr, metadata_all,
-                   method_name=None):
+                   method_name=None, fold_type='image'):
     """
-    5-fold cross-validation with Random Forest classifier.
+    5-fold cross-validation with a logistic-regression classifier head on
+    the frozen embeddings (StandardScaler + LogisticRegression) -- the
+    "foundation models in a supervised setting" protocol used across all
+    FM methods in the benchmark.
 
     Saves to spCellEval folder structure:
         {output_dir}/{method_name}/level3/predictions_{fold}.csv
@@ -226,15 +231,24 @@ def run_supervised(args, folds, img_feature_store, all_feats_arr, metadata_all,
 
     Parameters
     ----------
-    args        : argparse.Namespace — must have: n_estimators, n_jobs,
-                  n_folds, output_dir, spceleval_dir
-    folds       : list of {'train': [...], 'test': [...]}
+    args        : argparse.Namespace — must have: n_jobs, n_folds, output_dir,
+                  spceleval_dir; optionally logreg_c (default 1.0)
+    folds       : list of {'train': ..., 'test': ...}; element type depends
+                  on fold_type
     img_feature_store : dict img_name → (feats_arr, labels, cell_ids)
+                  (only read when fold_type='image')
     all_feats_arr     : (N_cells, D) numpy array
     metadata_all      : pd.DataFrame with image_id, cell_id, label
     method_name       : override output folder name (default: EVA_supervised_{embedding_mode})
+    fold_type   : 'image' (default) — folds[i]['train'/'test'] are lists of
+                  image ids, cells are gathered from img_feature_store.
+                  'cell' — folds[i]['train'/'test'] are sets of
+                  (image_id, cell_id) tuples, cells are selected directly
+                  from all_feats_arr/metadata_all. Use this for datasets
+                  whose folds are cell-level rather than image-level.
     """
-    from sklearn.ensemble import RandomForestClassifier
+    from sklearn.linear_model import LogisticRegression
+    from sklearn.preprocessing import StandardScaler
     from sklearn.metrics import classification_report
 
     if method_name is None:
@@ -244,99 +258,129 @@ def run_supervised(args, folds, img_feature_store, all_feats_arr, metadata_all,
     out_dir   = sds_base / method_name / 'level3'
     out_dir.mkdir(parents=True, exist_ok=True)
     feat_cols = [f"emb_{i}" for i in range(all_feats_arr.shape[1])]
+    logreg_c  = getattr(args, 'logreg_c', 1.0)
 
-    print(f"\nSupervised RF | n_estimators={args.n_estimators} | "
-          f"n_jobs={args.n_jobs} | folds={args.n_folds}")
+    print(f"\nSupervised LogReg | C={logreg_c} | n_jobs={args.n_jobs} | "
+          f"folds={args.n_folds} | fold_type={fold_type}")
     print("=" * 60)
 
-    fold_times   = []
-    fold_reports = {}
-    all_preds    = []
+    fold_times, train_times, predict_times, fold_reports = [], [], [], {}
+
+    if fold_type == 'cell':
+        cell_keys = pd.Series(
+            list(zip(metadata_all['image_id'], metadata_all['cell_id'])),
+            index=metadata_all.index,
+        )
 
     for fold_idx in range(args.n_folds):
-        fold_start   = time.time()
-        train_images = folds[fold_idx]['train']
-        test_images  = folds[fold_idx]['test']
+        fold_start = time.time()
         print(f"\n── Fold {fold_idx} ──────────────────────")
 
-        # Collect train cells — exclude Unknown
-        X_train, y_train = [], []
-        for img_name in train_images:
-            if img_name not in img_feature_store:
-                continue
-            feats, labels, _ = img_feature_store[img_name]
-            mask_known = np.array(labels) != 'Unknown'
-            X_train.extend(np.array(feats)[mask_known])
-            y_train.extend(np.array(labels)[mask_known])
+        if fold_type == 'cell':
+            train_mask = cell_keys.isin(folds[fold_idx]['train']).values
+            test_mask  = cell_keys.isin(folds[fold_idx]['test']).values
+            X_train    = all_feats_arr[train_mask]
+            y_train    = metadata_all.loc[train_mask, 'label'].values
+            n_train_images = metadata_all.loc[train_mask, 'image_id'].nunique()
+        else:
+            train_images = folds[fold_idx]['train']
+            X_train, y_train = [], []
+            for img_name in train_images:
+                if img_name not in img_feature_store:
+                    continue
+                feats, labels, _ = img_feature_store[img_name]
+                mask_known = np.array(labels) != 'Unknown'
+                X_train.extend(np.array(feats)[mask_known])
+                y_train.extend(np.array(labels)[mask_known])
+            X_train = np.array(X_train)
+            y_train = np.array(y_train)
+            n_train_images = len(train_images)
 
-        X_train = np.array(X_train)
-        y_train = np.array(y_train)
-        print(f"  Train: {len(X_train):,} cells | {len(train_images)} images")
+        print(f"  Train: {len(X_train):,} cells | {n_train_images} images")
 
-        clf = RandomForestClassifier(
-            n_estimators=args.n_estimators,
-            min_samples_leaf=2,
-            n_jobs=args.n_jobs,          # user-controlled parallelism
-            random_state=42,
-            class_weight='balanced',     # corrects for Cancer class dominance -> tbd! 
+        train_start = time.time()
+        scaler    = StandardScaler()
+        X_train_s = scaler.fit_transform(X_train)
+        clf = LogisticRegression(
+            C=logreg_c, max_iter=2000, random_state=42,
+            class_weight='balanced', solver='lbfgs',
+            multi_class='multinomial', n_jobs=args.n_jobs,
         )
-        clf.fit(X_train, y_train)
+        clf.fit(X_train_s, y_train)
+        train_time = time.time() - train_start
 
-        # Predict test cells
-        fold_preds = []
-        for img_name in test_images:
-            if img_name not in img_feature_store:
-                continue
-            feats, labels, cell_ids = img_feature_store[img_name]
-            feats   = np.array(feats)
-            y_pred  = clf.predict(feats)
-            y_proba = clf.predict_proba(feats)
-            for cell_id, true_label, pred_label, proba in zip(
-                cell_ids, labels, y_pred, y_proba
-            ):
-                fold_preds.append({
-                    'image_id':            img_name,
-                    'cell_id':             cell_id,
-                    'fold':                fold_idx,
-                    'true_phenotype':      true_label,
-                    'predicted_phenotype': pred_label,
-                    'confidence':          proba.max(),
-                })
+        predict_start = time.time()
+        if fold_type == 'cell':
+            n_test_images = metadata_all.loc[test_mask, 'image_id'].nunique()
+            X_test  = scaler.transform(all_feats_arr[test_mask])
+            y_pred  = clf.predict(X_test)
+            y_proba = clf.predict_proba(X_test)
+            fold_df = metadata_all.loc[test_mask, ['image_id', 'cell_id', 'label']].rename(
+                columns={'label': 'true_phenotype'}
+            ).reset_index(drop=True)
+            fold_df['fold']                = fold_idx
+            fold_df['predicted_phenotype'] = y_pred
+            fold_df['confidence']          = y_proba.max(axis=1)
+            emb_df  = pd.DataFrame(all_feats_arr[test_mask], columns=feat_cols)
+            fold_df = pd.concat([fold_df, emb_df], axis=1)
+        else:
+            test_images   = folds[fold_idx]['test']
+            n_test_images = len(test_images)
+            fold_preds    = []
+            for img_name in test_images:
+                if img_name not in img_feature_store:
+                    continue
+                feats, labels, cell_ids = img_feature_store[img_name]
+                X_test  = scaler.transform(np.array(feats))
+                y_pred  = clf.predict(X_test)
+                y_proba = clf.predict_proba(X_test)
+                for cell_id, true_label, pred_label, proba in zip(
+                    cell_ids, labels, y_pred, y_proba
+                ):
+                    fold_preds.append({
+                        'image_id':            img_name,
+                        'cell_id':             cell_id,
+                        'fold':                fold_idx,
+                        'true_phenotype':      true_label,
+                        'predicted_phenotype': pred_label,
+                        'confidence':          proba.max(),
+                    })
+            fold_df = pd.DataFrame(fold_preds)
 
-        fold_df = pd.DataFrame(fold_preds)
-
-        # Add embeddings via single pd.concat (avoids PerformanceWarning)
-        test_mask    = metadata_all['image_id'].isin(test_images)
-        test_indices = metadata_all[test_mask].index.values
-        emb_df       = pd.DataFrame(all_feats_arr[test_indices], columns=feat_cols)
-        meta_test    = metadata_all[test_mask].reset_index(drop=True)
-        emb_lookup   = pd.concat(
-            [meta_test[['image_id', 'cell_id']].reset_index(drop=True), emb_df],
-            axis=1
-        )
-        fold_df = fold_df.merge(emb_lookup, on=['image_id', 'cell_id'], how='left')
+            # Add embeddings via single pd.concat (avoids PerformanceWarning)
+            test_mask_img = metadata_all['image_id'].isin(test_images)
+            test_indices  = metadata_all[test_mask_img].index.values
+            emb_df        = pd.DataFrame(all_feats_arr[test_indices], columns=feat_cols)
+            meta_test     = metadata_all[test_mask_img].reset_index(drop=True)
+            emb_lookup    = pd.concat(
+                [meta_test[['image_id', 'cell_id']].reset_index(drop=True), emb_df],
+                axis=1
+            )
+            fold_df = fold_df.merge(emb_lookup, on=['image_id', 'cell_id'], how='left')
+        predict_time = time.time() - predict_start
 
         # Save predictions CSV
         fold_df.to_csv(out_dir / f"predictions_{fold_idx}.csv", index=False)
 
         fold_time = time.time() - fold_start
         fold_times.append(fold_time)
+        train_times.append(train_time)
+        predict_times.append(predict_time)
 
-        # Evaluate on known labels
         known  = fold_df[fold_df['true_phenotype'] != 'Unknown']
         report = classification_report(
             known['true_phenotype'], known['predicted_phenotype'],
             output_dict=True, zero_division=0
         )
         fold_reports[fold_idx] = report
-        print(f"  Test:     {len(fold_df):,} cells | {len(test_images)} images")
+        print(f"  Test:     {len(fold_df):,} cells | {n_test_images} images")
         print(f"  Accuracy: {report['accuracy']:.3f} | "
               f"Macro F1: {report['macro avg']['f1-score']:.3f}")
-        print(f"  Time:     {fold_time:.1f}s")
-        all_preds.append(fold_df)
+        print(f"  Time:     {fold_time:.1f}s (train={train_time:.1f}s, predict={predict_time:.1f}s)")
 
     # Save fold_times.txt
-    _save_fold_times(out_dir, fold_times, prefix='fold')
+    _save_fold_times(out_dir, fold_times, prefix='fold',
+                     train_times=train_times, predict_times=predict_times)
 
     # Print summary
     accs  = [fold_reports[i]['accuracy']                 for i in range(args.n_folds)]
@@ -354,7 +398,7 @@ def run_supervised(args, folds, img_feature_store, all_feats_arr, metadata_all,
 #  Leiden + Greedy F1 
 
 def run_leiden(args, folds, img_feature_store, all_feats_arr, metadata_all,
-               method_name=None):
+               method_name=None, fold_type='image'):
     """
     Leiden clustering on all cell embeddings + greedy F1 majority assignment.
 
@@ -370,11 +414,16 @@ def run_leiden(args, folds, img_feature_store, all_feats_arr, metadata_all,
     args        : argparse.Namespace — must have: leiden_resolution,
                   leiden_n_neighbors, leiden_subsample, n_jobs,
                   n_folds, output_dir, spceleval_dir
-    folds       : list of {'train': [...], 'test': [...]}
+    folds       : list of {'train': ..., 'test': ...}; element type depends
+                  on fold_type (see run_supervised)
     img_feature_store : dict img_name → (feats_arr, labels, cell_ids)
+                  (unused when fold_type='cell')
     all_feats_arr     : (N_cells, D) numpy array
     metadata_all      : pd.DataFrame with image_id, cell_id, label
     method_name       : override output folder name
+    fold_type   : 'image' (default) or 'cell' — only affects which cells
+                  go into each fold's predictions_{fold}.csv, not the
+                  clustering itself (which always runs over all cells).
     """
     import scanpy as sc
     from sklearn.neighbors import KNeighborsClassifier
@@ -482,13 +531,24 @@ def run_leiden(args, folds, img_feature_store, all_feats_arr, metadata_all,
     leiden_cluster_time = time.time() - leiden_start
     fold_times = []
 
+    if fold_type == 'cell':
+        cell_keys = pd.Series(
+            list(zip(metadata_all['image_id'], metadata_all['cell_id'])),
+            index=metadata_all.index,
+        )
+
     # Save per-fold predictions
     for fold_idx in range(args.n_folds):
-        fold_start  = time.time()
-        test_images = folds[fold_idx]['test']
+        fold_start = time.time()
 
-        fold_mask    = (metadata_all['image_id'].isin(test_images) &
-                        (metadata_all['label'] != 'Unknown'))
+        if fold_type == 'cell':
+            fold_mask = (cell_keys.isin(folds[fold_idx]['test']).values &
+                        (metadata_all['label'] != 'Unknown').values)
+        else:
+            test_images = folds[fold_idx]['test']
+            fold_mask   = (metadata_all['image_id'].isin(test_images) &
+                          (metadata_all['label'] != 'Unknown'))
+
         fold_meta    = metadata_all[fold_mask].reset_index(drop=True)
         test_indices = metadata_all[fold_mask].index.values
 
@@ -519,15 +579,28 @@ def run_leiden(args, folds, img_feature_store, all_feats_arr, metadata_all,
 
 #  Output Helpers 
 
-def _save_fold_times(out_dir, fold_times, prefix='fold', extra=None):
-    """Save fold timing to fold_times.txt in spCellEval format."""
+def _save_fold_times(out_dir, fold_times, prefix='fold', extra=None,
+                     train_times=None, predict_times=None):
+    """
+    Save fold timing to fold_times.txt in spCellEval format.
+    If train_times/predict_times are given (same length as fold_times), each
+    fold line also reports the train/predict split, plus totals for each.
+    """
     with open(Path(out_dir) / 'fold_times.txt', 'w') as f:
         if extra:
             for key, val in extra.items():
                 f.write(f"{key}: {val:.2f}s\n")
         for i, t in enumerate(fold_times):
-            f.write(f"{prefix}_{i}: {t:.2f}s\n")
+            if train_times is not None and predict_times is not None:
+                f.write(f"{prefix}_{i}: {t:.2f}s "
+                       f"(train={train_times[i]:.2f}s, predict={predict_times[i]:.2f}s)\n")
+            else:
+                f.write(f"{prefix}_{i}: {t:.2f}s\n")
         f.write(f"total: {sum(fold_times) + sum((extra or {}).values()):.2f}s\n")
+        if train_times is not None:
+            f.write(f"total_train: {sum(train_times):.2f}s\n")
+        if predict_times is not None:
+            f.write(f"total_predict: {sum(predict_times):.2f}s\n")
         f.write(f"mean_fold: {np.mean(fold_times):.2f}s\n")
 
 

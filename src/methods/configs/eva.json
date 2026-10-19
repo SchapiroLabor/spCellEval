@@ -1,0 +1,67 @@
+{
+  "method": "eva",
+  "_comment_pipeline": "Eva v3 (the authors' spatial-token-map / full-tile approach, see eva/project/notebooks/Eva-pipeline-v3.ipynb): overlapping tile_size x tile_size tiles cover the whole image, producing one HxWx768 token map; a cell's feature is the mean token vector over its own segmentation-mask pixels. 'supervised' trains a logistic-regression classifier head on these frozen embeddings (the main benchmark number); 'leiden' instead clusters them unsupervised and scores clusters against ground truth via greedy majority-label F1. Both modes share the same extraction step -- run 'extract' once, then 'supervised'/'leiden' reuse the cached embeddings.",
+  "defaults": {
+    "device": "cuda:1",
+    "tile_size": 224,
+    "tile_stride": 112,
+    "n_folds": 5,
+    "logreg_c": 1.0,
+    "leiden_resolution": 2.0,
+    "leiden_n_neighbors": 15,
+    "leiden_subsample": 50000
+  },
+  "datasets": {
+    "immucan": {
+      "data_root": "/home/juliaoesterle/data/phenotyping_benchmark/IMMUcan",
+      "fold_type": "image",
+      "channels_txt": "CellTypes/channels.txt",
+      "image_dir": "CellTypes/data/images",
+      "label_dir": "CellTypes/cells2labels",
+      "segmentation_dir": "segmentation",
+      "labels_csv": "CellTypes/labels_cell_type.csv",
+      "folds_json": "CellTypes/folds.json",
+      "image_format": "npz",
+      "exclude_markers": ["DNA1", "DNA2", "HistoneH3"],
+      "marker_name_map": {}
+    },
+    "cHL_2_MIBI": {
+      "data_root": "/home/juliaoesterle/data/phenotyping_benchmark/cHL_2_MIBI",
+      "fold_type": "cell",
+      "quant_csv": "quantification/processed/cHL_2_MIBI_quantification.csv",
+      "_comment_folds_dir": "fold_indices.json's own 'train'/'test' integer lists are NOT consistent row positions into the master quantification CSV (verified: they overlap between train and test, and don't span the full row range) -- they come from create_validation_set_from_fold()'s per-fold-file reset index. The per-fold fold_{i}_train.csv/fold_{i}_test.csv files are read directly instead; they carry sample_id+cell_id and are mutually disjoint (verified: 0 overlap, sizes sum to the full dataset). NOT YET CONFIRMED by Lukas/Aroj: each fold's *_train.csv is much smaller than its *_test.csv (e.g. fold_1: train=53535, test=150750) -- the reverse of IMMUcan's folds.json (80/20 train/test). Taken at face value here; please double check these files weren't saved train/test-swapped at creation time before trusting cHL numbers.",
+      "folds_dir": "quantification/processed/kfolds_StratifiedGroupKFold_level3",
+      "image_dir": "raw_images/multistack_tiffs",
+      "segmentation_dir": "segmentation",
+      "image_format": "ome_tiff",
+      "channels": [
+        "CD4", "CD20", "PD-1", "FoxP3", "CD14", "CD161", "Tbet", "CD25",
+        "CD68", "CD3", "CD57", "Pax-5", "GATA3", "TCRgd", "RORgT", "CD45RO",
+        "Na-K ATPase", "CD56", "Lag3", "CD45RA", "B2-Microglobulin", "TIM3",
+        "SLP-76", "Tox", "Histone H3", "CD30", "CXCR5", "Ki-67", "Granzyme B",
+        "CD8", "PD-L1", "CD45", "HLA1", "CD153 (CD30L)", "pSLP-76", "HLA-DR",
+        "CD16", "dsDNA", "CD86", "CD11c", "CD15", "CD28", "CD123",
+        "anti-H2AX (pS139)", "CD163", "IL-10"
+      ],
+      "_comment_exclude_markers": "Histone H3/dsDNA/anti-H2AX (pS139)/pSLP-76/SLP-76 have no match in Eva's marker_to_gene dict (eva/project/utils/constant.py, 213 entries) under any plausible spelling, and Eva's embedding layer does a plain dict lookup with no fallback (hard KeyError on an unmatched name). Same for CD161/CD153 (CD30L)/CD28/IL-10. Eva sees 37 of the 45 channels.",
+      "exclude_markers": ["Histone H3", "dsDNA", "anti-H2AX (pS139)", "pSLP-76", "SLP-76", "CD161", "CD153 (CD30L)", "CD28", "IL-10"],
+      "exclude_labels": [],
+      "_comment_marker_name_map": "Checked against eva/project/utils/constant.py's marker_to_gene dict (Eva's naming differs from ours, e.g. 'RORgammaT' not 'RORgT', 'PDL1' not 'PD-L1') -- every entry below resolves to a real key.",
+      "marker_name_map": {
+        "FoxP3": "FOXP3",
+        "PD-1": "PD1",
+        "Pax-5": "Pax5",
+        "TCRgd": "TCRgammadelta",
+        "RORgT": "RORgammaT",
+        "Na-K ATPase": "Na/K ATPase",
+        "Lag3": "LAG3",
+        "B2-Microglobulin": "B2M",
+        "Tox": "TOX",
+        "Ki-67": "Ki67",
+        "Granzyme B": "GranzymeB",
+        "PD-L1": "PDL1",
+        "HLA1": "HLA-ABC"
+      }
+    }
+  }
+}
