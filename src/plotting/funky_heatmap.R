@@ -101,7 +101,11 @@ method_groups <- c(
   "Deepcelltypes_adapted" = "Pre-Trained Models",
   "Stratified sampler"    = "Baseline",
   "Deepcelltypes"         = "Pre-Trained Models",
-  "Most Frequent"         = "Baseline"
+  "Most Frequent"         = "Baseline",
+  "Stellar"               = "Supervised",
+  "VirTues"               = "Supervised",
+  "KRONOS"                = "Supervised",
+  "EVA"                   = "Supervised"
 )
 
 group_levels <- c(
@@ -127,7 +131,7 @@ p = funky_heatmap(results,
               row_info = row_info,
               row_groups = row_groups)
 ggsave(
-  filename = "figure_plots/funky_heatmap.svg",
+  filename = "/Users/lukashat/Documents/PhD_Schapiro/Projects/phenotype_benchmark/github/pheno_benchmark_small/src/plotting/funky_heatmap.svg",
   plot = p,
   width = 15,       # width in inches
   height = 10,      # height in inches
