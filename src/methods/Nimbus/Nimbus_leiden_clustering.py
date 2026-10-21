@@ -144,7 +144,7 @@ def leiden_with_greedy(adata, nimbus_df, iteration, output_path, log, res, subcl
     output = nimbus_df.copy()
     output[resolution] = adata.obs[resolution].values
     #append time to the results
-    text_path = os.path.join(output_path, resolution + suffix, 'fold_times.txt')
+    text_path = os.path.join(output_path, resolution + suffix, 'level3', 'fold_times.txt')
     os.makedirs(os.path.dirname(text_path), exist_ok=True)
     mode = 'w' if iteration == 0 else 'a'
     with open(text_path, mode) as f:

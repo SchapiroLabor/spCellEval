@@ -129,7 +129,7 @@ for (iteration in 0:(args$iterations - 1)) {
             as.numeric(difftime(end_time, start_time, units = "mins")))
 
   # Times (FlowSOM + subclustering) are only recorded for the metaclusters
-  text_path <- file.path(args$output_path, folder, "fold_times.txt")
+  text_path <- file.path(args$output_path, folder, "level3", "fold_times.txt")
   dir.create(dirname(text_path), recursive = TRUE, showWarnings = FALSE)
   con <- file(text_path, open = if (iteration == 0) "w" else "a")
   writeLines(sprintf("Fold %d train_time, %.2f", iteration, elapsed), con)

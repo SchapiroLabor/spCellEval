@@ -140,7 +140,7 @@ def run_starling(
         del st, adata_st, df_result, result
         torch.cuda.empty_cache()
 
-    with open(os.path.join(method_dir, "fold_times.txt"), "w") as f:
+    with open(os.path.join(method_dir, "level3", "fold_times.txt"), "w") as f:
         for i, elapsed_train in enumerate(train_times):
             f.write(f"Fold {i} training_time: {elapsed_train:.2f}\n")
 

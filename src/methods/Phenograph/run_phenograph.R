@@ -118,7 +118,7 @@ for (iteration in 0:(args$iterations - 1)) {
     loginfo("Rphenograph k = %d (Duration: %.2f min)", k_val,
             as.numeric(difftime(end_time, start_time, units = "mins")))
 
-  text_path <- file.path(args$output_path, folder, "fold_times.txt")
+  text_path <- file.path(args$output_path, folder, "level3", "fold_times.txt")
   dir.create(dirname(text_path), recursive = TRUE, showWarnings = FALSE)
   con <- file(text_path, open = if (iteration == 0) "w" else "a")
   writeLines(sprintf("Fold %d train_time, %.2f", iteration, elapsed), con)

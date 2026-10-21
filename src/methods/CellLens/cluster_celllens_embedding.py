@@ -107,7 +107,7 @@ def main():
     if lens_times is None:
         print(f"No fold_times.txt in {method_dir}, so no fold_times.txt is written")
     else:
-        with open(os.path.join(out_dir, 'fold_times.txt'), 'w') as f:
+        with open(os.path.join(out_dir, 'level3', 'fold_times.txt'), 'w') as f:
             for out_idx, elapsed in enumerate(times):
                 f.write(f"Fold {out_idx} train_time, {elapsed:.2f}\n")
 
