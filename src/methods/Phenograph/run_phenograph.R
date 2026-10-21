@@ -48,7 +48,7 @@ parser$add_argument("-n", "--normalization", dest = "normalization", default = F
 parser$add_argument("-sc", "--subcluster_times", dest = "subcluster_times", type = "integer", default = 0,
                     help = "Number of recursive subclustering rounds applied to the resulting clusters (default: 0 = off)")
 parser$add_argument("-sm", "--subcluster_min_cells", dest = "subcluster_min_cells", type = "integer", default = 10,
-                    help = "Minimal number of cells a cluster needs to be subclustered; always at least small_k + 1 (default: 10)")
+                    help = "Minimal number of cells a cluster needs to be subclustered; always at least small_k + 2 (default: 10)")
 parser$add_argument("-sk", "--subcluster_small_k", dest = "subcluster_small_k", type = "integer", default = 10,
                     help = "k used for subclustering clusters with <= k cells (default: 10)")
 args <- parser$parse_args()
@@ -85,15 +85,15 @@ if (args$PCA || args$harmony)
 
 #### Subclustering ####
 # Each round re-runs PhenoGraph on every cluster with >= min_cells (kNN graph rebuilt on the subset),
-# new labels are '<parent>,<child>'. Clusters with > k cells use k, smaller ones small_k,
-# clusters with <= small_k cells are kept.
+# new labels are '<parent>,<child>'. Rphenograph needs at least k + 2 cells: clusters with >= k + 2 cells
+# use k, smaller ones small_k, clusters with < small_k + 2 cells are kept.
 subcluster <- function(marker_df, labels, times, min_cells, k, small_k) {
-  min_cells <- max(min_cells, small_k + 1)
+  min_cells <- max(min_cells, small_k + 2)
   for (round in seq_len(times)) {
     counts <- table(labels)
     for (cl in names(counts[counts >= min_cells])) {
       idx <- which(labels == cl)
-      sub <- Rphenograph(marker_df[idx, ], k = if (length(idx) > k) k else small_k)
+      sub <- Rphenograph(marker_df[idx, ], k = if (length(idx) >= k + 2) k else small_k)
       labels[idx] <- paste0(cl, ",", membership(sub[[2]]))
     }
   }
