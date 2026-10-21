@@ -60,6 +60,8 @@ def logging_setup(output_path):
 def join_ground_truth_with_nimbus(ground_truth,input, remove_str, iteration):
     # Read gt data
     gt = pd.read_csv(ground_truth)
+    # sample_id as string to match the (string) fov column of nimbus, also for numeric sample ids
+    gt['sample_id'] = gt['sample_id'].astype(str)
     # Remove substrings from sample_id if specified
     if remove_str != "None":
         gt['sample_id'] = gt['sample_id'].str.replace(remove_str, '', regex=True)
