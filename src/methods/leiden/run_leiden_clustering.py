@@ -83,6 +83,8 @@ def preprocessing(input, split_col_name, exclude_markers, PCA, normalization, tr
         if rep == 'X':
             adata.obsm['X_markers'] = np.asarray(adata.X)
             rep = 'X_markers'
+        # harmonypy needs the batch column as categories (fails with 'KeyError: unique' for numeric sample_id)
+        adata.obs['sample_id'] = adata.obs['sample_id'].astype(str).astype('category')
         sc.external.pp.harmony_integrate(adata, 'sample_id', basis=rep, adjusted_basis='X_harmony')
         rep = 'X_harmony'
     sc.pp.neighbors(adata, n_neighbors=15, use_rep=rep)

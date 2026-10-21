@@ -15,7 +15,8 @@ embed_markers <- function(marker_df, meta_df, pca, harmony) {
   if (pca)
     x <- prcomp(x)$x[, seq_len(min(30, ncol(x) - 1))]
   if (harmony)
-    x <- harmony::RunHarmony(x, meta_df, "sample_id", verbose = FALSE)
+    # sample_id as factor, so numeric sample ids are treated as batch labels
+    x <- harmony::RunHarmony(x, data.frame(sample_id = factor(meta_df$sample_id)), "sample_id", verbose = FALSE)
   x
 }
 
