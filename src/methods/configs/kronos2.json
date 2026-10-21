@@ -1,6 +1,6 @@
 {
   "method": "kronos2",
-  "_comment": "KRONOS2 (MahmoodLab/KRONOS2 on HuggingFace) -- the authors' next-generation, marker-aware successor to KRONOS. Loaded via transformers.AutoModel (trust_remote_code), not the old 'kronos' pip package. No local marker_metadata.csv/model_assets needed -- the model ships its own 288-marker vocabulary and does its own marker-aware z-score via model.preprocess(). name_mappings here alias our marker names onto that vocabulary, checked against the bundled marker_metadata.csv's exact-match logic (marker_utils.marker_match_key).",
+  "_comment": "KRONOS2 (MahmoodLab/KRONOS2 on HuggingFace) -- the authors' next-generation, marker-aware successor to KRONOS. Loaded via transformers.AutoModel (trust_remote_code). No local marker_metadata.csv/model_assets needed -- the model ships its own 288-marker vocabulary and does its own marker-aware z-score via model.preprocess(). name_mappings here alias our marker names onto that vocabulary, checked against the bundled marker_metadata.csv's exact-match logic (marker_utils.marker_match_key).",
   "defaults": {
     "device": "cuda:0",
     "patch_size": 64,
