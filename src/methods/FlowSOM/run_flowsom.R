@@ -25,8 +25,8 @@ parser$add_argument("-e", "--exclude_markers", dest = "exclude_markers", nargs =
                     help = "Marker names to exclude from clustering (e.g. DAPI)")
 parser$add_argument("-o", "--output", dest = "output_path", required = TRUE,
                     help = "Path to output folder")
-parser$add_argument("-flow", "--flow_clusters", dest = "flow_nclus", type = "integer", default = 10,
-                    help = "Number of metaclusters for FlowSOM (default: 10, the FlowSOM default)")
+parser$add_argument("-flow", "--flow_clusters", dest = "flow_nclus", type = "integer",
+                    help = "Number of metaclusters for FlowSOM (default: number of cell types in cell_type)")
 parser$add_argument("-l", "--log", dest = "log", default = "off",
                     choices = c("short", "long", "off"), help = "Logging level (default: off)")
 parser$add_argument("-it", "--iterations", dest = "iterations", type = "integer", default = 5,
@@ -70,6 +70,9 @@ if (args$log != "off") {
 #### Data ####
 df <- read_csv(args$input, show_col_types = FALSE)
 original_cols <- colnames(df)
+# Default number of metaclusters: number of ground truth cell types
+if (is.null(args$flow_nclus))
+  args$flow_nclus <- length(unique(df$cell_type))
 # Markers are all columns before split_col_name, minus excluded ones
 markers <- original_cols[seq_len(match(args$split_col_name, original_cols) - 1)]
 marker_df <- select(df, all_of(setdiff(markers, args$exclude_markers)))

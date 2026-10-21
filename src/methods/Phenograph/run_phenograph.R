@@ -4,6 +4,9 @@ suppressPackageStartupMessages({
   suppressWarnings(library(argparse))
   suppressWarnings(library(readr))
   suppressWarnings(library(dplyr))
+  # Rphenograph's C++ code needs Rcpp loaded, but its NAMESPACE does not import Rcpp
+  # (otherwise: "function 'enterRNGScope' not provided by package 'Rcpp'")
+  suppressWarnings(library(Rcpp))
   suppressWarnings(library(Rphenograph))
   suppressWarnings(library(logging))
 })
