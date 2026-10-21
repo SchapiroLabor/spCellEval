@@ -26,7 +26,15 @@ python run_kronos.py all \\
     --config      src/methods/configs/kronos.json \\
     --kronos-dir  /home/juliaoesterle/KRONOS_mine \\
     --marker-meta /home/juliaoesterle/KRONOS_mine/model_assets/marker_metadata.csv \\
-    --output-dir  /home/juliaoesterle/results/kronos \\
+    --output-dir  /home/juliaoesterle/results/kronos/immucan \\
+    --device      cuda:0
+
+python run_kronos.py all \\
+    --dataset     cHL_2_MIBI \\
+    --config      src/methods/configs/kronos.json \\
+    --kronos-dir  /home/juliaoesterle/KRONOS_mine \\
+    --marker-meta /home/juliaoesterle/KRONOS_mine/model_assets/marker_metadata.csv \\
+    --output-dir  /home/juliaoesterle/results/kronos/chl \\
     --device      cuda:0
 """
 
@@ -335,6 +343,167 @@ def extract_features(args, cfg, model, all_images, clean_indices, clean_names,
     return img_feature_store, all_feats_arr, metadata_all
 
 
+#  cHL data loading + feature extraction
+
+def load_chl_data(cfg, data_root):
+    """
+    Returns meta_df[image_id, cell_id, label], folds (cell-level: sets of
+    (image_id, cell_id) tuples read from the per-fold fold_{i}_train.csv/
+    fold_{i}_test.csv files, not fold_indices.json -- see kronos.json's
+    _comment_folds_dir), img_paths, seg_paths.
+    """
+    raw_df = pd.read_csv(data_root / cfg["quant_csv"])
+    raw_df['sample_id'] = raw_df['sample_id'].astype(str).str.replace('.csv', '', regex=False)
+
+    def load_keys(path):
+        df = pd.read_csv(path, usecols=['sample_id', 'cell_id'])
+        df['sample_id'] = df['sample_id'].astype(str).str.replace('.csv', '', regex=False)
+        return set(zip(df['sample_id'], df['cell_id']))
+
+    folds_dir = data_root / cfg["folds_dir"]
+    folds  = []
+    fold_i = 1
+    while (folds_dir / f'fold_{fold_i}_train.csv').exists():
+        folds.append({
+            'train': load_keys(folds_dir / f'fold_{fold_i}_train.csv'),
+            'test':  load_keys(folds_dir / f'fold_{fold_i}_test.csv'),
+        })
+        fold_i += 1
+    print(f"Loaded {len(folds)} folds (cell-level)")
+
+    exclude_labels = set(cfg.get("exclude_labels", []))
+    meta_df = raw_df[~raw_df['cell_type'].isin(exclude_labels)].copy()
+    meta_df = meta_df.rename(columns={'sample_id': 'image_id', 'cell_type': 'label'})
+    meta_df = meta_df[['image_id', 'cell_id', 'label']]
+    print(f"Loaded cHL metadata: {len(meta_df):,} cells "
+          f"(dropped {len(raw_df) - len(meta_df):,} excluded-label cells)")
+
+    img_dir   = data_root / cfg["image_dir"]
+    img_paths = {}
+    for tif in sorted(img_dir.glob('*_stacked.ome.tif')):
+        if tif.name.startswith('.'):
+            continue
+        img_paths[tif.name.replace('_stacked.ome.tif', '')] = tif
+
+    seg_dir   = data_root / cfg["segmentation_dir"]
+    seg_paths = {}
+    for img_id in img_paths:
+        seg_files = [p for p in (seg_dir / img_id).rglob('segmentationMap.tif')
+                     if not p.name.startswith('.')]
+        if seg_files:
+            seg_paths[img_id] = seg_files[0]
+    print(f"Found {len(img_paths)} images, {len(seg_paths)} segmentation maps")
+
+    return meta_df, folds, img_paths, seg_paths
+
+
+def extract_features_chl(args, model, all_images, clean_indices, clean_names,
+                         means, stds, meta_df, img_paths, seg_paths):
+    """
+    cHL equivalent of extract_features(). Same bbox-crop + normalisation
+    logic; only image/mask reading and ground-truth lookup differ (ome_tiff
+    images, nested per-image segmentation maps, labels from meta_df instead
+    of cells2labels/*.txt + label_map).
+    """
+    cache_dir = Path(args.output_dir) / 'embeddings' / 'cache'
+    cache_dir.mkdir(parents=True, exist_ok=True)
+
+    img_feature_store = {}
+
+    print(f"\nExtracting KRONOS features (cHL) | patch_size={args.patch_size} | "
+          f"batch_size={args.batch_size} | device={args.device}")
+    print("=" * 60)
+
+    for img_id in tqdm(all_images, desc="KRONOS (bbox, cHL)"):
+        cache_feat = cache_dir / f"{img_id}_feat.npy"
+        cache_meta = cache_dir / f"{img_id}_meta.csv"
+
+        if cache_feat.exists() and cache_meta.exists():
+            feats = np.load(cache_feat)
+            meta  = pd.read_csv(cache_meta)
+            img_feature_store[img_id] = (
+                feats, meta['label'].tolist(), meta['cell_id'].tolist()
+            )
+            continue
+
+        if img_id not in img_paths or img_id not in seg_paths:
+            print(f"  Skipping {img_id} — missing image or segmentation")
+            continue
+
+        meta_img = meta_df[meta_df['image_id'] == img_id]
+        if meta_img.empty:
+            print(f"  Skipping {img_id} — no metadata rows")
+            continue
+        label_lookup = dict(zip(meta_img['cell_id'], meta_img['label']))
+
+        img = tifffile.imread(img_paths[img_id]).astype(np.float32)
+        img = img[clean_indices]
+        img = img / (img.max() + 1e-8)     # scale to [0,1] before KRONOS normalisation
+        img = img.transpose(1, 2, 0)       # (H, W, C)
+
+        mask = tifffile.imread(seg_paths[img_id]).astype(np.int32)
+
+        cell_ids = np.unique(mask)
+        cell_ids = cell_ids[cell_ids > 0]
+
+        patches_buf, labels_buf, cell_ids_buf = [], [], []
+        for cell_id in cell_ids:
+            cell_id = int(cell_id)
+            if cell_id not in label_lookup:
+                continue
+            ys, xs = np.where(mask == cell_id)
+            patch  = get_bbox_patch(img, ys, xs, args.patch_size)
+            patches_buf.append(patch)
+            labels_buf.append(label_lookup[cell_id])
+            cell_ids_buf.append(cell_id)
+
+        if not patches_buf:
+            print(f"  Skipping {img_id} — no ground-truth cells extracted")
+            continue
+
+        all_feats = []
+        for i in range(0, len(patches_buf), args.batch_size):
+            batch_feats = extract_features_batch(
+                patches_buf[i:i + args.batch_size],
+                model, means, stds, args.device
+            )
+            all_feats.extend(batch_feats)
+            torch.cuda.empty_cache()
+
+        feats_arr = np.array(all_feats)
+
+        np.save(cache_feat, feats_arr)
+        pd.DataFrame({
+            'image_id': [img_id] * len(cell_ids_buf),
+            'cell_id':  cell_ids_buf,
+            'label':    labels_buf,
+        }).to_csv(cache_meta, index=False)
+
+        img_feature_store[img_id] = (feats_arr, labels_buf, cell_ids_buf)
+
+    all_feats_list, all_labels_list, all_ids_list, all_imgs_list = [], [], [], []
+    for img_id, (feats, labels, cell_ids) in img_feature_store.items():
+        all_feats_list.extend(feats)
+        all_labels_list.extend(labels)
+        all_ids_list.extend(cell_ids)
+        all_imgs_list.extend([img_id] * len(cell_ids))
+
+    all_feats_arr = np.array(all_feats_list)
+    metadata_all  = pd.DataFrame({
+        'image_id': all_imgs_list,
+        'cell_id':  all_ids_list,
+        'label':    all_labels_list,
+    })
+
+    save_embeddings(args.output_dir, all_feats_arr, metadata_all)
+
+    print(f"\nExtraction complete: {len(all_feats_arr):,} cells | "
+          f"embedding_dim={all_feats_arr.shape[1]}")
+    print(pd.Series(all_labels_list).value_counts().to_string())
+
+    return img_feature_store, all_feats_arr, metadata_all
+
+
 #  Argument parser
 
 def build_parser():
@@ -355,7 +524,7 @@ def build_parser():
                 'all':        'extract -> supervised -> leiden in sequence',
             }[mode],
         )
-        p.add_argument('--dataset', choices=['immucan'], required=True)
+        p.add_argument('--dataset', choices=['immucan', 'cHL_2_MIBI'], required=True)
         p.add_argument('--config',  required=True, help='Path to kronos.json')
         p.add_argument('--kronos-dir', required=True,
                        help='KRONOS repo directory (contains kronos/ package)')
@@ -405,11 +574,16 @@ def main():
     data_root     = Path(cfg["data_root"])
     fold_type     = cfg["fold_type"]
     clean_indices, clean_names = get_clean_markers(cfg["biomarkers"], cfg["exclude_markers"])
-    label_map     = load_label_map(str(data_root))
-    folds, all_images = load_folds(str(data_root), args.n_folds)
     means, stds, marker_ids = build_normalisation_params(
         clean_names, args.marker_meta, cfg.get("name_mappings", {}), cfg.get("no_equivalent", [])
     )
+
+    if args.dataset == 'immucan':
+        label_map          = load_label_map(str(data_root))
+        folds, all_images  = load_folds(str(data_root), args.n_folds)
+    else:
+        meta_df, folds, img_paths, seg_paths = load_chl_data(cfg, data_root)
+        all_images = sorted(img_paths.keys())
 
     supervised_name = 'KRONOS_supervised'
     leiden_name     = 'KRONOS_leiden'
@@ -419,9 +593,15 @@ def main():
         img_feature_store = rebuild_img_feature_store(args.output_dir, all_images)
     else:
         model, embedding_dim, precision = load_kronos_model(args.kronos_dir, args.device)
-        img_feature_store, all_feats_arr, metadata_all = extract_features(
-            args, cfg, model, all_images, clean_indices, clean_names, means, stds, label_map
-        )
+        if args.dataset == 'immucan':
+            img_feature_store, all_feats_arr, metadata_all = extract_features(
+                args, cfg, model, all_images, clean_indices, clean_names, means, stds, label_map
+            )
+        else:
+            img_feature_store, all_feats_arr, metadata_all = extract_features_chl(
+                args, model, all_images, clean_indices, clean_names, means, stds,
+                meta_df, img_paths, seg_paths
+            )
 
     if args.mode in ('supervised', 'all'):
         run_supervised(args, folds, img_feature_store, all_feats_arr, metadata_all,
