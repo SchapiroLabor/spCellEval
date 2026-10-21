@@ -1,0 +1,48 @@
+{
+  "method": "kronos",
+  "defaults": {
+    "device": "cuda:0",
+    "patch_size": 64,
+    "batch_size": 16,
+    "n_folds": 5,
+    "logreg_c": 1.0,
+    "n_jobs": -1,
+    "leiden_resolution": 2.0,
+    "leiden_n_neighbors": 15,
+    "leiden_subsample": 50000
+  },
+  "datasets": {
+    "immucan": {
+      "data_root": "/home/juliaoesterle/data/phenotyping_benchmark/IMMUcan",
+      "fold_type": "image",
+      "image_dir": "CellTypes/data/images",
+      "label_dir": "CellTypes/cells2labels",
+      "segmentation_dir": "segmentation",
+      "labels_csv": "CellTypes/labels_cell_type.csv",
+      "folds_json": "CellTypes/folds.json",
+      "image_format": "npz",
+      "biomarkers": [
+        "MPO", "HistoneH3", "SMA", "CD16", "CD38", "HLADR", "CD27", "CD15",
+        "CD45RA", "CD163", "B2M", "CD20", "CD68", "Ido1", "CD3", "LAG3",
+        "CD11c", "PD1", "PDGFRb", "CD7", "GrzB", "PDL1", "TCF7", "CD45RO",
+        "FOXP3", "ICOS", "CD8a", "CarbonicAnhydrase", "CD33", "Ki67",
+        "VISTA", "CD40", "CD4", "CD14", "Ecad", "CD303", "CD206",
+        "cleavedPARP", "DNA1", "DNA2"
+      ],
+      "exclude_markers": ["DNA1", "DNA2", "HistoneH3"],
+      "_comment_name_mappings": "Re-checked against model_assets/marker_metadata.csv (177 entries) and cross-validated against the UniProt IDs already used for these markers in VirTues/run_virtues.py's IMMUCAN_UNIPROT. SMA=ACTA2 -> A-SMA, Ecad=CDH1 -> E-CADHERIN (exact match, not a panCK proxy), TCF7 -> TCF1 (same gene/protein), CarbonicAnhydrase=CA9 -> CA9, CD303=CLEC4C -> BDCA-2. Only PDGFRb and CD33 have no KRONOS equivalent at all.",
+      "name_mappings": {
+        "SMA": "A-SMA",
+        "GrzB": "GZMB",
+        "HLADR": "HLA_DR",
+        "CD8a": "CD8",
+        "cleavedPARP": "CLEAVED_CASP3",
+        "TCF7": "TCF1",
+        "CarbonicAnhydrase": "CA9",
+        "Ecad": "E-CADHERIN",
+        "CD303": "BDCA-2"
+      },
+      "no_equivalent": ["PDGFRb", "CD33"]
+    }
+  }
+}
