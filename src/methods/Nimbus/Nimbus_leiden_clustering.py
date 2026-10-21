@@ -132,8 +132,10 @@ def subcluster(adata, key, times, min_cells, resolution, random_state):
 # Define Leiden clustering with greedy assignment function
 def leiden_with_greedy(adata, nimbus_df, iteration, output_path, log, res, subcluster_times, subcluster_min_cells, subcluster_resolution):
     resolution = f'leiden_res{str(res).replace(".", "_")}'
-    # Subclustering runs are saved in a separate method folder (e.g. '<method>_subclust3')
+    # Method folder 'nimbus_leiden_res<r>' (distinct from the Leiden-on-intensities folders);
+    # subclustering runs are saved in a separate method folder (e.g. 'nimbus_leiden_res1_0_subclust3')
     suffix = f'_subclust{subcluster_times}' if subcluster_times > 0 else ''
+    folder = f'nimbus_{resolution}{suffix}'
     start = time.time()
     # Seed per iteration, otherwise all iterations on the same input give identical clusters (scanpy default random_state=0)
     sc.tl.leiden(adata, resolution=res, key_added=resolution, random_state=iteration)
@@ -146,7 +148,7 @@ def leiden_with_greedy(adata, nimbus_df, iteration, output_path, log, res, subcl
     output = nimbus_df.copy()
     output[resolution] = adata.obs[resolution].values
     #append time to the results
-    text_path = os.path.join(output_path, resolution + suffix, 'level3', 'fold_times.txt')
+    text_path = os.path.join(output_path, folder, 'level3', 'fold_times.txt')
     os.makedirs(os.path.dirname(text_path), exist_ok=True)
     mode = 'w' if iteration == 0 else 'a'
     with open(text_path, mode) as f:
@@ -156,7 +158,7 @@ def leiden_with_greedy(adata, nimbus_df, iteration, output_path, log, res, subcl
     results = greedy_f1_score(output, 'cell_type', resolution, tie_strategy='random')
     output['predicted_phenotype'] = results['mapped_predictions']
     output = output.rename(columns={'cell_type': "true_phenotype"})
-    path = f"{output_path}/{resolution}{suffix}/level3/predictions_{iteration}.csv"
+    path = f"{output_path}/{folder}/level3/predictions_{iteration}.csv"
     os.makedirs(os.path.dirname(path), exist_ok=True)  # Ensure the directory exists
     if log == 'long':
         logging.info(f"Saving predictions to {path}")
