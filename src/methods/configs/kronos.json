@@ -43,6 +43,42 @@
         "CD303": "BDCA-2"
       },
       "no_equivalent": ["PDGFRb", "CD33"]
+    },
+    "cHL_2_MIBI": {
+      "data_root": "/home/juliaoesterle/data/phenotyping_benchmark/cHL_2_MIBI",
+      "fold_type": "cell",
+      "quant_csv": "quantification/processed/cHL_2_MIBI_quantification.csv",
+      "_comment_folds_dir": "fold_indices.json's own 'train'/'test' integer lists are NOT consistent row positions into the master quantification CSV -- they come from create_validation_set_from_fold()'s per-fold-file reset index. The per-fold fold_{i}_train.csv/fold_{i}_test.csv files are read directly instead, keyed by sample_id+cell_id. Same approach as eva.json/virtues.json/kronos2.json and the classic_ml baseline.",
+      "folds_dir": "quantification/processed/kfolds_StratifiedGroupKFold_level3",
+      "image_dir": "raw_images/multistack_tiffs",
+      "segmentation_dir": "segmentation",
+      "image_format": "ome_tiff",
+      "_comment_patch_size": "Same 64px as IMMUcan -- measured directly from segmentationMap.tif (image 1, 38,112 cells): mean bbox 10.7x10.3px, p95 16x15px, max 36x30px, essentially the same cell footprint as IMMUcan's ~9.5x10.6px.",
+      "patch_size": 64,
+      "biomarkers": [
+        "CD4", "CD20", "PD-1", "FoxP3", "CD14", "CD161", "Tbet", "CD25",
+        "CD68", "CD3", "CD57", "Pax-5", "GATA3", "TCRgd", "RORgT", "CD45RO",
+        "Na-K ATPase", "CD56", "Lag3", "CD45RA", "B2-Microglobulin", "TIM3",
+        "SLP-76", "Tox", "Histone H3", "CD30", "CXCR5", "Ki-67", "Granzyme B",
+        "CD8", "PD-L1", "CD45", "HLA1", "CD153 (CD30L)", "pSLP-76", "HLA-DR",
+        "CD16", "dsDNA", "CD86", "CD11c", "CD15", "CD28", "CD123",
+        "anti-H2AX (pS139)", "CD163", "IL-10"
+      ],
+      "exclude_markers": ["Histone H3", "SLP-76", "anti-H2AX (pS139)", "dsDNA", "pSLP-76"],
+      "_comment_name_mappings": "Re-checked directly against model_assets/marker_metadata.csv (177 entries): CD57 and CD15 are already exact bare matches (the draft of this config had wrongly listed CD57 as having no equivalent). TCRgd -> TCR_GD and Na-K ATPase -> NAKATP are real exact matches once mapped (also not in the draft). The draft's IL-10 -> IL10 mapping does NOT resolve (no IL10/IL-10/interleukin-10 entry exists under any spelling) -- moved to no_equivalent instead of silently normalising against the wrong stats.",
+      "name_mappings": {
+        "PD-1": "PD1",
+        "Pax-5": "PAX5",
+        "B2-Microglobulin": "B2M",
+        "Ki-67": "KI67",
+        "Granzyme B": "GZMB",
+        "PD-L1": "PDL1",
+        "HLA-DR": "HLA_DR",
+        "TCRgd": "TCR_GD",
+        "Na-K ATPase": "NAKATP"
+      },
+      "no_equivalent": ["CD161", "RORgT", "CD153 (CD30L)", "CD86", "CD123", "IL-10"],
+      "exclude_labels": []
     }
   }
 }
