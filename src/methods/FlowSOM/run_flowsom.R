@@ -3,7 +3,7 @@
 suppressPackageStartupMessages({
   suppressWarnings(library(argparse))
   suppressWarnings(library(readr))
-  suppressWarnings(library(tidyverse))
+  suppressWarnings(library(dplyr))
   suppressWarnings(library(FlowSOM))
   suppressWarnings(library(logging))
 })
