@@ -40,6 +40,9 @@ def lens_clustering(embedding, feature_labels, neighbor, resolution, umap=False,
     # Same as CellLENS.get_lens_clustering with umap=True: its UMAP is unused, but sc.tl.umap prunes weak edges of the
     # kNN graph in place, which changes the Leiden result. leiden_kwargs are passed to sc.tl.leiden (default: scanpy's
     # leidenalg as in CellLENS)
+    # Centering first does not change the scaled result, but sc.pp.scale computes var = E[x^2] - E[x]^2, which can turn
+    # negative (-> NaN std) for nearly constant columns with an offset, e.g. an embedding dimension within a subcluster
+    embedding = embedding - embedding.mean(axis=0)
     lens_adata = ad.AnnData(drop_zero_variability_columns(embedding))
     lens_adata.obs['input'] = feature_labels
     sc.pp.scale(lens_adata)

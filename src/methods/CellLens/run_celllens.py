@@ -43,7 +43,6 @@ args = parser.parse_args()
 CROP_SIZE = 512  # the LENS-CNN architecture only works with 512 x 512 crops
 NBHD_COMPOSITION = 20
 NUM_WORKERS = 8
-granularity = pd.Series({'level3': 'cell_type', 'level1': 'level_1_cell_type', 'level2': 'level_2_cell_type'})
 
 # Define logging setup function
 def logging_setup(output_path, mode):
@@ -194,17 +193,16 @@ def celllens_with_greedy(df, features_list, stitched, mode, iterations, output_p
         cluster_df = dataset.df.copy()
         cluster_df["cluster_label"] = model.lens_clustering
 
-        ## greedy assignement
-        for name, k in granularity.items():
-            results = greedy_f1_score(cluster_df, k, 'cluster_label', tie_strategy='random')
-            output = cluster_df.copy()
-            output['predicted_phenotype'] = results["mapped_predictions"]
-            output = output.rename(columns={k: "true_phenotype"})
-            path = f"{method_dir}/{name}/predictions_{iteration}.csv"
-            os.makedirs(os.path.dirname(path), exist_ok=True)
-            if log == 'long':
-                logging.info(f"Saving predictions to {path}")
-            output.to_csv(path, index=False)
+        ## greedy assignement on cell_type, saved under level3
+        results = greedy_f1_score(cluster_df, 'cell_type', 'cluster_label', tie_strategy='random')
+        output = cluster_df.copy()
+        output['predicted_phenotype'] = results["mapped_predictions"]
+        output = output.rename(columns={'cell_type': "true_phenotype"})
+        path = f"{method_dir}/level3/predictions_{iteration}.csv"
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        if log == 'long':
+            logging.info(f"Saving predictions to {path}")
+        output.to_csv(path, index=False)
 
 def main():
     if args.mode == 'full' and (args.path2img is None or args.path2crops is None):
