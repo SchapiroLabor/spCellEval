@@ -64,7 +64,7 @@ addHandler(
 greedy_assignment_save <- function() {
   for (k in granularity) {
     results <- greedy_f1_score(nimbus_df, k, clustering, tie_strategy = 'random')
-    output <- select(nimbus_df, all_of(original_cols), clustering)
+    output <- select(nimbus_df, all_of(original_cols), cluster_label = all_of(clustering))
     output$predicted_phenotype <- as.vector(results$mapped_predictions)
     output = rename(output, true_phenotype = k)
     safe_write_csv(output, paste0(args$output_path, "/", clustering, 

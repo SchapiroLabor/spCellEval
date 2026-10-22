@@ -36,13 +36,16 @@ MAX_BREAKS = 3
 SIZE_LIM = 50
 
 
-def lens_clustering(embedding, feature_labels, neighbor, resolution, **leiden_kwargs):
-    # Same as CellLENS.get_lens_clustering (without the UMAP, which does not affect the clustering);
-    # leiden_kwargs are passed to sc.tl.leiden (default: scanpy's leidenalg as in CellLENS)
+def lens_clustering(embedding, feature_labels, neighbor, resolution, umap=False, **leiden_kwargs):
+    # Same as CellLENS.get_lens_clustering with umap=True: its UMAP is unused, but sc.tl.umap prunes weak edges of the
+    # kNN graph in place, which changes the Leiden result. leiden_kwargs are passed to sc.tl.leiden (default: scanpy's
+    # leidenalg as in CellLENS)
     lens_adata = ad.AnnData(drop_zero_variability_columns(embedding))
     lens_adata.obs['input'] = feature_labels
     sc.pp.scale(lens_adata)
     sc.pp.neighbors(lens_adata, n_neighbors=neighbor, use_rep='X')
+    if umap:
+        sc.tl.umap(lens_adata)
     sc.tl.leiden(lens_adata, resolution=resolution, **leiden_kwargs)
     lens_refine = cluster_refine(label=lens_adata.obs['leiden'], label_ref=lens_adata.obs['input'],
                                  entropy_threshold=ENTROPY_THRESHOLD, concen_threshold=CONCEN_THRESHOLD,
@@ -54,7 +57,8 @@ def subcluster(embedding, feature_labels, labels, times, min_cells, resolution, 
     # Each round re-runs the CellLENS clustering on every cluster with >= min_cells (embedding kept fixed),
     # new labels are '<parent>,<child>'. Clusters with > NEIGHBOR cells use NEIGHBOR neighbors,
     # smaller ones small_neighbors, clusters with <= small_neighbors cells are kept.
-    # Subclusters use igraph's Leiden (much faster than leidenalg); the top-level clustering stays as in CellLENS.
+    # Subclusters use igraph's Leiden (much faster than leidenalg) and no UMAP (one per subcluster would be slow);
+    # the top-level clustering stays as in CellLENS.
     min_cells = max(min_cells, small_neighbors + 1)
     for _ in range(times):
         values, counts = np.unique(labels, return_counts=True)
@@ -68,7 +72,7 @@ def subcluster(embedding, feature_labels, labels, times, min_cells, resolution, 
 
 
 def read_lens_times(path):
-    # 'Fold <i> LENS_time, <seconds>' lines written by the CellLENS Lite scripts (Full scripts do not write them)
+    # 'Fold <i> <event>, <seconds>' lines written by run_celllens.py (and the old CellLENS Lite scripts; old Full scripts did not write them)
     if not os.path.exists(path):
         return None
     with open(path) as f:
@@ -90,15 +94,15 @@ def main():
         feature_labels = df['feature_labels'].to_numpy()
 
         start = time.time()
-        labels = lens_clustering(embedding, feature_labels, NEIGHBOR, RESOLUTION)
+        labels = lens_clustering(embedding, feature_labels, NEIGHBOR, RESOLUTION, umap=True)
         labels = subcluster(embedding, feature_labels, labels, args.subcluster_times, args.subcluster_min_cells,
                             args.subcluster_resolution, args.subcluster_small_neighbors)
         elapsed = time.time() - start
 
         ## greedy assignement
-        output = df.drop(columns=['Cluster_Labels', 'predicted_phenotype'])
-        output['Cluster_Labels'] = labels
-        results = greedy_f1_score(output, 'true_phenotype', 'Cluster_Labels', tie_strategy='random')
+        output = df.drop(columns=['cluster_label', 'predicted_phenotype'])
+        output['cluster_label'] = labels
+        results = greedy_f1_score(output, 'true_phenotype', 'cluster_label', tie_strategy='random')
         output['predicted_phenotype'] = results['mapped_predictions']
         path = os.path.join(out_dir, 'level3', f"predictions_{out_idx}.csv")
         os.makedirs(os.path.dirname(path), exist_ok=True)

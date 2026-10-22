@@ -52,7 +52,7 @@ safe_write_csv <- function(df, path) {
 greedy_assignment_save <- function(folder = clustering) {
   for (k in granularity) {
     results <- greedy_f1_score(df, k, clustering, tie_strategy = "random")
-    output <- select(df, all_of(original_cols), all_of(clustering))
+    output <- select(df, all_of(original_cols), cluster_label = all_of(clustering))
     output$predicted_phenotype <- as.vector(results$mapped_predictions)
     output <- rename(output, true_phenotype = all_of(k))
     safe_write_csv(output, paste0(args$output_path, "/", folder,

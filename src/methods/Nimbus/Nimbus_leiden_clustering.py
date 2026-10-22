@@ -156,7 +156,7 @@ def leiden_with_greedy(adata, nimbus_df, iteration, output_path, log, res, subcl
     if log == 'short':
         logging.info(f'Resolution={res}: {elapsed/60:.2f} min')
     output = nimbus_df.copy()
-    output[resolution] = adata.obs[resolution].values
+    output['cluster_label'] = adata.obs[resolution].values
     #append time to the results
     text_path = os.path.join(output_path, folder, 'level3', 'fold_times.txt')
     os.makedirs(os.path.dirname(text_path), exist_ok=True)
@@ -165,7 +165,7 @@ def leiden_with_greedy(adata, nimbus_df, iteration, output_path, log, res, subcl
         f.write(f"Fold {iteration} train_time, {elapsed:.2f}\n")
 
     ## greedy assignement
-    results = greedy_f1_score(output, 'cell_type', resolution, tie_strategy='random')
+    results = greedy_f1_score(output, 'cell_type', 'cluster_label', tie_strategy='random')
     output['predicted_phenotype'] = results['mapped_predictions']
     output = output.rename(columns={'cell_type': "true_phenotype"})
     path = f"{output_path}/{folder}/level3/predictions_{iteration}.csv"

@@ -126,10 +126,10 @@ def run_starling(
 
         df_result = pd.concat([obs, intensities], axis=1)
         df_result.rename(
-            columns={"cell_type": "true_phenotype"},
+            columns={"cell_type": "true_phenotype", "st_label": "cluster_label"},
             inplace=True,
         )
-        greedy_output = greedy_f1_score(df_result, "true_phenotype", "st_label", tie_strategy="random")
+        greedy_output = greedy_f1_score(df_result, "true_phenotype", "cluster_label", tie_strategy="random")
         df_result['predicted_phenotype'] = greedy_output['mapped_predictions']
 
         # Save the results
