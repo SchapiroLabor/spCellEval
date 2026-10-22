@@ -29,7 +29,7 @@ parser.add_argument('-l', '--log', dest='log', required= False, default='off', c
 parser.add_argument('-it', '--iterations', dest='iterations', type=int, required= False, default=5, help='Number of iterations to run (default: 5)')
 parser.add_argument('-r', '--resolution', dest='resolution', type=float, required= False, default=1.0, help='Resolution for Leiden clustering (default: 1.0)')
 parser.add_argument('-sc', '--subcluster_times', dest='subcluster_times', type=int, default=0, help='Number of recursive subclustering rounds applied to the resulting clusters (default: 0 = off)')
-parser.add_argument('-sm', '--subcluster_min_cells', dest='subcluster_min_cells', type=int, default=10, help='Minimal number of cells a cluster needs to be subclustered (default: 10)')
+parser.add_argument('-sm', '--subcluster_min_cells', dest='subcluster_min_cells', type=int, default=20, help='Minimal number of cells a cluster needs to be subclustered (default: 20)')
 parser.add_argument('-sr', '--subcluster_resolution', dest='subcluster_resolution', type=float, default=1.0, help='Leiden resolution used for subclustering (default: 1.0)')
 args = parser.parse_args()
 
@@ -92,12 +92,20 @@ def preprocessing(input, split_col_name, exclude_markers, PCA, normalization, tr
 
 # Define recursive subclustering function
 def subcluster(adata, key, times, min_cells, resolution, random_state):
-    # Each round re-clusters every cluster with >= min_cells on its subgraph of the kNN graph,
-    # new labels are '<parent>,<child>'
+    # Each round re-clusters every cluster with >= min_cells on a new kNN graph built from its cells only
+    # (same representation as the top-level graph), new labels are '<parent>,<child>'
+    rep = adata.uns['neighbors']['params']['use_rep']
+    labels = adata.obs[key].astype(str).to_numpy()
     for _ in range(times):
-        counts = adata.obs[key].value_counts()
-        for cluster in counts[counts >= min_cells].index:
-            sc.tl.leiden(adata, resolution=resolution, restrict_to=(key, [cluster]), key_added=key, random_state=random_state)
+        new_labels = labels.copy()
+        for cluster, idx in pd.Series(labels).groupby(labels).indices.items():
+            if len(idx) >= min_cells:
+                sub = adata[idx].copy()
+                sc.pp.neighbors(sub, n_neighbors=15, use_rep=rep)
+                sc.tl.leiden(sub, resolution=resolution, random_state=random_state, flavor='igraph', n_iterations=2, directed=False)
+                new_labels[idx] = cluster + ',' + sub.obs['leiden'].astype(str).to_numpy()
+        labels = new_labels
+    adata.obs[key] = pd.Categorical(labels)
 
 # Define Leiden clustering with greedy assignment function
 def leiden_with_greedy(adata, df, iterations, output_path, log, res, subcluster_times, subcluster_min_cells, subcluster_resolution):
@@ -107,7 +115,7 @@ def leiden_with_greedy(adata, df, iterations, output_path, log, res, subcluster_
     for iteration in range(iterations):
         start = time.time()
         # Seed per iteration, otherwise all iterations give identical clusters (scanpy default random_state=0)
-        sc.tl.leiden(adata, resolution=res, key_added=resolution, random_state=iteration)
+        sc.tl.leiden(adata, resolution=res, key_added=resolution, random_state=iteration, flavor='igraph', n_iterations=2, directed=False)
         subcluster(adata, resolution, subcluster_times, subcluster_min_cells, subcluster_resolution, iteration)
         elapsed = time.time() - start
         if log == 'long':

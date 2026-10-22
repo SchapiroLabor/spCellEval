@@ -22,7 +22,7 @@ parser = argparse.ArgumentParser(description='CellLENS clustering with optional 
 parser.add_argument('-o', '--output', dest='output_path', type=str, required=True, help='Dataset folder containing the CellLENS method folder')
 parser.add_argument('-m', '--method', dest='method', required=True, choices=['CellLENS_Lite', 'CellLENS_Full'], help='CellLENS method folder to read from')
 parser.add_argument('-sc', '--subcluster_times', dest='subcluster_times', type=int, default=0, help='Number of recursive subclustering rounds (default: 0 = only re-run the CellLENS clustering)')
-parser.add_argument('-sm', '--subcluster_min_cells', dest='subcluster_min_cells', type=int, default=10, help='Minimal number of cells a cluster needs to be subclustered; always at least subcluster_small_neighbors + 1 (default: 10)')
+parser.add_argument('-sm', '--subcluster_min_cells', dest='subcluster_min_cells', type=int, default=20, help='Minimal number of cells a cluster needs to be subclustered; always at least subcluster_small_neighbors + 1 (default: 20)')
 parser.add_argument('-sr', '--subcluster_resolution', dest='subcluster_resolution', type=float, default=1.0, help='Leiden resolution used for subclustering (default: 1.0)')
 parser.add_argument('-sk', '--subcluster_small_neighbors', dest='subcluster_small_neighbors', type=int, default=10, help='n_neighbors used for subclustering clusters with <= 15 cells (default: 10)')
 args = parser.parse_args()
@@ -36,13 +36,14 @@ MAX_BREAKS = 3
 SIZE_LIM = 50
 
 
-def lens_clustering(embedding, feature_labels, neighbor, resolution):
-    # Same as CellLENS.get_lens_clustering (without the UMAP, which does not affect the clustering)
+def lens_clustering(embedding, feature_labels, neighbor, resolution, **leiden_kwargs):
+    # Same as CellLENS.get_lens_clustering (without the UMAP, which does not affect the clustering);
+    # leiden_kwargs are passed to sc.tl.leiden (default: scanpy's leidenalg as in CellLENS)
     lens_adata = ad.AnnData(drop_zero_variability_columns(embedding))
     lens_adata.obs['input'] = feature_labels
     sc.pp.scale(lens_adata)
     sc.pp.neighbors(lens_adata, n_neighbors=neighbor, use_rep='X')
-    sc.tl.leiden(lens_adata, resolution=resolution)
+    sc.tl.leiden(lens_adata, resolution=resolution, **leiden_kwargs)
     lens_refine = cluster_refine(label=lens_adata.obs['leiden'], label_ref=lens_adata.obs['input'],
                                  entropy_threshold=ENTROPY_THRESHOLD, concen_threshold=CONCEN_THRESHOLD,
                                  max_breaks=MAX_BREAKS, size_lim=SIZE_LIM)
@@ -53,13 +54,15 @@ def subcluster(embedding, feature_labels, labels, times, min_cells, resolution, 
     # Each round re-runs the CellLENS clustering on every cluster with >= min_cells (embedding kept fixed),
     # new labels are '<parent>,<child>'. Clusters with > NEIGHBOR cells use NEIGHBOR neighbors,
     # smaller ones small_neighbors, clusters with <= small_neighbors cells are kept.
+    # Subclusters use igraph's Leiden (much faster than leidenalg); the top-level clustering stays as in CellLENS.
     min_cells = max(min_cells, small_neighbors + 1)
     for _ in range(times):
         values, counts = np.unique(labels, return_counts=True)
         for cluster in values[counts >= min_cells]:
             idx = np.where(labels == cluster)[0]
             neighbor = NEIGHBOR if len(idx) > NEIGHBOR else small_neighbors
-            child = lens_clustering(embedding[idx], feature_labels[idx], neighbor, resolution)
+            child = lens_clustering(embedding[idx], feature_labels[idx], neighbor, resolution,
+                                    flavor='igraph', n_iterations=2, directed=False)
             labels[idx] = [f"{cluster},{c}" for c in child]
     return labels
 
