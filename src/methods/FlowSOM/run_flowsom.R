@@ -43,12 +43,8 @@ parser$add_argument("-n", "--normalization", dest = "normalization", default = F
                     help = "Row normalization before clustering (default: FALSE)")
 parser$add_argument("-sc", "--subcluster_times", dest = "subcluster_times", type = "integer", default = 0,
                     help = "Number of recursive subclustering rounds applied to the metaclusters (default: 0 = off)")
-parser$add_argument("-sm", "--subcluster_min_cells", dest = "subcluster_min_cells", type = "integer", default = 10,
-                    help = "Minimal number of cells a metacluster needs to be subclustered; always more than 10 cells per node of the small grid (default: 10)")
 parser$add_argument("-sk", "--subcluster_k", dest = "subcluster_k", type = "integer", default = 2,
                     help = "Number of metaclusters per subclustered metacluster (default: 2)")
-parser$add_argument("-sg", "--subcluster_small_grid", dest = "subcluster_small_grid", type = "integer", default = 5,
-                    help = "SOM grid side length used for metaclusters too small for the 10x10 grid (default: 5)")
 args <- parser$parse_args()
 
 # Only cell_type (level3) is evaluated
@@ -85,9 +81,10 @@ if (args$PCA || args$harmony)
   marker_df <- embed_markers(marker_df, df, args$PCA, args$harmony)
 
 #### Subclustering ####
-# Each round re-runs FlowSOM on every metacluster with >= min_cells, new labels are '<parent>,<child>'.
-# The SOM grid keeps > CELLS_PER_NODE cells per node on average: GRID x GRID if possible,
-# otherwise small_grid x small_grid; smaller metaclusters are kept.
+# Each round re-runs FlowSOM on every metacluster, new labels are '<parent>,<child>'.
+# The SOM grid is the largest one with >= CELLS_PER_NODE cells per node on average, at most GRID x GRID.
+# Metaclusters too small for a grid with more nodes than metaclusters (ConsensusClusterPlus runs with
+# maxK >= 3) are kept, e.g. < 40 cells (2 x 2 grid) for k = 2.
 GRID <- 10            # FlowSOM default xdim = ydim
 CELLS_PER_NODE <- 10
 
@@ -101,13 +98,13 @@ flowsom_metaclusters <- function(m, k, grid) {
   cc[[k]]$consensusClass[GetClusters(fsom)]
 }
 
-subcluster <- function(marker_df, labels, times, min_cells, k, small_grid) {
-  min_cells <- max(min_cells, CELLS_PER_NODE * small_grid^2 + 1)
+subcluster <- function(marker_df, labels, times, k) {
+  min_cells <- CELLS_PER_NODE * ceiling(sqrt(max(k, 3) + 1))^2
   for (round in seq_len(times)) {
     counts <- table(labels)
     for (cl in names(counts[counts >= min_cells])) {
       idx <- which(labels == cl)
-      grid <- if (length(idx) > CELLS_PER_NODE * GRID^2) GRID else small_grid
+      grid <- min(GRID, floor(sqrt(length(idx) / CELLS_PER_NODE)))
       labels[idx] <- paste0(cl, ",", flowsom_metaclusters(as.matrix(marker_df[idx, ]), k, grid))
     }
   }
@@ -123,7 +120,7 @@ for (iteration in 0:(args$iterations - 1)) {
   start_time <- Sys.time()
   flowsom_df <- FlowSOM(as.matrix(marker_df), silent = FALSE, nClus = args$flow_nclus)
   meta_labels <- subcluster(marker_df, as.character(GetMetaclusters(flowsom_df)), args$subcluster_times,
-                            args$subcluster_min_cells, args$subcluster_k, args$subcluster_small_grid)
+                            args$subcluster_k)
   end_time <- Sys.time()
   elapsed <- round(as.numeric(difftime(end_time, start_time, units = "sec")), 2)
 

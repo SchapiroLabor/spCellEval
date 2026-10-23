@@ -43,12 +43,8 @@ parser$add_argument("-n", "--normalization", dest = "normalization", default = F
                     help = "Row normalization before clustering (default: FALSE)")
 parser$add_argument("-sc", "--subcluster_times", dest = "subcluster_times", type = "integer", default = 0,
                     help = "Number of recursive subclustering rounds applied to the resulting clusters (default: 0 = off)")
-parser$add_argument("-sm", "--subcluster_min_cells", dest = "subcluster_min_cells", type = "integer", default = 10,
-                    help = "Minimal number of cells a cluster needs to be subclustered; always more than 10 cells per node of the small grid (default: 10)")
 parser$add_argument("-sk", "--subcluster_k", dest = "subcluster_k", type = "integer", default = 2,
                     help = "Number of clusters per subclustered cluster (default: 2)")
-parser$add_argument("-sg", "--subcluster_small_grid", dest = "subcluster_small_grid", type = "integer", default = 5,
-                    help = "SOM grid side length used for clusters too small for FuseSOM's own grid size (default: 5, the FuseSOM minimum)")
 args <- parser$parse_args()
 
 # Only cell_type (level3) is evaluated
@@ -86,19 +82,21 @@ if (args$PCA || args$harmony)
   marker_df <- embed_markers(marker_df, df, args$PCA, args$harmony)
 
 #### Subclustering ####
-# Each round re-runs FuseSOM on every cluster with >= min_cells, new labels are '<parent>,<child>'.
-# The SOM grid keeps > CELLS_PER_NODE cells per node on average: FuseSOM's own grid size
-# (Tracy-Widom bound, at least 5x5) if possible, otherwise small_grid x small_grid; smaller clusters are kept.
+# Each round re-runs FuseSOM on every cluster, new labels are '<parent>,<child>'.
+# The SOM grid is the largest one with >= CELLS_PER_NODE cells per node on average, at most FuseSOM's own
+# grid size (Tracy-Widom bound, at least 5x5). Clusters too small for a grid with more nodes than
+# clusters are kept, e.g. < 40 cells (2 x 2 grid) for k = 2.
 CELLS_PER_NODE <- 10
-subcluster <- function(marker_df, labels, times, min_cells, k, small_grid) {
-  min_cells <- max(min_cells, CELLS_PER_NODE * small_grid^2 + 1)
+subcluster <- function(marker_df, labels, times, k) {
+  min_cells <- CELLS_PER_NODE * ceiling(sqrt(k + 1))^2
   for (round in seq_len(times)) {
     counts <- table(labels)
     for (cl in names(counts[counts >= min_cells])) {
       idx <- which(labels == cl)
       x <- as.matrix(marker_df[idx, ])
-      grid <- max(computeGridSize(x), 5)
-      if (length(idx) <= CELLS_PER_NODE * grid^2) grid <- small_grid
+      # Markers constant within the cluster are left out of the grid size (scale() gives NaN for them)
+      own_grid <- max(computeGridSize(x[, apply(x, 2, var) > 0, drop = FALSE]), 5)
+      grid <- min(own_grid, floor(sqrt(length(idx) / CELLS_PER_NODE)))
       child <- suppressMessages(runFuseSOM(x, numClusters = k, size = grid))$clusters
       labels[idx] <- paste0(cl, ",", sub("^cluster_", "", child))
     }
@@ -116,8 +114,7 @@ for (iteration in 0:(args$iterations - 1)) {
   set.seed(iteration)
   start_time <- Sys.time()
   fuse_df <- marker_df %>% runFuseSOM(numClusters = fuse_clus)
-  labels <- subcluster(marker_df, fuse_df$clusters, args$subcluster_times, args$subcluster_min_cells,
-                       args$subcluster_k, args$subcluster_small_grid)
+  labels <- subcluster(marker_df, fuse_df$clusters, args$subcluster_times, args$subcluster_k)
   end_time <- Sys.time()
   elapsed <- round(as.numeric(difftime(end_time, start_time, units = "sec")), 2)
 

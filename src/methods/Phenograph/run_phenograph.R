@@ -29,8 +29,8 @@ parser$add_argument("-e", "--exclude_markers", dest = "exclude_markers", nargs =
 parser$add_argument("-o", "--output", dest = "output_path", required = TRUE,
                     help = "Path to output folder")
 parser$add_argument("-k", "--k_phenograph", dest = "k_phenograph",
-                    type = "integer", default = 30,
-                    help = "k for PhenoGraph (default: 30, the Rphenograph default)")
+                    type = "integer", default = 50,
+                    help = "k for PhenoGraph (default: 50, the Rphenograph default)")
 parser$add_argument("-l", "--log", dest = "log", default = "off",
                     choices = c("short", "long", "off"), help = "Logging level (default: off)")
 parser$add_argument("-it", "--iterations", dest = "iterations", type = "integer", default = 5,
@@ -47,10 +47,8 @@ parser$add_argument("-n", "--normalization", dest = "normalization", default = F
                     help = "Row normalization before clustering (default: FALSE)")
 parser$add_argument("-sc", "--subcluster_times", dest = "subcluster_times", type = "integer", default = 0,
                     help = "Number of recursive subclustering rounds applied to the resulting clusters (default: 0 = off)")
-parser$add_argument("-sm", "--subcluster_min_cells", dest = "subcluster_min_cells", type = "integer", default = 10,
-                    help = "Minimal number of cells a cluster needs to be subclustered; always at least small_k + 2 (default: 10)")
-parser$add_argument("-sk", "--subcluster_small_k", dest = "subcluster_small_k", type = "integer", default = 10,
-                    help = "k used for subclustering clusters with <= k cells (default: 10)")
+parser$add_argument("-sck", "--subcluster_k", dest = "subcluster_k", type = "integer", default = 25,
+                    help = "k used for subclustering; larger k gives fewer subclusters (default: same as -k)")
 args <- parser$parse_args()
 
 # Only cell_type (level3) is evaluated
@@ -84,16 +82,15 @@ if (args$PCA || args$harmony)
   marker_df <- embed_markers(marker_df, df, args$PCA, args$harmony)
 
 #### Subclustering ####
-# Each round re-runs PhenoGraph on every cluster with >= min_cells (kNN graph rebuilt on the subset),
-# new labels are '<parent>,<child>'. Rphenograph needs at least k + 2 cells: clusters with >= k + 2 cells
-# use k, smaller ones small_k, clusters with < small_k + 2 cells are kept.
-subcluster <- function(marker_df, labels, times, min_cells, k, small_k) {
-  min_cells <- max(min_cells, small_k + 2)
+# Each round re-runs PhenoGraph on every cluster (kNN graph rebuilt on the subset), new labels are
+# '<parent>,<child>'. k is the subclustering k (-sck, larger k -> fewer subclusters).
+# Rphenograph needs at least k + 2 cells, clusters with fewer cells are kept.
+subcluster <- function(marker_df, labels, times, k) {
   for (round in seq_len(times)) {
     counts <- table(labels)
-    for (cl in names(counts[counts >= min_cells])) {
+    for (cl in names(counts[counts >= k + 2])) {
       idx <- which(labels == cl)
-      sub <- Rphenograph(marker_df[idx, ], k = if (length(idx) >= k + 2) k else small_k)
+      sub <- Rphenograph(marker_df[idx, ], k = k)
       labels[idx] <- paste0(cl, ",", membership(sub[[2]]))
     }
   }
@@ -102,16 +99,19 @@ subcluster <- function(marker_df, labels, times, min_cells, k, small_k) {
 
 #### Run ####
 k_val <- args$k_phenograph
+sub_k <- if (is.null(args$subcluster_k)) k_val else args$subcluster_k
 clustering <- paste0("phenograph_", k_val)
-# Subclustering runs are saved in a separate method folder (e.g. 'phenograph_30_subclust3')
+# Subclustering runs are saved in a separate method folder (e.g. 'phenograph_30_subclust3'),
+# with the subclustering k appended if it differs from k (e.g. 'phenograph_30_subclust3_k60')
 folder <- if (args$subcluster_times > 0) paste0(clustering, "_subclust", args$subcluster_times) else clustering
+if (args$subcluster_times > 0 && sub_k != k_val) folder <- paste0(folder, "_k", sub_k)
 for (iteration in 0:(args$iterations - 1)) {
   # Seed per iteration: reproducible, but different between iterations
   set.seed(iteration)
   start_time <- Sys.time()
   pheno_df <- marker_df %>% Rphenograph(k = k_val)
   labels <- subcluster(marker_df, as.character(membership(pheno_df[[2]])),
-                       args$subcluster_times, args$subcluster_min_cells, k_val, args$subcluster_small_k)
+                       args$subcluster_times, sub_k)
   end_time <- Sys.time()
   elapsed <- round(as.numeric(difftime(end_time, start_time, units = "sec")), 2)
 

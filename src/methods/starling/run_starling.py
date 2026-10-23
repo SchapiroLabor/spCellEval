@@ -17,17 +17,17 @@ from sklearn.cluster import KMeans
 from sklearn.mixture import GaussianMixture
 from utils.greedy_f1_utils import greedy_f1_score
 
-# k of starling's PG initial clustering (scanpy phenograph default), reused for PG subclustering
+# k of starling's PG initial clustering (scanpy phenograph default), default k for PG subclustering
 PG_K = 30
 
 
-def subcluster_labels(X, labels, method, times, min_cells, sub_k, small_k):
+def subcluster_labels(X, labels, method, times, min_cells, sub_k):
     # Each round re-clusters every cluster with >= min_cells with the initial clustering method,
     # new labels are '<parent>,<child>'. KM/GMM k is capped by the cluster size.
-    # PG uses PG_K for clusters with > PG_K cells, small_k for smaller ones, and keeps clusters with <= small_k cells.
+    # PG uses sub_k as PhenoGraph k (larger k -> fewer subclusters) and keeps clusters with <= sub_k cells.
     labels = labels.astype(str).astype(object)
     if method == "PG":
-        min_cells = max(min_cells, small_k + 1)
+        min_cells = max(min_cells, sub_k + 1)
     for _ in range(times):
         values, counts = np.unique(labels, return_counts=True)
         for cluster in values[counts >= min_cells]:
@@ -37,7 +37,7 @@ def subcluster_labels(X, labels, method, times, min_cells, sub_k, small_k):
             elif method == "GMM":
                 sub = GaussianMixture(n_components=min(sub_k, len(idx)), covariance_type="diag").fit_predict(X[idx])
             elif method == "PG":
-                sub, _, _ = sce.tl.phenograph(X[idx], k=PG_K if len(idx) > PG_K else small_k)
+                sub, _, _ = sce.tl.phenograph(X[idx], k=sub_k)
             labels[idx] = [f"{cluster},{s}" for s in sub]
     return labels
 
@@ -63,7 +63,6 @@ def run_starling(
     subcluster_times: int,
     subcluster_min_cells: int,
     subcluster_k: int,
-    subcluster_small_k: int,
 ):
     df = pd.read_csv(dataset_path)
 
@@ -80,9 +79,16 @@ def run_starling(
     if scaling is not None:
         adata.X = adata.X * scaling
 
+    if subcluster_k is None:
+        subcluster_k = PG_K if initial_clustering == "PG" else 2
+
     # Predictions go to <output_path>/starling/level3; subclustering runs to a separate method folder
-    # (e.g. 'starling_subclust3')
-    method_dir = os.path.join(output_path, f"starling_subclust{subcluster_times}" if subcluster_times > 0 else "starling")
+    # (e.g. 'starling_subclust3'), for PG with the subclustering k appended if it differs from PG_K
+    # (e.g. 'starling_subclust3_k60')
+    method_name = f"starling_subclust{subcluster_times}" if subcluster_times > 0 else "starling"
+    if subcluster_times > 0 and initial_clustering == "PG" and subcluster_k != PG_K:
+        method_name += f"_k{subcluster_k}"
+    method_dir = os.path.join(output_path, method_name)
     os.makedirs(os.path.join(method_dir, "level3"), exist_ok=True)
     train_times = []
     # inference_times = []
@@ -91,8 +97,7 @@ def run_starling(
         adata_st = utility.init_clustering(initial_clustering, adata, k=k_cluster)
         if subcluster_times > 0:
             labels = subcluster_labels(np.asarray(adata_st.X), adata_st.obs["init_label"].to_numpy(),
-                                       initial_clustering, subcluster_times, subcluster_min_cells, subcluster_k,
-                                       subcluster_small_k)
+                                       initial_clustering, subcluster_times, subcluster_min_cells, subcluster_k)
             # starling expects integer labels 0..K-1
             adata_st = utility.init_clustering("User", adata, labels=pd.factorize(labels)[0])
 
@@ -262,19 +267,13 @@ def main():
         "--subcluster_min_cells",
         type=int,
         default=10,
-        help="Minimal number of cells an initial cluster needs to be subclustered; for PG always at least subcluster_small_k + 1 (default: 10)",
+        help="Minimal number of cells an initial cluster needs to be subclustered; for PG always at least subcluster_k + 1 (default: 10)",
     )
     parser.add_argument(
         "--subcluster_k",
         type=int,
-        default=2,
-        help="Number of subclusters per cluster for KM/GMM subclustering, ignored for PG (default: 2)",
-    )
-    parser.add_argument(
-        "--subcluster_small_k",
-        type=int,
-        default=10,
-        help="PG only: k used for subclustering clusters with <= 30 cells (default: 10)",
+        default=None,
+        help="KM/GMM: number of subclusters per cluster (default: 2); PG: PhenoGraph k for subclustering, larger k gives fewer subclusters (default: 30)",
     )
 
     args = parser.parse_args()
@@ -299,7 +298,6 @@ def main():
         subcluster_times=args.subcluster_times,
         subcluster_min_cells=args.subcluster_min_cells,
         subcluster_k=args.subcluster_k,
-        subcluster_small_k=args.subcluster_small_k,
     )
 
 
