@@ -30,8 +30,10 @@ parser.add_argument('-ic', '--image_col', dest='image_col', type=str, default='s
 parser.add_argument('-nc', '--init_n_clusters', dest='init_n_clusters', type=int, default=10, help='Number of initial Leiden clusters on the markers (CellLENS searches the resolution), recommended 8-15 (default: 10)')
 parser.add_argument('-pi', '--path2img', dest='path2img', type=str, help='full only: folder with one (2, H, W) nuclear/membrane max projection per image')
 parser.add_argument('-ie', '--image_ext', dest='image_ext', type=str, default='.tiff', help='full only: file extension of the images (default: .tiff)')
-parser.add_argument('-pc', '--path2crops', dest='path2crops', type=str, help='full only: folder for the per-cell crops (~0.5 MB per cell); reused if it holds one crop per cell')
-parser.add_argument('-tr', '--truncation', dest='truncation', type=float, default=0.9, help='full only: quantile used to binarize each image channel (default: 0.9)')
+parser.add_argument('-pc', '--path2crops', dest='path2crops', type=str, help='full only: folder for the per-cell crops (2 x crop_px^2 bytes per cell, e.g. 20 KB for 100 um at 1 um/pixel); reused if it holds one crop per cell made with the same crop size and truncation')
+parser.add_argument('-ps', '--pixel_size', dest='pixel_size', type=float, help='full only: physical pixel size of the images in um/pixel (e.g. 1.0 for IMC)')
+parser.add_argument('-cu', '--crop_um', dest='crop_um', type=float, default=100, help='full only: physical side length of the per-cell crops in um; CellLENS recommends 50-200 um, its tutorials use ~100 um (default: 100)')
+parser.add_argument('-tr', '--truncation', dest='truncation', type=float, default=0.9, help='full only: quantile used to binarize each channel, computed per image (default: 0.9)')
 parser.add_argument('-ce', '--cnn_epochs', dest='cnn_epochs', type=int, default=200, help='full only: training epochs of the LENS-CNN (default: 200)')
 parser.add_argument('-ge', '--gnn_epochs', dest='gnn_epochs', type=int, default=5000, help='Training epochs of each of the 5 LENS-GNN rounds (default: 5000)')
 parser.add_argument('-it', '--iterations', dest='iterations', type=int, default=5, help='Number of iterations to run (default: 5)')
@@ -55,7 +57,7 @@ def logging_setup(output_path, mode):
     )
 
 # Define preprocessing function
-def preprocessing(input, split_col_name, exclude_markers, image_col, mode, path2img, image_ext):
+def preprocessing(input, split_col_name, exclude_markers, image_col, mode, path2img, image_ext, gap, truncation):
     df = pd.read_csv(input)
     # Markers are all columns before split_col_name, minus excluded ones
     markers = df.columns[:df.columns.get_loc(split_col_name)]
@@ -63,7 +65,7 @@ def preprocessing(input, split_col_name, exclude_markers, image_col, mode, path2
     df.fillna(0, inplace=True)
 
     # CellLENS works on one image, so all images are placed side by side (in image_col category order)
-    # with a gap of CROP_SIZE pixels, so that neither spatial neighbors nor crops reach into the next image
+    # with a gap of gap pixels (>= crop size), so that neither spatial neighbors nor crops reach into the next image
     image_ids = df[image_col].astype('category')
     stitched = None
     if mode == 'full':
@@ -72,15 +74,26 @@ def preprocessing(input, split_col_name, exclude_markers, image_col, mode, path2
             if img.ndim != 3 or img.shape[0] != 2:
                 raise ValueError(f"{name}: expected a (2, H, W) nuclear/membrane image, got shape {img.shape}")
         width = max(img.shape[2] for img in images)
-        slot = width + CROP_SIZE
-        stitched = np.zeros((max(img.shape[1] for img in images), slot * len(images), 2), dtype=images[0].dtype)
+        slot = width + gap
+        # Each image is binarized at its own truncation quantile per channel, over its own pixels only (not the gaps or
+        # padding), as the CellLENS authors did per tissue section; prepare_images then gets truncation=0 to keep it binary
+        stitched = np.zeros((max(img.shape[1] for img in images), slot * len(images), 2), dtype=np.uint8)
         for k, img in enumerate(images):
-            stitched[:img.shape[1], k * slot:k * slot + img.shape[2]] = np.transpose(img, (1, 2, 0))
+            binary = img > np.quantile(img, truncation, axis=(1, 2), keepdims=True)
+            stitched[:img.shape[1], k * slot:k * slot + img.shape[2]] = np.transpose(binary, (1, 2, 0))
     else:
-        slot = int(np.ceil(df['x'].max())) + CROP_SIZE
+        slot = int(np.ceil(df['x'].max())) + gap
     # CellLENS locations are (row, column) of the stitched image: row = y, column = x + image offset
     df['x_new'] = df['y']
     df['y_new'] = image_ids.cat.codes.astype(int) * slot + df['x']  # codes are int8/int16, would overflow
+
+    # Spatial neighbors must stay within each image; CellLENS' largest spatial kNN is the neighborhood composition one
+    knn = lens_graph.get_spatial_knn_indices(df[['x_new', 'y_new']].to_numpy(), n_neighbors=NBHD_COMPOSITION)
+    codes = image_ids.cat.codes.to_numpy()
+    n_crossing = (codes[knn] != codes[:, None]).any(axis=1).sum()
+    if n_crossing > 0:
+        raise ValueError(f'{n_crossing} cells have spatial neighbors in another image (gap too small or images with '
+                         f'< {NBHD_COMPOSITION} cells)')
     return df, features_list, stitched
 
 # Define seeding function
@@ -92,23 +105,41 @@ def set_seed(seed):
     # CellLENS' initialize() runs its initial Leiden clustering with seed=None (different on every run), so the seed is injected
     lens_graph.graph_clustering = lambda *a, **kw: _graph_clustering(*a, **{**kw, 'seed': seed})
 
+# Define dataset that upscales the native size crops when loading them
+class NativeCropDataset(LENS_Dataset):
+    # Crops are stored at their native size (crop_px) to save disk space and I/O, and only upscaled to the
+    # CROP_SIZE x CROP_SIZE input of the LENS-CNN when loaded; nearest neighbor keeps them binary
+    def __init__(self, df, crop_px, **kwargs):
+        super().__init__(df, **kwargs)
+        self.resize_idx = ((np.arange(CROP_SIZE) + 0.5) * crop_px / CROP_SIZE).astype(int)
+
+    def __getitem__(self, index):
+        img, labels = super().__getitem__(index)
+        return img[:, self.resize_idx][:, :, self.resize_idx], labels
+
 # Define crop preparation function (once per crop folder, the crops are the same for all iterations)
-def prepare_crops(dataset, stitched, path2crops, truncation, log):
-    n_crops = len(glob.glob(os.path.join(path2crops, 'img_*.npy')))
-    if n_crops == dataset.n_cells:
+def prepare_crops(dataset, stitched, path2crops, truncation, crop_px, log):
+    crops = sorted(glob.glob(os.path.join(path2crops, 'img_*.npy')))
+    params_file = os.path.join(path2crops, 'crop_params.txt')
+    params = f'crop_px={crop_px}, truncation={truncation}'
+    if len(crops) == dataset.n_cells and os.path.exists(params_file) and open(params_file).read() == params:
         if log == 'long':
-            logging.info(f'Reusing {n_crops} crops in {path2crops}')
+            logging.info(f'Reusing {len(crops)} crops in {path2crops}')
         return
-    if n_crops > 0:
-        raise ValueError(f'{path2crops} holds {n_crops} crops but the dataset has {dataset.n_cells} cells, use an empty folder')
+    if len(crops) > 0:
+        raise ValueError(f'{path2crops} holds {len(crops)} crops that were not made for {dataset.n_cells} cells with {params}, use an empty folder')
     start = time.time()
-    dataset.prepare_images(stitched, CROP_SIZE, truncation, aggr=[[0], [1]], pad=1000, verbose=False)
+    # Upstream cropping with size = crop_px native pixels (= crop_um, as the CellLENS docs recommend); stitched is already
+    # binarized per image (see preprocessing), truncation=0 keeps it as is. Crops stay at native size (see NativeCropDataset)
+    dataset.prepare_images(stitched, crop_px, 0, aggr=[[0], [1]], pad=1000, verbose=False)
+    with open(params_file, 'w') as f:
+        f.write(params)
     if log == 'long':
         logging.info(f'Image cropping took {(time.time() - start)/60:.2f} minutes')
 
 # Define CellLENS with greedy assignment function
 def celllens_with_greedy(df, features_list, stitched, mode, iterations, output_path, init_n_clusters, path2crops, truncation,
-                         cnn_epochs, gnn_epochs, seed, log):
+                         crop_px, cnn_epochs, gnn_epochs, seed, log):
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     if log == 'long':
         logging.info(f"Using device: {device}")
@@ -117,13 +148,14 @@ def celllens_with_greedy(df, features_list, stitched, mode, iterations, output_p
         if log == 'long':
             logging.info(f"Running iteration {iteration} of {iterations} (seed {seed + iteration})")
         set_seed(seed + iteration)
-        dataset = LENS_Dataset(df,
-                               features_list=features_list,
-                               nbhd_composition=NBHD_COMPOSITION,
-                               feature_neighbor=15,
-                               spatial_neighbor=15,
-                               path2img=f'{path2crops}/' if mode == 'full' else None,
-                               use_transform=False)
+        dataset = NativeCropDataset(df,
+                                    crop_px,
+                                    features_list=features_list,
+                                    nbhd_composition=NBHD_COMPOSITION,
+                                    feature_neighbor=15,
+                                    spatial_neighbor=15,
+                                    path2img=f'{path2crops}/' if mode == 'full' else None,
+                                    use_transform=False)
         # Initial Leiden clustering on the markers, its labels define the neighborhood composition; the resolution
         # is searched (bisection with tolerance 0.05), so the reached number can differ slightly from init_n_clusters
         dataset.initialize(cent_x="x_new",
@@ -135,7 +167,7 @@ def celllens_with_greedy(df, features_list, stitched, mode, iterations, output_p
         if log == 'long':
             logging.info(f"{len(np.unique(dataset.feature_labels))} initial clusters (target {init_n_clusters})")
         if mode == 'full' and iteration == 1:
-            prepare_crops(dataset, stitched, path2crops, truncation, log)
+            prepare_crops(dataset, stitched, path2crops, truncation, crop_px, log)
 
         model = CellLENS(dataset,
                          device,
@@ -205,14 +237,19 @@ def celllens_with_greedy(df, features_list, stitched, mode, iterations, output_p
         output.to_csv(path, index=False)
 
 def main():
-    if args.mode == 'full' and (args.path2img is None or args.path2crops is None):
-        parser.error('--mode full needs --path2img and --path2crops')
+    if args.mode == 'full' and (args.path2img is None or args.path2crops is None or args.pixel_size is None):
+        parser.error('--mode full needs --path2img, --path2crops and --pixel_size')
     if args.log != 'off':
         logging_setup(args.output_path, args.mode)
+    # Crop side length in native pixels, rounded to an even number (upstream crops center -/+ size // 2)
+    crop_px = 2 * round(args.crop_um / args.pixel_size / 2) if args.mode == 'full' else CROP_SIZE
+    if args.mode == 'full' and args.log == 'long':
+        logging.info(f'Crops of {args.crop_um} um = {crop_px} pixels at {args.pixel_size} um/pixel, resized to {CROP_SIZE} pixels')
     df, features_list, stitched = preprocessing(args.input, args.split_col_name, args.exclude_markers, args.image_col,
-                                                args.mode, args.path2img, args.image_ext)
+                                                args.mode, args.path2img, args.image_ext, max(crop_px, CROP_SIZE),
+                                                args.truncation)
     celllens_with_greedy(df, features_list, stitched, args.mode, args.iterations, args.output_path, args.init_n_clusters,
-                         args.path2crops, args.truncation, args.cnn_epochs, args.gnn_epochs, args.seed, args.log)
+                         args.path2crops, args.truncation, crop_px, args.cnn_epochs, args.gnn_epochs, args.seed, args.log)
 
 
 if __name__ == "__main__":
@@ -220,6 +257,6 @@ if __name__ == "__main__":
 
 #example usage (cHL_2_MIBI, full):
 #python3 run_celllens.py -mo full -i .../cHL_2_MIBI_quantification.csv -o .../results/cHL_2_MIBI -s cell_id -e dsDNA "Histone H3" \
-#    -pi .../cHL_2_MIBI/raw_images/max_projection -pc .../crops/cHL_2_MIBI -l long
+#    -pi .../cHL_2_MIBI/raw_images/max_projection -pc .../crops/cHL_2_MIBI -ps <um per pixel> -l long
 #example usage (IMMUcan, lite):
 #python3 run_celllens.py -mo lite -i .../IMMUcan_quantification.csv -o .../results/IMMUcan -s image -e HistoneH3 DNA1 DNA2 -ic image
