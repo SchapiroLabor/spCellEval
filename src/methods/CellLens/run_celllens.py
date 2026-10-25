@@ -69,7 +69,7 @@ def preprocessing(input, split_col_name, exclude_markers, image_col, mode, path2
     image_ids = df[image_col].astype('category')
     stitched = None
     if mode == 'full':
-        images = [imread(os.path.join(path2img, os.path.splitext(i)[0] + image_ext)) for i in image_ids.cat.categories]
+        images = [imread(os.path.join(path2img, os.path.splitext(str(i))[0] + image_ext)) for i in image_ids.cat.categories]
         for name, img in zip(image_ids.cat.categories, images):
             if img.ndim != 3 or img.shape[0] != 2:
                 raise ValueError(f"{name}: expected a (2, H, W) nuclear/membrane image, got shape {img.shape}")
