@@ -109,6 +109,8 @@ fuse_clus <- args$fuse_clusters
 clustering <- paste0("FuseSOM_", fuse_clus)
 # Subclustering runs are saved in a separate method folder (e.g. 'FuseSOM_10_subclust3')
 folder <- if (args$subcluster_times > 0) paste0(clustering, "_subclust", args$subcluster_times) else clustering
+# Harmony runs get '_harm' appended (e.g. 'FuseSOM_10_subclust3_harm')
+if (args$harmony) folder <- paste0(folder, "_harm")
 for (iteration in 0:(args$iterations - 1)) {
   # Seed per iteration: reproducible, but different between iterations
   set.seed(iteration)

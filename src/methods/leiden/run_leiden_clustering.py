@@ -108,10 +108,12 @@ def subcluster(adata, key, times, min_cells, resolution, random_state):
     adata.obs[key] = pd.Categorical(labels)
 
 # Define Leiden clustering with greedy assignment function
-def leiden_with_greedy(adata, df, iterations, output_path, log, res, subcluster_times, subcluster_min_cells, subcluster_resolution):
+def leiden_with_greedy(adata, df, iterations, output_path, log, res, subcluster_times, subcluster_min_cells, subcluster_resolution, harmony):
     resolution = f'leiden_res{str(res).replace(".", "_")}'
-    # Subclustering runs are saved in a separate method folder (e.g. '<method>_subclust3')
+    # Subclustering runs are saved in a separate method folder (e.g. '<method>_subclust3'), Harmony runs get '_harm' appended
     suffix = f'_subclust{subcluster_times}' if subcluster_times > 0 else ''
+    if harmony:
+        suffix += '_harm'
     for iteration in range(iterations):
         start = time.time()
         # Seed per iteration, otherwise all iterations give identical clusters (scanpy default random_state=0)
@@ -145,7 +147,7 @@ def main():
     if args.log != 'off':
         logging_setup(args.output_path)
     adata, df = preprocessing(args.input, args.split_col_name, args.exclude_markers, args.PCA, args.normalization, args.transform, args.cofactor, args.harmony)
-    leiden_with_greedy(adata, df, args.iterations, args.output_path, args.log, args.resolution, args.subcluster_times, args.subcluster_min_cells, args.subcluster_resolution)
+    leiden_with_greedy(adata, df, args.iterations, args.output_path, args.log, args.resolution, args.subcluster_times, args.subcluster_min_cells, args.subcluster_resolution, args.harmony)
 
 
 if __name__ == "__main__":

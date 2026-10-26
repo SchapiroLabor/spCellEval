@@ -105,6 +105,8 @@ clustering <- paste0("phenograph_", k_val)
 # with the subclustering k appended if it differs from k (e.g. 'phenograph_30_subclust3_k60')
 folder <- if (args$subcluster_times > 0) paste0(clustering, "_subclust", args$subcluster_times) else clustering
 if (args$subcluster_times > 0 && sub_k != k_val) folder <- paste0(folder, "_k", sub_k)
+# Harmony runs get '_harm' appended (e.g. 'phenograph_30_subclust3_harm')
+if (args$harmony) folder <- paste0(folder, "_harm")
 for (iteration in 0:(args$iterations - 1)) {
   # Seed per iteration: reproducible, but different between iterations
   set.seed(iteration)

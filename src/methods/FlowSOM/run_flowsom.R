@@ -114,6 +114,9 @@ subcluster <- function(marker_df, labels, times, k) {
 #### Run ####
 # Subclustering runs are saved in a separate method folder ('flowsom_meta_clusters_subclust3')
 folder <- if (args$subcluster_times > 0) paste0("flowsom_meta_clusters_subclust", args$subcluster_times) else "flowsom_meta_clusters"
+# Harmony runs get '_harm' appended (e.g. 'flowsom_meta_clusters_subclust3_harm', 'flowsom_harm')
+harm <- if (args$harmony) "_harm" else ""
+folder <- paste0(folder, harm)
 for (iteration in 0:(args$iterations - 1)) {
   # Seed per iteration: reproducible, but different between iterations
   set.seed(iteration)
@@ -139,7 +142,7 @@ for (iteration in 0:(args$iterations - 1)) {
   if (args$subcluster_times == 0) {
     clustering <- "flowsom"
     df$flowsom <- GetClusters(flowsom_df)
-    greedy_assignment_save()
+    greedy_assignment_save(paste0(clustering, harm))
   }
 
   clustering <- "flowsom_meta_clusters"
