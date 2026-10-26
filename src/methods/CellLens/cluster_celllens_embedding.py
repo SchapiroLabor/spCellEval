@@ -16,10 +16,11 @@ from utils.greedy_f1_utils import greedy_f1_score, cluster_purity, purity_suffix
 
 # Re-runs the CellLENS clustering (get_lens_clustering) on saved CellLENS embeddings, with optional
 # recursive subclustering. Needs the outputs of the CellLENS run scripts:
-#   <output>/<method>/it<i>/*_embedding.csv  and  <output>/<method>/level3/predictions_<i>.csv (for feature_labels)
+#   <input>/<method>/it<i>/*_embedding.csv  and  <input>/<method>/level3/predictions_<i>.csv (for feature_labels)
 
 parser = argparse.ArgumentParser(description='CellLENS clustering with optional recursive subclustering on saved CellLENS embeddings.')
-parser.add_argument('-o', '--output', dest='output_path', type=str, required=True, help='Dataset folder containing the CellLENS method folder')
+parser.add_argument('-i', '--input', dest='input_path', type=str, default=None, help='Dataset folder containing the CellLENS method folder (default: same as -o)')
+parser.add_argument('-o', '--output', dest='output_path', type=str, required=True, help='Dataset folder the subclustering method folder is written to')
 parser.add_argument('-m', '--method', dest='method', required=True, choices=['CellLENS_Lite', 'CellLENS_Full'], help='CellLENS method folder to read from')
 parser.add_argument('-sc', '--subcluster_times', dest='subcluster_times', type=int, default=0, help='Number of recursive subclustering rounds (default: 0 = only re-run the CellLENS clustering)')
 parser.add_argument('-sm', '--subcluster_min_cells', dest='subcluster_min_cells', type=int, default=20, help='Minimal number of cells a cluster needs to be subclustered; always at least subcluster_small_neighbors + 1 (default: 20)')
@@ -87,7 +88,7 @@ def read_lens_times(path):
 
 
 def main():
-    method_dir = os.path.join(args.output_path, args.method)
+    method_dir = os.path.join(args.input_path or args.output_path, args.method)
     out_dir = os.path.join(args.output_path, f"{args.method}_subclust{args.subcluster_times}{purity_suffix(args.subcluster_purity)}")
     lens_times = read_lens_times(os.path.join(method_dir, 'fold_times.txt'))
     iterations = sorted(int(d[2:]) for d in os.listdir(method_dir) if re.fullmatch(r"it\d+", d))
@@ -130,4 +131,4 @@ def main():
 if __name__ == "__main__":
     main()
 
-#example usage: python3 cluster_celllens_embedding.py -o ../cHL2 -m CellLENS_Lite -sc 2
+#example usage: python3 cluster_celllens_embedding.py -i ../results/cHL2 -o ../results_subclustering/cHL2 -m CellLENS_Lite -sc 2
