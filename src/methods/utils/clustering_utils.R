@@ -22,6 +22,12 @@ embed_markers <- function(marker_df, meta_df, pca, harmony) {
 
 granularity <- c("level1" = "level_1_cell_type", "level2" = "level_2_cell_type", "level3" = "cell_type")
 
+# Fraction of cells with the majority true label, i.e. the fraction greedy F1 assigns correctly
+cluster_purity <- function(true_labels) max(table(true_labels)) / length(true_labels)
+
+# Method folder suffix for purity-stopped subclustering (e.g. '_purity0_9'), empty if off
+purity_suffix <- function(purity) if (is.null(purity)) "" else paste0("_purity", gsub(".", "_", as.character(purity), fixed = TRUE))
+
 greedy_f1_score <- function(df, true_label_col, predicted_cluster_col, tie_strategy = "first") {
   contingency <- table(df[[true_label_col]], df[[predicted_cluster_col]])
   clusters <- unique(df[[predicted_cluster_col]])

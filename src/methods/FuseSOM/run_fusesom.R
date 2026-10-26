@@ -45,6 +45,8 @@ parser$add_argument("-sc", "--subcluster_times", dest = "subcluster_times", type
                     help = "Number of recursive subclustering rounds applied to the resulting clusters (default: 0 = off)")
 parser$add_argument("-sk", "--subcluster_k", dest = "subcluster_k", type = "integer", default = 2,
                     help = "Number of clusters per subclustered cluster (default: 2)")
+parser$add_argument("-sp", "--subcluster_purity", dest = "subcluster_purity", type = "double",
+                    help = "Clusters whose majority cell_type fraction is >= this are not subclustered further, -sc is then the max depth. Uses the ground truth (oracle setting) (default: off)")
 args <- parser$parse_args()
 
 # Only cell_type (level3) is evaluated
@@ -86,13 +88,15 @@ if (args$PCA || args$harmony)
 # The SOM grid is the largest one with >= CELLS_PER_NODE cells per node on average, at most FuseSOM's own
 # grid size (Tracy-Widom bound, at least 5x5). Clusters too small for a grid with more nodes than
 # clusters are kept, e.g. < 40 cells (2 x 2 grid) for k = 2.
+# With purity, clusters whose cell_type purity is >= purity are kept.
 CELLS_PER_NODE <- 10
-subcluster <- function(marker_df, labels, times, k) {
+subcluster <- function(marker_df, labels, times, k, true_labels, purity) {
   min_cells <- CELLS_PER_NODE * ceiling(sqrt(k + 1))^2
   for (round in seq_len(times)) {
     counts <- table(labels)
     for (cl in names(counts[counts >= min_cells])) {
       idx <- which(labels == cl)
+      if (!is.null(purity) && cluster_purity(true_labels[idx]) >= purity) next
       x <- as.matrix(marker_df[idx, ])
       # Markers constant within the cluster are left out of the grid size (scale() gives NaN for them)
       own_grid <- max(computeGridSize(x[, apply(x, 2, var) > 0, drop = FALSE]), 5)
@@ -107,8 +111,10 @@ subcluster <- function(marker_df, labels, times, k) {
 #### Run ####
 fuse_clus <- args$fuse_clusters
 clustering <- paste0("FuseSOM_", fuse_clus)
-# Subclustering runs are saved in a separate method folder (e.g. 'FuseSOM_10_subclust3')
-folder <- if (args$subcluster_times > 0) paste0(clustering, "_subclust", args$subcluster_times) else clustering
+# Subclustering runs are saved in a separate method folder (e.g. 'FuseSOM_10_subclust3',
+# with purity 'FuseSOM_10_subclust3_purity0_9')
+folder <- if (args$subcluster_times > 0) paste0(clustering, "_subclust", args$subcluster_times,
+                                                purity_suffix(args$subcluster_purity)) else clustering
 # Harmony runs get '_harm' appended (e.g. 'FuseSOM_10_subclust3_harm')
 if (args$harmony) folder <- paste0(folder, "_harm")
 for (iteration in 0:(args$iterations - 1)) {
@@ -116,7 +122,8 @@ for (iteration in 0:(args$iterations - 1)) {
   set.seed(iteration)
   start_time <- Sys.time()
   fuse_df <- marker_df %>% runFuseSOM(numClusters = fuse_clus)
-  labels <- subcluster(marker_df, fuse_df$clusters, args$subcluster_times, args$subcluster_k)
+  labels <- subcluster(marker_df, fuse_df$clusters, args$subcluster_times, args$subcluster_k,
+                       df$cell_type, args$subcluster_purity)
   end_time <- Sys.time()
   elapsed <- round(as.numeric(difftime(end_time, start_time, units = "sec")), 2)
 

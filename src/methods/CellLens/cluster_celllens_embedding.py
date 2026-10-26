@@ -12,7 +12,7 @@ import pandas as pd
 import anndata as ad
 import scanpy as sc
 from celllens.utils import drop_zero_variability_columns, cluster_refine, clean_cluster
-from utils.greedy_f1_utils import greedy_f1_score
+from utils.greedy_f1_utils import greedy_f1_score, cluster_purity, purity_suffix
 
 # Re-runs the CellLENS clustering (get_lens_clustering) on saved CellLENS embeddings, with optional
 # recursive subclustering. Needs the outputs of the CellLENS run scripts:
@@ -25,6 +25,7 @@ parser.add_argument('-sc', '--subcluster_times', dest='subcluster_times', type=i
 parser.add_argument('-sm', '--subcluster_min_cells', dest='subcluster_min_cells', type=int, default=20, help='Minimal number of cells a cluster needs to be subclustered; always at least subcluster_small_neighbors + 1 (default: 20)')
 parser.add_argument('-sr', '--subcluster_resolution', dest='subcluster_resolution', type=float, default=1.0, help='Leiden resolution used for subclustering (default: 1.0)')
 parser.add_argument('-sk', '--subcluster_small_neighbors', dest='subcluster_small_neighbors', type=int, default=10, help='n_neighbors used for subclustering clusters with <= 15 cells (default: 10)')
+parser.add_argument('-sp', '--subcluster_purity', dest='subcluster_purity', type=float, default=None, help='Clusters whose majority cell_type fraction is >= this are not subclustered further, -sc is then the max depth. Uses the ground truth (oracle setting) (default: None = off)')
 args = parser.parse_args()
 
 # get_lens_clustering parameters as used in the CellLENS run scripts
@@ -56,10 +57,11 @@ def lens_clustering(embedding, feature_labels, neighbor, resolution, umap=False,
     return np.array(clean_cluster(lens_refine), dtype=object)
 
 
-def subcluster(embedding, feature_labels, labels, times, min_cells, resolution, small_neighbors):
+def subcluster(embedding, feature_labels, labels, times, min_cells, resolution, small_neighbors, true_labels, purity):
     # Each round re-runs the CellLENS clustering on every cluster with >= min_cells (embedding kept fixed),
     # new labels are '<parent>,<child>'. Clusters with > NEIGHBOR cells use NEIGHBOR neighbors,
     # smaller ones small_neighbors, clusters with <= small_neighbors cells are kept.
+    # With purity, clusters whose true label purity is >= purity are kept.
     # Subclusters use igraph's Leiden (much faster than leidenalg) and no UMAP (one per subcluster would be slow);
     # the top-level clustering stays as in CellLENS.
     min_cells = max(min_cells, small_neighbors + 1)
@@ -67,6 +69,8 @@ def subcluster(embedding, feature_labels, labels, times, min_cells, resolution, 
         values, counts = np.unique(labels, return_counts=True)
         for cluster in values[counts >= min_cells]:
             idx = np.where(labels == cluster)[0]
+            if purity is not None and cluster_purity(true_labels[idx]) >= purity:
+                continue
             neighbor = NEIGHBOR if len(idx) > NEIGHBOR else small_neighbors
             child = lens_clustering(embedding[idx], feature_labels[idx], neighbor, resolution,
                                     flavor='igraph', n_iterations=2, directed=False)
@@ -84,7 +88,7 @@ def read_lens_times(path):
 
 def main():
     method_dir = os.path.join(args.output_path, args.method)
-    out_dir = os.path.join(args.output_path, f"{args.method}_subclust{args.subcluster_times}")
+    out_dir = os.path.join(args.output_path, f"{args.method}_subclust{args.subcluster_times}{purity_suffix(args.subcluster_purity)}")
     lens_times = read_lens_times(os.path.join(method_dir, 'fold_times.txt'))
     iterations = sorted(int(d[2:]) for d in os.listdir(method_dir) if re.fullmatch(r"it\d+", d))
 
@@ -99,7 +103,8 @@ def main():
         start = time.time()
         labels = lens_clustering(embedding, feature_labels, NEIGHBOR, RESOLUTION, umap=True)
         labels = subcluster(embedding, feature_labels, labels, args.subcluster_times, args.subcluster_min_cells,
-                            args.subcluster_resolution, args.subcluster_small_neighbors)
+                            args.subcluster_resolution, args.subcluster_small_neighbors,
+                            df['true_phenotype'].to_numpy(), args.subcluster_purity)
         elapsed = time.time() - start
 
         ## greedy assignement

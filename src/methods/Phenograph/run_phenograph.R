@@ -48,7 +48,9 @@ parser$add_argument("-n", "--normalization", dest = "normalization", default = F
 parser$add_argument("-sc", "--subcluster_times", dest = "subcluster_times", type = "integer", default = 0,
                     help = "Number of recursive subclustering rounds applied to the resulting clusters (default: 0 = off)")
 parser$add_argument("-sck", "--subcluster_k", dest = "subcluster_k", type = "integer", default = 25,
-                    help = "k used for subclustering; larger k gives fewer subclusters (default: same as -k)")
+                    help = "k used for subclustering; larger k gives fewer subclusters (default: 25)")
+parser$add_argument("-sp", "--subcluster_purity", dest = "subcluster_purity", type = "double",
+                    help = "Clusters whose majority cell_type fraction is >= this are not subclustered further, -sc is then the max depth. Uses the ground truth (oracle setting) (default: off)")
 args <- parser$parse_args()
 
 # Only cell_type (level3) is evaluated
@@ -85,11 +87,13 @@ if (args$PCA || args$harmony)
 # Each round re-runs PhenoGraph on every cluster (kNN graph rebuilt on the subset), new labels are
 # '<parent>,<child>'. k is the subclustering k (-sck, larger k -> fewer subclusters).
 # Rphenograph needs at least k + 2 cells, clusters with fewer cells are kept.
-subcluster <- function(marker_df, labels, times, k) {
+# With purity, clusters whose cell_type purity is >= purity are kept.
+subcluster <- function(marker_df, labels, times, k, true_labels, purity) {
   for (round in seq_len(times)) {
     counts <- table(labels)
     for (cl in names(counts[counts >= k + 2])) {
       idx <- which(labels == cl)
+      if (!is.null(purity) && cluster_purity(true_labels[idx]) >= purity) next
       sub <- Rphenograph(marker_df[idx, ], k = k)
       labels[idx] <- paste0(cl, ",", membership(sub[[2]]))
     }
@@ -105,6 +109,8 @@ clustering <- paste0("phenograph_", k_val)
 # with the subclustering k appended if it differs from k (e.g. 'phenograph_30_subclust3_k60')
 folder <- if (args$subcluster_times > 0) paste0(clustering, "_subclust", args$subcluster_times) else clustering
 if (args$subcluster_times > 0 && sub_k != k_val) folder <- paste0(folder, "_k", sub_k)
+# and the purity if set (e.g. 'phenograph_30_subclust3_purity0_9')
+if (args$subcluster_times > 0) folder <- paste0(folder, purity_suffix(args$subcluster_purity))
 # Harmony runs get '_harm' appended (e.g. 'phenograph_30_subclust3_harm')
 if (args$harmony) folder <- paste0(folder, "_harm")
 for (iteration in 0:(args$iterations - 1)) {
@@ -113,7 +119,7 @@ for (iteration in 0:(args$iterations - 1)) {
   start_time <- Sys.time()
   pheno_df <- marker_df %>% Rphenograph(k = k_val)
   labels <- subcluster(marker_df, as.character(membership(pheno_df[[2]])),
-                       args$subcluster_times, sub_k)
+                       args$subcluster_times, sub_k, df$cell_type, args$subcluster_purity)
   end_time <- Sys.time()
   elapsed <- round(as.numeric(difftime(end_time, start_time, units = "sec")), 2)
 

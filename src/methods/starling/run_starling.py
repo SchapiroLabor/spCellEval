@@ -15,16 +15,17 @@ import time
 import scanpy.external as sce
 from sklearn.cluster import KMeans
 from sklearn.mixture import GaussianMixture
-from utils.greedy_f1_utils import greedy_f1_score
+from utils.greedy_f1_utils import greedy_f1_score, cluster_purity, purity_suffix
 
 # k of starling's PG initial clustering (scanpy phenograph default), default k for PG subclustering
 PG_K = 30
 
 
-def subcluster_labels(X, labels, method, times, min_cells, sub_k):
+def subcluster_labels(X, labels, method, times, min_cells, sub_k, true_labels, purity):
     # Each round re-clusters every cluster with >= min_cells with the initial clustering method,
     # new labels are '<parent>,<child>'. KM/GMM k is capped by the cluster size.
     # PG uses sub_k as PhenoGraph k (larger k -> fewer subclusters) and keeps clusters with <= sub_k cells.
+    # With purity, clusters whose cell_type purity is >= purity are kept.
     labels = labels.astype(str).astype(object)
     if method == "PG":
         min_cells = max(min_cells, sub_k + 1)
@@ -32,6 +33,8 @@ def subcluster_labels(X, labels, method, times, min_cells, sub_k):
         values, counts = np.unique(labels, return_counts=True)
         for cluster in values[counts >= min_cells]:
             idx = np.where(labels == cluster)[0]
+            if purity is not None and cluster_purity(true_labels[idx]) >= purity:
+                continue
             if method == "KM":
                 sub = KMeans(min(sub_k, len(idx))).fit_predict(X[idx])
             elif method == "GMM":
@@ -63,6 +66,7 @@ def run_starling(
     subcluster_times: int,
     subcluster_min_cells: int,
     subcluster_k: int,
+    subcluster_purity: float,
 ):
     df = pd.read_csv(dataset_path)
 
@@ -84,10 +88,12 @@ def run_starling(
 
     # Predictions go to <output_path>/starling/level3; subclustering runs to a separate method folder
     # (e.g. 'starling_subclust3'), for PG with the subclustering k appended if it differs from PG_K
-    # (e.g. 'starling_subclust3_k60')
+    # (e.g. 'starling_subclust3_k60'), and the purity if set (e.g. 'starling_subclust3_purity0_9')
     method_name = f"starling_subclust{subcluster_times}" if subcluster_times > 0 else "starling"
     if subcluster_times > 0 and initial_clustering == "PG" and subcluster_k != PG_K:
         method_name += f"_k{subcluster_k}"
+    if subcluster_times > 0:
+        method_name += purity_suffix(subcluster_purity)
     method_dir = os.path.join(output_path, method_name)
     os.makedirs(os.path.join(method_dir, "level3"), exist_ok=True)
     train_times = []
@@ -97,7 +103,8 @@ def run_starling(
         adata_st = utility.init_clustering(initial_clustering, adata, k=k_cluster)
         if subcluster_times > 0:
             labels = subcluster_labels(np.asarray(adata_st.X), adata_st.obs["init_label"].to_numpy(),
-                                       initial_clustering, subcluster_times, subcluster_min_cells, subcluster_k)
+                                       initial_clustering, subcluster_times, subcluster_min_cells, subcluster_k,
+                                       adata.obs["cell_type"].to_numpy(), subcluster_purity)
             # starling expects integer labels 0..K-1
             adata_st = utility.init_clustering("User", adata, labels=pd.factorize(labels)[0])
 
@@ -275,6 +282,12 @@ def main():
         default=None,
         help="KM/GMM: number of subclusters per cluster (default: 2); PG: PhenoGraph k for subclustering, larger k gives fewer subclusters (default: 30)",
     )
+    parser.add_argument(
+        "--subcluster_purity",
+        type=float,
+        default=None,
+        help="Initial clusters whose majority cell_type fraction is >= this are not subclustered further, subcluster_times is then the max depth. Uses the ground truth (oracle setting) (default: None = off)",
+    )
 
     args = parser.parse_args()
     run_starling(
@@ -298,6 +311,7 @@ def main():
         subcluster_times=args.subcluster_times,
         subcluster_min_cells=args.subcluster_min_cells,
         subcluster_k=args.subcluster_k,
+        subcluster_purity=args.subcluster_purity,
     )
 
 

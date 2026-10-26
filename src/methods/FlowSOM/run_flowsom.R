@@ -45,6 +45,8 @@ parser$add_argument("-sc", "--subcluster_times", dest = "subcluster_times", type
                     help = "Number of recursive subclustering rounds applied to the metaclusters (default: 0 = off)")
 parser$add_argument("-sk", "--subcluster_k", dest = "subcluster_k", type = "integer", default = 2,
                     help = "Number of metaclusters per subclustered metacluster (default: 2)")
+parser$add_argument("-sp", "--subcluster_purity", dest = "subcluster_purity", type = "double",
+                    help = "Metaclusters whose majority cell_type fraction is >= this are not subclustered further, -sc is then the max depth. Uses the ground truth (oracle setting) (default: off)")
 args <- parser$parse_args()
 
 # Only cell_type (level3) is evaluated
@@ -98,12 +100,14 @@ flowsom_metaclusters <- function(m, k, grid) {
   cc[[k]]$consensusClass[GetClusters(fsom)]
 }
 
-subcluster <- function(marker_df, labels, times, k) {
+# With purity, metaclusters whose cell_type purity is >= purity are kept.
+subcluster <- function(marker_df, labels, times, k, true_labels, purity) {
   min_cells <- CELLS_PER_NODE * ceiling(sqrt(max(k, 3) + 1))^2
   for (round in seq_len(times)) {
     counts <- table(labels)
     for (cl in names(counts[counts >= min_cells])) {
       idx <- which(labels == cl)
+      if (!is.null(purity) && cluster_purity(true_labels[idx]) >= purity) next
       grid <- min(GRID, floor(sqrt(length(idx) / CELLS_PER_NODE)))
       labels[idx] <- paste0(cl, ",", flowsom_metaclusters(as.matrix(marker_df[idx, ]), k, grid))
     }
@@ -112,8 +116,10 @@ subcluster <- function(marker_df, labels, times, k) {
 }
 
 #### Run ####
-# Subclustering runs are saved in a separate method folder ('flowsom_meta_clusters_subclust3')
-folder <- if (args$subcluster_times > 0) paste0("flowsom_meta_clusters_subclust", args$subcluster_times) else "flowsom_meta_clusters"
+# Subclustering runs are saved in a separate method folder ('flowsom_meta_clusters_subclust3',
+# with purity 'flowsom_meta_clusters_subclust3_purity0_9')
+folder <- if (args$subcluster_times > 0) paste0("flowsom_meta_clusters_subclust", args$subcluster_times,
+                                                purity_suffix(args$subcluster_purity)) else "flowsom_meta_clusters"
 # Harmony runs get '_harm' appended (e.g. 'flowsom_meta_clusters_subclust3_harm', 'flowsom_harm')
 harm <- if (args$harmony) "_harm" else ""
 folder <- paste0(folder, harm)
@@ -123,7 +129,7 @@ for (iteration in 0:(args$iterations - 1)) {
   start_time <- Sys.time()
   flowsom_df <- FlowSOM(as.matrix(marker_df), silent = FALSE, nClus = args$flow_nclus)
   meta_labels <- subcluster(marker_df, as.character(GetMetaclusters(flowsom_df)), args$subcluster_times,
-                            args$subcluster_k)
+                            args$subcluster_k, df$cell_type, args$subcluster_purity)
   end_time <- Sys.time()
   elapsed <- round(as.numeric(difftime(end_time, start_time, units = "sec")), 2)
 

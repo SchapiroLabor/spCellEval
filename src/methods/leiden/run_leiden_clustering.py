@@ -7,7 +7,7 @@ import pandas as pd
 import scanpy as sc
 import anndata as ad
 import numpy as np
-from utils.greedy_f1_utils import greedy_f1_score
+from utils.greedy_f1_utils import greedy_f1_score, cluster_purity, purity_suffix
 import warnings
 from anndata._core.aligned_df import ImplicitModificationWarning
 import logging
@@ -31,6 +31,7 @@ parser.add_argument('-r', '--resolution', dest='resolution', type=float, require
 parser.add_argument('-sc', '--subcluster_times', dest='subcluster_times', type=int, default=0, help='Number of recursive subclustering rounds applied to the resulting clusters (default: 0 = off)')
 parser.add_argument('-sm', '--subcluster_min_cells', dest='subcluster_min_cells', type=int, default=20, help='Minimal number of cells a cluster needs to be subclustered (default: 20)')
 parser.add_argument('-sr', '--subcluster_resolution', dest='subcluster_resolution', type=float, default=1.0, help='Leiden resolution used for subclustering (default: 1.0)')
+parser.add_argument('-sp', '--subcluster_purity', dest='subcluster_purity', type=float, default=None, help='Clusters whose majority cell_type fraction is >= this are not subclustered further, -sc is then the max depth. Uses the ground truth (oracle setting) (default: None = off)')
 args = parser.parse_args()
 
 # Suppress specific warning from anndata
@@ -91,14 +92,18 @@ def preprocessing(input, split_col_name, exclude_markers, PCA, normalization, tr
     return adata, df
 
 # Define recursive subclustering function
-def subcluster(adata, key, times, min_cells, resolution, random_state):
+def subcluster(adata, key, times, min_cells, resolution, random_state, purity):
     # Each round re-clusters every cluster with >= min_cells on a new kNN graph built from its cells only
-    # (same representation as the top-level graph), new labels are '<parent>,<child>'
+    # (same representation as the top-level graph), new labels are '<parent>,<child>'.
+    # With purity, clusters whose cell_type purity is >= purity are kept
     rep = adata.uns['neighbors']['params']['use_rep']
     labels = adata.obs[key].astype(str).to_numpy()
+    true_labels = adata.obs['cell_type'].to_numpy()
     for _ in range(times):
         new_labels = labels.copy()
         for cluster, idx in pd.Series(labels).groupby(labels).indices.items():
+            if purity is not None and cluster_purity(true_labels[idx]) >= purity:
+                continue
             if len(idx) >= min_cells:
                 sub = adata[idx].copy()
                 sc.pp.neighbors(sub, n_neighbors=15, use_rep=rep)
@@ -108,17 +113,18 @@ def subcluster(adata, key, times, min_cells, resolution, random_state):
     adata.obs[key] = pd.Categorical(labels)
 
 # Define Leiden clustering with greedy assignment function
-def leiden_with_greedy(adata, df, iterations, output_path, log, res, subcluster_times, subcluster_min_cells, subcluster_resolution, harmony):
+def leiden_with_greedy(adata, df, iterations, output_path, log, res, subcluster_times, subcluster_min_cells, subcluster_resolution, subcluster_purity, harmony):
     resolution = f'leiden_res{str(res).replace(".", "_")}'
-    # Subclustering runs are saved in a separate method folder (e.g. '<method>_subclust3'), Harmony runs get '_harm' appended
-    suffix = f'_subclust{subcluster_times}' if subcluster_times > 0 else ''
+    # Subclustering runs are saved in a separate method folder (e.g. '<method>_subclust3', with purity '<method>_subclust3_purity0_9'),
+    # Harmony runs get '_harm' appended
+    suffix = f'_subclust{subcluster_times}{purity_suffix(subcluster_purity)}' if subcluster_times > 0 else ''
     if harmony:
         suffix += '_harm'
     for iteration in range(iterations):
         start = time.time()
         # Seed per iteration, otherwise all iterations give identical clusters (scanpy default random_state=0)
         sc.tl.leiden(adata, resolution=res, key_added=resolution, random_state=iteration, flavor='igraph', n_iterations=2, directed=False)
-        subcluster(adata, resolution, subcluster_times, subcluster_min_cells, subcluster_resolution, iteration)
+        subcluster(adata, resolution, subcluster_times, subcluster_min_cells, subcluster_resolution, iteration, subcluster_purity)
         elapsed = time.time() - start
         if log == 'long':
             logging.info(f'Iteration {iteration}: Leiden clustering with resolution={res} took {elapsed/60:.2f} minutes')
@@ -147,7 +153,7 @@ def main():
     if args.log != 'off':
         logging_setup(args.output_path)
     adata, df = preprocessing(args.input, args.split_col_name, args.exclude_markers, args.PCA, args.normalization, args.transform, args.cofactor, args.harmony)
-    leiden_with_greedy(adata, df, args.iterations, args.output_path, args.log, args.resolution, args.subcluster_times, args.subcluster_min_cells, args.subcluster_resolution, args.harmony)
+    leiden_with_greedy(adata, df, args.iterations, args.output_path, args.log, args.resolution, args.subcluster_times, args.subcluster_min_cells, args.subcluster_resolution, args.subcluster_purity, args.harmony)
 
 
 if __name__ == "__main__":
