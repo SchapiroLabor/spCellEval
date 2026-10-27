@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-run_virtues.py — VirTues config-driven unified pipeline: IMMUcan + cHL_2_MIBI
-=============================================================================
+run_virtues.py — VirTues config-driven unified pipeline (dataset-agnostic)
+==========================================================================
 
 Dataset-agnostic CLI for VirTues. All dataset-specific constants (paths,
 channels, UniProt maps, exclusions, fold layout) live in
@@ -24,17 +24,17 @@ else about the pipeline is identical across checkpoints.
 Usage
 -----
 python run_virtues.py all \\
-    --dataset     immucan \\
-    --config      src/methods/configs/virtues.json \\
-    --output-dir  /home/juliaoesterle/results/virtues/immucan \\
-    --device      cuda:1
+    --dataset-path /home/juliaoesterle/data/phenotyping_benchmark/IMMUcan \\
+    --config       src/methods/configs/virtues.json \\
+    --output-dir   /home/juliaoesterle/results/virtues/IMMUcan \\
+    --device       cuda:1
 
 python run_virtues.py all \\
-    --dataset     cHL_2_MIBI \\
-    --config      src/methods/configs/virtues.json \\
-    --output-dir  /home/juliaoesterle/results/virtues/chl \\
-    --checkpoint  legacy \\
-    --device      cuda:1
+    --dataset-path /home/juliaoesterle/data/phenotyping_benchmark/cHL_2_MIBI \\
+    --config       src/methods/configs/virtues.json \\
+    --output-dir   /home/juliaoesterle/results/virtues/cHL_2_MIBI \\
+    --checkpoint   legacy \\
+    --device       cuda:1
 """
 
 import os
@@ -87,11 +87,8 @@ def _rebase_local_paths(obj, prefix="/home/juliaoesterle", env_var="SPCELLEVAL_R
 def load_config(config_path: str, dataset: str) -> dict:
     with open(config_path) as f:
         cfg = json.load(f)
-    if dataset not in cfg["datasets"]:
-        raise ValueError(f"Dataset '{dataset}' not in {config_path}. "
-                         f"Available: {list(cfg['datasets'])}")
     merged = dict(cfg.get("defaults", {}))
-    merged.update(cfg["datasets"][dataset])
+    merged.update(cfg["datasets"].get(dataset, {}))
     merged["dataset"] = dataset
     return _rebase_local_paths(merged)
 
@@ -245,76 +242,47 @@ def run_compute_cell_tokens(img_processed, seg_np, marker_indices, model, conf, 
     return cell_ids_out, cell_tokens.numpy()
 
 
-#  DATA LOADING  (config-driven paths, dataset-specific ground truth sourcing)
+#  DATA LOADING
 
-def load_immucan_data(cfg, data_root):
-    """
-    Returns meta_df[image_id, cell_id, label], folds (image-level: lists of
-    image ids), img_paths, seg_paths.
-
-    Ground truth comes from CellTypes/cells2labels/{img}.txt (one integer
-    per cell, 1-indexed, -1 = no annotation) resolved against
-    CellTypes/labels_cell_type.csv (int -> phenotype name).
-    """
-    img_dir = data_root / cfg["image_dir"]
-    c2l_dir = data_root / cfg["label_dir"]
-    seg_dir = data_root / cfg["segmentation_dir"]
-
-    lbl_csv  = pd.read_csv(data_root / cfg["labels_csv"])
-    int2type = dict(zip(lbl_csv['label'], lbl_csv['phenotype']))
-
-    img_paths, seg_paths, records = {}, {}, []
-    for npz_path in sorted(img_dir.glob('*.npz')):
-        if npz_path.name.startswith('.'):
-            continue
-        img_id = npz_path.stem
-        img_paths[img_id] = npz_path
-
-        seg_path = seg_dir / f'{img_id}.tiff'
-        if seg_path.exists():
-            seg_paths[img_id] = seg_path
-
-        c2l_path = c2l_dir / f'{img_id}.txt'
-        if not c2l_path.exists():
-            continue
-        with open(c2l_path) as f:
-            label_ints = [int(line.strip()) for line in f if line.strip()]
-        for cell_id, lbl_int in enumerate(label_ints, start=1):
-            if lbl_int == -1:
-                continue  # genuinely unannotated, not part of the dataset
-            if lbl_int not in int2type:
-                raise ValueError(
-                    f"{c2l_path}: label {lbl_int} for cell {cell_id} has no "
-                    f"entry in {cfg['labels_csv']}."
-                )
-            records.append({'image_id': img_id, 'cell_id': cell_id,
-                            'label': int2type[lbl_int]})
-
-    meta_df = pd.DataFrame(records)
-    print(f"Loaded IMMUcan metadata: {len(meta_df):,} cells, "
-          f"{len(img_paths)} images, {len(seg_paths)} segmentation masks")
-
-    with open(data_root / cfg["folds_json"]) as f:
-        raw_folds = json.load(f)
-    fold_indices = sorted({int(k.split('_')[1]) for k in raw_folds if k.startswith('fold_')})
-    folds = [{'train': raw_folds[f'fold_{i}_train_set'],
-              'test':  raw_folds[f'fold_{i}_test_set']} for i in fold_indices]
-    print(f"Loaded {len(folds)} folds (image-level)")
-
-    return meta_df, folds, img_paths, seg_paths
+def _file_stem(name):
+    for ext in ('.ome.tiff', '.ome.tif', '.tiff', '.tif'):
+        if name.endswith(ext):
+            return name[:-len(ext)]
+    return name
 
 
-def load_chl_data(cfg, data_root):
+def find_image(img_dir, img_id):
+    files = [p for p in img_dir.iterdir() if not p.name.startswith('.')]
+    exact = [p for p in files if _file_stem(p.name) == img_id]
+    if exact:
+        return exact[0]
+    prefixed = [p for p in files if _file_stem(p.name).startswith(f'{img_id}_')]
+    return prefixed[0] if len(prefixed) == 1 else None
+
+
+def find_segmentation(seg_dir, img_id):
+    for ext in ('.tiff', '.tif'):
+        if (seg_dir / f'{img_id}{ext}').exists():
+            return seg_dir / f'{img_id}{ext}'
+    if (seg_dir / img_id).is_dir():
+        seg_files = sorted(p for p in (seg_dir / img_id).rglob('segmentationMap.tif')
+                           if not p.name.startswith('.'))
+        if seg_files:
+            return seg_files[0]
+    return None
+
+
+def load_data(cfg, data_root, folds_dir, include_validation=False):
     """
     Returns meta_df[image_id, cell_id, label], folds (cell-level: sets of
     (image_id, cell_id) tuples), img_paths, seg_paths.
 
     Ground truth comes directly from the quantification table's own
     'cell_type' column. Folds are read from the per-fold fold_{i}_train.csv/
-    fold_{i}_test.csv files (see virtues.json's _comment_folds_dir), not from
-    fold_indices.json.
+    fold_{i}_test.csv files.
     """
-    raw_df = pd.read_csv(data_root / cfg["quant_csv"])
+    quant_csv = data_root / 'quantification' / 'processed' / f'{data_root.name}_quantification.csv'
+    raw_df = pd.read_csv(quant_csv, usecols=['sample_id', 'cell_id', 'cell_type'])
     raw_df['sample_id'] = raw_df['sample_id'].astype(str).str.replace('.csv', '', regex=False)
 
     def load_keys(path):
@@ -322,38 +290,36 @@ def load_chl_data(cfg, data_root):
         df['sample_id'] = df['sample_id'].astype(str).str.replace('.csv', '', regex=False)
         return set(zip(df['sample_id'], df['cell_id']))
 
-    folds_dir = data_root / cfg["folds_dir"]
-    folds  = []
-    fold_i = 1
+    folds   = []
+    fold_i  = 1
     while (folds_dir / f'fold_{fold_i}_train.csv').exists():
+        train_keys = load_keys(folds_dir / f'fold_{fold_i}_train.csv')
+        if include_validation and (folds_dir / f'fold_{fold_i}_validation.csv').exists():
+            train_keys |= load_keys(folds_dir / f'fold_{fold_i}_validation.csv')
         folds.append({
-            'train': load_keys(folds_dir / f'fold_{fold_i}_train.csv'),
+            'train': train_keys,
             'test':  load_keys(folds_dir / f'fold_{fold_i}_test.csv'),
         })
         fold_i += 1
-    print(f"Loaded {len(folds)} folds (cell-level)")
+    print(f"Loaded {len(folds)} folds (cell-level) from {folds_dir}")
 
     exclude_labels = set(cfg.get("exclude_labels", []))
     meta_df = raw_df[~raw_df['cell_type'].isin(exclude_labels)].copy()
     meta_df = meta_df.rename(columns={'sample_id': 'image_id', 'cell_type': 'label'})
     meta_df = meta_df[['image_id', 'cell_id', 'label']]
-    print(f"Loaded cHL metadata: {len(meta_df):,} cells "
+    print(f"Loaded metadata: {len(meta_df):,} cells "
           f"(dropped {len(raw_df) - len(meta_df):,} excluded-label cells)")
 
-    img_dir   = data_root / cfg["image_dir"]
-    img_paths = {}
-    for tif in sorted(img_dir.glob('*_stacked.ome.tif')):
-        if tif.name.startswith('.'):
-            continue
-        img_paths[tif.name.replace('_stacked.ome.tif', '')] = tif
-
-    seg_dir   = data_root / cfg["segmentation_dir"]
-    seg_paths = {}
-    for img_id in img_paths:
-        seg_files = [p for p in (seg_dir / img_id).rglob('segmentationMap.tif')
-                     if not p.name.startswith('.')]
-        if seg_files:
-            seg_paths[img_id] = seg_files[0]
+    img_dir   = data_root / 'raw_images' / 'multistack_tiffs'
+    seg_dir   = data_root / 'segmentation'
+    img_paths, seg_paths = {}, {}
+    for img_id in sorted(meta_df['image_id'].unique()):
+        img_path = find_image(img_dir, img_id)
+        if img_path is not None:
+            img_paths[img_id] = img_path
+        seg_path = find_segmentation(seg_dir, img_id)
+        if seg_path is not None:
+            seg_paths[img_id] = seg_path
     print(f"Found {len(img_paths)} images, {len(seg_paths)} segmentation maps")
 
     return meta_df, folds, img_paths, seg_paths
@@ -361,12 +327,7 @@ def load_chl_data(cfg, data_root):
 
 #  IMAGE / SEGMENTATION READING
 
-def read_immucan_image(img_path, clean_indices):
-    arr = np.load(img_path, allow_pickle=True)
-    return arr['data'].astype(np.float32)[clean_indices]
-
-
-def read_chl_image(img_path, clean_indices):
+def read_image(img_path, clean_indices):
     return tifffile.imread(str(img_path)).astype(np.float32)[clean_indices]
 
 
@@ -377,7 +338,7 @@ def read_segmentation(seg_path):
 #  FEATURE EXTRACTION
 
 def extract_features(args, model, conf, all_images, clean_indices, channel_mask,
-                     marker_indices, meta_df, img_paths, seg_paths, read_img_fn):
+                     marker_indices, meta_df, img_paths, seg_paths):
     """
     Runs compute_cell_tokens per image (one token per segmented cell), then
     keeps only the cells present in meta_df (ground truth). Per-image results
@@ -412,7 +373,7 @@ def extract_features(args, model, conf, all_images, clean_indices, channel_mask,
             continue
         label_lookup = dict(zip(meta_img['cell_id'], meta_img['label']))
 
-        img_raw = read_img_fn(img_paths[img_id], clean_indices)
+        img_raw = read_image(img_paths[img_id], clean_indices)
         img_processed = preprocess_image(img_raw, channel_mask)
         seg_np = read_segmentation(seg_paths[img_id])
 
@@ -472,7 +433,12 @@ def build_parser():
                 'all':        'extract -> supervised -> leiden in sequence',
             }[mode],
         )
-        p.add_argument('--dataset', choices=['immucan', 'cHL_2_MIBI'], required=True)
+        p.add_argument('--dataset-path', required=True,
+                       help='Dataset directory (markers.txt, quantification/, raw_images/, segmentation/)')
+        p.add_argument('--folds-dir', default=None,
+                       help='k-fold directory, absolute or relative to --dataset-path')
+        p.add_argument('--include-validation', action='store_true',
+                       help='Add fold_{i}_validation.csv cells to the training set')
         p.add_argument('--config',  required=True, help='Path to virtues.json')
         p.add_argument('--output-dir', required=True)
         p.add_argument('--spceleval-dir', default=None)
@@ -501,6 +467,8 @@ def main():
     args   = parser.parse_args()
     total_start = time.time()
 
+    data_root    = Path(args.dataset_path)
+    args.dataset = data_root.name
     cfg = load_config(args.config, args.dataset)
 
     def fill(attr, key, default=None):
@@ -519,6 +487,7 @@ def main():
     fill('leiden_resolution', 'leiden_resolution', 2.0)
     fill('leiden_n_neighbors', 'leiden_n_neighbors', 15)
     fill('leiden_subsample', 'leiden_subsample', 50000)
+    fill('folds_dir', 'folds_dir', 'quantification/processed/kfolds_StratifiedGroupKFold_level3')
 
     print(f"\n{'='*60}")
     print(f"run_virtues.py | mode={args.mode} | dataset={args.dataset}")
@@ -530,17 +499,13 @@ def main():
     # Other datasets need their own embedding dir (see virtues.json).
     emb_dir = str(virtues_dir / cfg.get('marker_embedding_dir', 'assets/example_dataset/marker_embeddings'))
 
-    data_root = Path(cfg["data_root"])
-    fold_type = cfg["fold_type"]
+    with open(data_root / 'markers.txt') as f:
+        channels = [line.strip() for line in f if line.strip()]
     clean_indices, _, channel_mask, marker_indices = get_clean_markers(
-        cfg["channels"], cfg["exclude_markers"], cfg["uniprot_map"], emb_dir)
+        channels, cfg.get("exclude_markers", []), cfg.get("uniprot_map", {}), emb_dir)
 
-    if args.dataset == 'immucan':
-        meta_df, folds, img_paths, seg_paths = load_immucan_data(cfg, data_root)
-        read_img_fn = read_immucan_image
-    else:
-        meta_df, folds, img_paths, seg_paths = load_chl_data(cfg, data_root)
-        read_img_fn = read_chl_image
+    meta_df, folds, img_paths, seg_paths = load_data(
+        cfg, data_root, data_root / args.folds_dir, args.include_validation)
 
     all_images = sorted(img_paths.keys())
 
@@ -552,15 +517,15 @@ def main():
             virtues_dir, args.device, args.checkpoint, emb_dir)
         img_feature_store, all_feats_arr, metadata_all = extract_features(
             args, model, conf, all_images, clean_indices, channel_mask,
-            marker_indices, meta_df, img_paths, seg_paths, read_img_fn,
+            marker_indices, meta_df, img_paths, seg_paths,
         )
 
     if args.mode in ('supervised', 'all'):
         run_supervised(args, folds, img_feature_store, all_feats_arr, metadata_all,
-                       method_name='VIRTUES_supervised', fold_type=fold_type)
+                       method_name='VIRTUES_supervised', fold_type='cell')
     if args.mode in ('leiden', 'all'):
         run_leiden(args, folds, img_feature_store, all_feats_arr, metadata_all,
-                   method_name='VIRTUES_leiden', fold_type=fold_type)
+                   method_name='VIRTUES_leiden', fold_type='cell')
 
     total_time = time.time() - total_start
     print(f"\n{'='*60}")

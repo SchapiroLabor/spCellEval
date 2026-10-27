@@ -12,29 +12,14 @@
     "n_jobs": -1,
     "leiden_resolution": 2.0,
     "leiden_n_neighbors": 15,
-    "leiden_subsample": 50000
+    "leiden_subsample": 50000,
+    "folds_dir": "quantification/processed/kfolds_StratifiedGroupKFold_level3"
   },
   "datasets": {
-    "immucan": {
-      "data_root": "/home/juliaoesterle/data/phenotyping_benchmark/IMMUcan",
-      "fold_type": "image",
-      "image_dir": "CellTypes/data/images",
-      "label_dir": "CellTypes/cells2labels",
-      "segmentation_dir": "segmentation",
-      "labels_csv": "CellTypes/labels_cell_type.csv",
-      "folds_json": "CellTypes/folds.json",
-      "image_format": "npz",
+    "IMMUcan": {
       "_comment_crop_size": "64px, empirically best on IMMUcan (see run_virtues.py docstring history).",
       "crop_size": 64,
       "stride": 21,
-      "channels": [
-        "MPO", "HistoneH3", "SMA", "CD16", "CD38", "HLADR", "CD27", "CD15",
-        "CD45RA", "CD163", "B2M", "CD20", "CD68", "Ido1", "CD3", "LAG3",
-        "CD11c", "PD1", "PDGFRb", "CD7", "GrzB", "PDL1", "TCF7", "CD45RO",
-        "FOXP3", "ICOS", "CD8a", "CarbonicAnhydrase", "CD33", "Ki67",
-        "VISTA", "CD40", "CD4", "CD14", "Ecad", "CD303", "CD206",
-        "cleavedPARP", "DNA1", "DNA2"
-      ],
       "exclude_markers": ["DNA1", "DNA2", "HistoneH3"],
       "uniprot_map": {
         "MPO": "P05164", "SMA": "P62736", "CD16": "P08637", "CD38": "P28907",
@@ -50,24 +35,6 @@
       }
     },
     "cHL_2_MIBI": {
-      "data_root": "/home/juliaoesterle/data/phenotyping_benchmark/cHL_2_MIBI",
-      "fold_type": "cell",
-      "quant_csv": "quantification/processed/cHL_2_MIBI_quantification.csv",
-      "_comment_folds_dir": "fold_indices.json's own 'train'/'test' integer lists are NOT consistent row positions into the master quantification CSV (they overlap between train and test, and don't span the full row range) -- they come from create_validation_set_from_fold()'s per-fold-file reset index. The per-fold fold_{i}_train.csv/fold_{i}_test.csv files are read directly instead, keyed by sample_id+cell_id; verified mutually disjoint and summing to the full dataset. Same approach as eva.json and the classic_ml baseline (default_classic_ml_models_kfolds.py), which reads these same per-fold CSVs directly.",
-      "folds_dir": "quantification/processed/kfolds_StratifiedGroupKFold_level3",
-      "image_dir": "raw_images/multistack_tiffs",
-      "segmentation_dir": "segmentation",
-      "image_format": "ome_tiff",
-      "_comment_channels": "Verified against the raw OME-XML metadata of raw_images/multistack_tiffs/1_stacked.ome.tif (tifffile .ome_metadata) and cross-checked against markers.txt at the dataset root.",
-      "channels": [
-        "CD4", "CD20", "PD-1", "FoxP3", "CD14", "CD161", "Tbet", "CD25",
-        "CD68", "CD3", "CD57", "Pax-5", "GATA3", "TCRgd", "RORgT", "CD45RO",
-        "Na-K ATPase", "CD56", "Lag3", "CD45RA", "B2-Microglobulin", "TIM3",
-        "SLP-76", "Tox", "Histone H3", "CD30", "CXCR5", "Ki-67", "Granzyme B",
-        "CD8", "PD-L1", "CD45", "HLA1", "CD153 (CD30L)", "pSLP-76", "HLA-DR",
-        "CD16", "dsDNA", "CD86", "CD11c", "CD15", "CD28", "CD123",
-        "anti-H2AX (pS139)", "CD163", "IL-10"
-      ],
       "_comment_exclude_markers": "VirTues's marker-conditioning has a soft channel-mask fallback for unmatched markers (no hard KeyError like Eva/KRONOS2), so only true structural stains without a biological equivalent need excluding here.",
       "exclude_markers": ["Histone H3", "SLP-76", "anti-H2AX (pS139)", "dsDNA", "pSLP-76"],
       "_comment_marker_embedding_dir": "assets/example_dataset/marker_embeddings (the demo's shipped embeddings) only covers IMMUcan's 37 markers, not cHL's. The missing cHL markers' ESM embeddings were generated via virtues/utils/compute_esm_embeddings.py from UniProt-fetched FASTA sequences and added to assets/chl_dataset/marker_embeddings/ (82 files total). CD57 and TCRgd stay unembedded -- neither is a single-gene product (CD57 is a carbohydrate epitope, TCRgd a multi-chain receptor complex), so no UniProt entry applies.",
