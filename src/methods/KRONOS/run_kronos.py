@@ -22,20 +22,20 @@ all         extract -> supervised -> leiden.
 Usage
 -----
 python run_kronos.py all \\
-    --dataset     immucan \\
-    --config      src/methods/configs/kronos.json \\
-    --kronos-dir  /home/juliaoesterle/KRONOS_mine \\
-    --marker-meta /home/juliaoesterle/KRONOS_mine/model_assets/marker_metadata.csv \\
-    --output-dir  /home/juliaoesterle/results/kronos/immucan \\
-    --device      cuda:0
+    --dataset-path /home/juliaoesterle/data/phenotyping_benchmark/IMMUcan \\
+    --config       src/methods/configs/kronos.json \\
+    --kronos-dir   /home/juliaoesterle/KRONOS_mine \\
+    --marker-meta  /home/juliaoesterle/KRONOS_mine/model_assets/marker_metadata.csv \\
+    --output-dir   /home/juliaoesterle/results/kronos/IMMUcan \\
+    --device       cuda:0
 
 python run_kronos.py all \\
-    --dataset     cHL_2_MIBI \\
-    --config      src/methods/configs/kronos.json \\
-    --kronos-dir  /home/juliaoesterle/KRONOS_mine \\
-    --marker-meta /home/juliaoesterle/KRONOS_mine/model_assets/marker_metadata.csv \\
-    --output-dir  /home/juliaoesterle/results/kronos/chl \\
-    --device      cuda:0
+    --dataset-path /home/juliaoesterle/data/phenotyping_benchmark/cHL_2_MIBI \\
+    --config       src/methods/configs/kronos.json \\
+    --kronos-dir   /home/juliaoesterle/KRONOS_mine \\
+    --marker-meta  /home/juliaoesterle/KRONOS_mine/model_assets/marker_metadata.csv \\
+    --output-dir   /home/juliaoesterle/results/kronos/cHL_2_MIBI \\
+    --device       cuda:0
 """
 
 import os
@@ -64,8 +64,7 @@ import torch
 from tqdm import tqdm
 
 from utils.utils_foundational_models import (
-    load_label_map, load_folds, get_label, save_embeddings,
-    load_embeddings, rebuild_img_feature_store, run_supervised, run_leiden,
+    save_embeddings, load_embeddings, rebuild_img_feature_store, run_supervised, run_leiden,
 )
 
 warnings.filterwarnings('ignore', category=FutureWarning)
@@ -93,11 +92,8 @@ def _rebase_local_paths(obj, prefix="/home/juliaoesterle", env_var="SPCELLEVAL_R
 def load_config(config_path: str, dataset: str) -> dict:
     with open(config_path) as f:
         cfg = json.load(f)
-    if dataset not in cfg["datasets"]:
-        raise ValueError(f"Dataset '{dataset}' not in {config_path}. "
-                         f"Available: {list(cfg['datasets'])}")
     merged = dict(cfg.get("defaults", {}))
-    merged.update(cfg["datasets"][dataset])
+    merged.update(cfg["datasets"].get(dataset, {}))
     merged["dataset"] = dataset
     return _rebase_local_paths(merged)
 
@@ -238,121 +234,44 @@ def extract_features_batch(patches, model, means, stds, device):
     return patch_embeddings.cpu().numpy()                # (N, embedding_dim)
 
 
-#  Feature extraction
+#  Data loading + feature extraction
 
-def extract_features(args, cfg, model, all_images, clean_indices, clean_names,
-                     means, stds, label_map):
-    """
-    Extract KRONOS cell embeddings for all images using adaptive bounding box.
-    Results are cached per image for crash-safe resumption.
-    """
-    data_root = Path(cfg["data_root"])
-    cache_dir = Path(args.output_dir) / 'embeddings' / 'cache'
-    cache_dir.mkdir(parents=True, exist_ok=True)
-
-    NPZ_DIR    = data_root / cfg["image_dir"]
-    MASK_DIR   = data_root / cfg["segmentation_dir"]
-    LABELS_DIR = data_root / cfg["label_dir"]
-
-    img_feature_store = {}
-
-    print(f"\nExtracting KRONOS features | patch_size={args.patch_size} | "
-          f"batch_size={args.batch_size} | device={args.device}")
-    print("=" * 60)
-
-    for img_name in tqdm(all_images, desc="KRONOS (bbox)"):
-        cache_feat = cache_dir / f"{img_name}_feat.npy"
-        cache_meta = cache_dir / f"{img_name}_meta.csv"
-
-        if cache_feat.exists() and cache_meta.exists():
-            feats = np.load(cache_feat)
-            meta  = pd.read_csv(cache_meta)
-            img_feature_store[img_name] = (
-                feats, meta['label'].tolist(), meta['cell_id'].tolist()
-            )
-            continue
-
-        npz_file   = NPZ_DIR    / f"{img_name}.npz"
-        mask_file  = MASK_DIR   / f"{img_name}.tiff"
-        label_file = LABELS_DIR / f"{img_name}.txt"
-        if not all(f.exists() for f in [npz_file, mask_file, label_file]):
-            print(f"  Skipping {img_name} — missing files")
-            continue
-
-        img = np.load(npz_file)['data'].astype(np.float32)
-        img = img[clean_indices]
-        img = img / (img.max() + 1e-8)     # scale to [0,1] before KRONOS normalisation
-        img = img.transpose(1, 2, 0)       # (H, W, C)
-
-        mask = tifffile.imread(mask_file)
-        with open(label_file) as f:
-            cell_labels = [int(line.strip()) for line in f.readlines()]
-
-        cell_ids = np.unique(mask)
-        cell_ids = cell_ids[cell_ids > 0]
-
-        patches_buf, labels_buf, cell_ids_buf = [], [], []
-        for cell_id in cell_ids:
-            label  = get_label(int(cell_id), cell_labels, label_map)
-            ys, xs = np.where(mask == cell_id)
-            patch  = get_bbox_patch(img, ys, xs, args.patch_size)
-            patches_buf.append(patch)
-            labels_buf.append(label)
-            cell_ids_buf.append(int(cell_id))
-
-        all_feats = []
-        for i in range(0, len(patches_buf), args.batch_size):
-            batch_feats = extract_features_batch(
-                patches_buf[i:i + args.batch_size],
-                model, means, stds, args.device
-            )
-            all_feats.extend(batch_feats)
-            torch.cuda.empty_cache()
-
-        feats_arr = np.array(all_feats)
-
-        np.save(cache_feat, feats_arr)
-        pd.DataFrame({
-            'image_id': [img_name] * len(cell_ids_buf),
-            'cell_id':  cell_ids_buf,
-            'label':    labels_buf,
-        }).to_csv(cache_meta, index=False)
-
-        img_feature_store[img_name] = (feats_arr, labels_buf, cell_ids_buf)
-
-    all_feats_list, all_labels_list, all_ids_list, all_imgs_list = [], [], [], []
-    for img_name, (feats, labels, cell_ids) in img_feature_store.items():
-        all_feats_list.extend(feats)
-        all_labels_list.extend(labels)
-        all_ids_list.extend(cell_ids)
-        all_imgs_list.extend([img_name] * len(cell_ids))
-
-    all_feats_arr = np.array(all_feats_list)
-    metadata_all  = pd.DataFrame({
-        'image_id': all_imgs_list,
-        'cell_id':  all_ids_list,
-        'label':    all_labels_list,
-    })
-
-    save_embeddings(args.output_dir, all_feats_arr, metadata_all)
-
-    print(f"\nExtraction complete: {len(all_feats_arr):,} cells | "
-          f"embedding_dim={all_feats_arr.shape[1]}")
-    print(pd.Series(all_labels_list).value_counts().to_string())
-
-    return img_feature_store, all_feats_arr, metadata_all
+def _file_stem(name):
+    for ext in ('.ome.tiff', '.ome.tif', '.tiff', '.tif'):
+        if name.endswith(ext):
+            return name[:-len(ext)]
+    return name
 
 
-#  cHL data loading + feature extraction
+def find_image(img_dir, img_id):
+    files = [p for p in img_dir.iterdir() if not p.name.startswith('.')]
+    exact = [p for p in files if _file_stem(p.name) == img_id]
+    if exact:
+        return exact[0]
+    prefixed = [p for p in files if _file_stem(p.name).startswith(f'{img_id}_')]
+    return prefixed[0] if len(prefixed) == 1 else None
 
-def load_chl_data(cfg, data_root):
+
+def find_segmentation(seg_dir, img_id):
+    for ext in ('.tiff', '.tif'):
+        if (seg_dir / f'{img_id}{ext}').exists():
+            return seg_dir / f'{img_id}{ext}'
+    if (seg_dir / img_id).is_dir():
+        seg_files = sorted(p for p in (seg_dir / img_id).rglob('segmentationMap.tif')
+                           if not p.name.startswith('.'))
+        if seg_files:
+            return seg_files[0]
+    return None
+
+
+def load_data(cfg, data_root, folds_dir, include_validation=False):
     """
     Returns meta_df[image_id, cell_id, label], folds (cell-level: sets of
     (image_id, cell_id) tuples read from the per-fold fold_{i}_train.csv/
-    fold_{i}_test.csv files, not fold_indices.json -- see kronos.json's
-    _comment_folds_dir), img_paths, seg_paths.
+    fold_{i}_test.csv files), img_paths, seg_paths.
     """
-    raw_df = pd.read_csv(data_root / cfg["quant_csv"])
+    quant_csv = data_root / 'quantification' / 'processed' / f'{data_root.name}_quantification.csv'
+    raw_df = pd.read_csv(quant_csv, usecols=['sample_id', 'cell_id', 'cell_type'])
     raw_df['sample_id'] = raw_df['sample_id'].astype(str).str.replace('.csv', '', regex=False)
 
     def load_keys(path):
@@ -360,61 +279,57 @@ def load_chl_data(cfg, data_root):
         df['sample_id'] = df['sample_id'].astype(str).str.replace('.csv', '', regex=False)
         return set(zip(df['sample_id'], df['cell_id']))
 
-    folds_dir = data_root / cfg["folds_dir"]
     folds  = []
     fold_i = 1
     while (folds_dir / f'fold_{fold_i}_train.csv').exists():
+        train_keys = load_keys(folds_dir / f'fold_{fold_i}_train.csv')
+        if include_validation and (folds_dir / f'fold_{fold_i}_validation.csv').exists():
+            train_keys |= load_keys(folds_dir / f'fold_{fold_i}_validation.csv')
         folds.append({
-            'train': load_keys(folds_dir / f'fold_{fold_i}_train.csv'),
+            'train': train_keys,
             'test':  load_keys(folds_dir / f'fold_{fold_i}_test.csv'),
         })
         fold_i += 1
-    print(f"Loaded {len(folds)} folds (cell-level)")
+    print(f"Loaded {len(folds)} folds (cell-level) from {folds_dir}")
 
     exclude_labels = set(cfg.get("exclude_labels", []))
     meta_df = raw_df[~raw_df['cell_type'].isin(exclude_labels)].copy()
     meta_df = meta_df.rename(columns={'sample_id': 'image_id', 'cell_type': 'label'})
     meta_df = meta_df[['image_id', 'cell_id', 'label']]
-    print(f"Loaded cHL metadata: {len(meta_df):,} cells "
+    print(f"Loaded metadata: {len(meta_df):,} cells "
           f"(dropped {len(raw_df) - len(meta_df):,} excluded-label cells)")
 
-    img_dir   = data_root / cfg["image_dir"]
-    img_paths = {}
-    for tif in sorted(img_dir.glob('*_stacked.ome.tif')):
-        if tif.name.startswith('.'):
-            continue
-        img_paths[tif.name.replace('_stacked.ome.tif', '')] = tif
-
-    seg_dir   = data_root / cfg["segmentation_dir"]
-    seg_paths = {}
-    for img_id in img_paths:
-        seg_files = [p for p in (seg_dir / img_id).rglob('segmentationMap.tif')
-                     if not p.name.startswith('.')]
-        if seg_files:
-            seg_paths[img_id] = seg_files[0]
+    img_dir   = data_root / 'raw_images' / 'multistack_tiffs'
+    seg_dir   = data_root / 'segmentation'
+    img_paths, seg_paths = {}, {}
+    for img_id in sorted(meta_df['image_id'].unique()):
+        img_path = find_image(img_dir, img_id)
+        if img_path is not None:
+            img_paths[img_id] = img_path
+        seg_path = find_segmentation(seg_dir, img_id)
+        if seg_path is not None:
+            seg_paths[img_id] = seg_path
     print(f"Found {len(img_paths)} images, {len(seg_paths)} segmentation maps")
 
     return meta_df, folds, img_paths, seg_paths
 
 
-def extract_features_chl(args, model, all_images, clean_indices, clean_names,
-                         means, stds, meta_df, img_paths, seg_paths):
+def extract_features(args, model, all_images, clean_indices, clean_names,
+                     means, stds, meta_df, img_paths, seg_paths):
     """
-    cHL equivalent of extract_features(). Same bbox-crop + normalisation
-    logic; only image/mask reading and ground-truth lookup differ (ome_tiff
-    images, nested per-image segmentation maps, labels from meta_df instead
-    of cells2labels/*.txt + label_map).
+    Extract KRONOS cell embeddings for all images using adaptive bounding box.
+    Results are cached per image for crash-safe resumption.
     """
     cache_dir = Path(args.output_dir) / 'embeddings' / 'cache'
     cache_dir.mkdir(parents=True, exist_ok=True)
 
     img_feature_store = {}
 
-    print(f"\nExtracting KRONOS features (cHL) | patch_size={args.patch_size} | "
+    print(f"\nExtracting KRONOS features | patch_size={args.patch_size} | "
           f"batch_size={args.batch_size} | device={args.device}")
     print("=" * 60)
 
-    for img_id in tqdm(all_images, desc="KRONOS (bbox, cHL)"):
+    for img_id in tqdm(all_images, desc="KRONOS (bbox)"):
         cache_feat = cache_dir / f"{img_id}_feat.npy"
         cache_meta = cache_dir / f"{img_id}_meta.csv"
 
@@ -524,7 +439,12 @@ def build_parser():
                 'all':        'extract -> supervised -> leiden in sequence',
             }[mode],
         )
-        p.add_argument('--dataset', choices=['immucan', 'cHL_2_MIBI'], required=True)
+        p.add_argument('--dataset-path', required=True,
+                       help='Dataset directory (markers.txt, quantification/, raw_images/, segmentation/)')
+        p.add_argument('--folds-dir', default=None,
+                       help='k-fold directory, absolute or relative to --dataset-path')
+        p.add_argument('--include-validation', action='store_true',
+                       help='Add fold_{i}_validation.csv cells to the training set')
         p.add_argument('--config',  required=True, help='Path to kronos.json')
         p.add_argument('--kronos-dir', required=True,
                        help='KRONOS repo directory (contains kronos/ package)')
@@ -552,6 +472,8 @@ def main():
     args   = parser.parse_args()
     total_start = time.time()
 
+    data_root    = Path(args.dataset_path)
+    args.dataset = data_root.name
     cfg = load_config(args.config, args.dataset)
 
     def fill(attr, key, default=None):
@@ -566,24 +488,22 @@ def main():
     fill('leiden_resolution', 'leiden_resolution', 2.0)
     fill('leiden_n_neighbors', 'leiden_n_neighbors', 15)
     fill('leiden_subsample', 'leiden_subsample', 50000)
+    fill('folds_dir', 'folds_dir', 'quantification/processed/kfolds_StratifiedGroupKFold_level3')
 
     print(f"\n{'='*60}")
     print(f"run_kronos.py | mode={args.mode} | dataset={args.dataset}")
     print(f"{'='*60}")
 
-    data_root     = Path(cfg["data_root"])
-    fold_type     = cfg["fold_type"]
-    clean_indices, clean_names = get_clean_markers(cfg["biomarkers"], cfg["exclude_markers"])
+    with open(data_root / 'markers.txt') as f:
+        biomarkers = [line.strip() for line in f if line.strip()]
+    clean_indices, clean_names = get_clean_markers(biomarkers, cfg.get("exclude_markers", []))
     means, stds, marker_ids = build_normalisation_params(
         clean_names, args.marker_meta, cfg.get("name_mappings", {}), cfg.get("no_equivalent", [])
     )
 
-    if args.dataset == 'immucan':
-        label_map          = load_label_map(str(data_root))
-        folds, all_images  = load_folds(str(data_root), args.n_folds)
-    else:
-        meta_df, folds, img_paths, seg_paths = load_chl_data(cfg, data_root)
-        all_images = sorted(img_paths.keys())
+    meta_df, folds, img_paths, seg_paths = load_data(
+        cfg, data_root, data_root / args.folds_dir, args.include_validation)
+    all_images = sorted(img_paths.keys())
 
     supervised_name = 'KRONOS_supervised'
     leiden_name     = 'KRONOS_leiden'
@@ -593,23 +513,18 @@ def main():
         img_feature_store = rebuild_img_feature_store(args.output_dir, all_images)
     else:
         model, embedding_dim, precision = load_kronos_model(args.kronos_dir, args.device)
-        if args.dataset == 'immucan':
-            img_feature_store, all_feats_arr, metadata_all = extract_features(
-                args, cfg, model, all_images, clean_indices, clean_names, means, stds, label_map
-            )
-        else:
-            img_feature_store, all_feats_arr, metadata_all = extract_features_chl(
-                args, model, all_images, clean_indices, clean_names, means, stds,
-                meta_df, img_paths, seg_paths
-            )
+        img_feature_store, all_feats_arr, metadata_all = extract_features(
+            args, model, all_images, clean_indices, clean_names, means, stds,
+            meta_df, img_paths, seg_paths
+        )
 
     if args.mode in ('supervised', 'all'):
         run_supervised(args, folds, img_feature_store, all_feats_arr, metadata_all,
-                       method_name=supervised_name, fold_type=fold_type)
+                       method_name=supervised_name, fold_type='cell')
 
     if args.mode in ('leiden', 'all'):
         run_leiden(args, folds, img_feature_store, all_feats_arr, metadata_all,
-                   method_name=leiden_name, fold_type=fold_type)
+                   method_name=leiden_name, fold_type='cell')
 
     total_time = time.time() - total_start
     print(f"\n{'='*60}")
