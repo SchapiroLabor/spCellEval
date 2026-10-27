@@ -93,7 +93,7 @@ def load_embeddings(output_dir):
     meta_file = emb_dir / 'all_cell_metadata.csv'
     if feat_file.exists() and meta_file.exists():
         all_feats_arr = np.load(feat_file)
-        metadata_all  = pd.read_csv(meta_file)
+        metadata_all  = pd.read_csv(meta_file, dtype={'image_id': str})
         print(f"Loaded precomputed embeddings: {all_feats_arr.shape} from {emb_dir}")
         return all_feats_arr, metadata_all
     return None, None
@@ -111,7 +111,7 @@ def rebuild_img_feature_store(output_dir, all_images):
         cm = cache_dir / f"{img_name}_meta.csv"
         if cf.exists() and cm.exists():
             feats = np.load(cf)
-            meta  = pd.read_csv(cm)
+            meta  = pd.read_csv(cm, dtype={'image_id': str})
             img_feature_store[img_name] = (
                 feats, meta['label'].tolist(), meta['cell_id'].tolist()
             )
@@ -304,7 +304,7 @@ def run_supervised(args, folds, img_feature_store, all_feats_arr, metadata_all,
         clf = LogisticRegression(
             C=logreg_c, max_iter=2000, random_state=42,
             class_weight='balanced', solver='lbfgs',
-            multi_class='multinomial', n_jobs=args.n_jobs,
+            n_jobs=args.n_jobs,
         )
         clf.fit(X_train_s, y_train)
         train_time = time.time() - train_start

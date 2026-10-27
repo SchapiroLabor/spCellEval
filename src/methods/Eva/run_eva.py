@@ -281,7 +281,7 @@ def extract_features(args, model, all_images, clean_indices, biomarkers,
         cache_meta = cache_dir / f"{img_id}_meta.csv"
         if cache_feat.exists() and cache_meta.exists():
             feats = np.load(cache_feat)
-            meta  = pd.read_csv(cache_meta)
+            meta  = pd.read_csv(cache_meta, dtype={'image_id': str})
             img_feature_store[img_id] = (feats, meta['label'].tolist(), meta['cell_id'].tolist())
             all_feats_list.append(feats)
             meta_records.append(meta)
@@ -350,7 +350,7 @@ def build_parser():
                        help='Dataset directory (markers.txt, quantification/, raw_images/, segmentation/)')
         p.add_argument('--folds-dir', default=None,
                        help='k-fold directory, absolute or relative to --dataset-path')
-        p.add_argument('--include-validation', action='store_true',
+        p.add_argument('--include-validation', action=argparse.BooleanOptionalAction, default=None,
                        help='Add fold_{i}_validation.csv cells to the training set')
         p.add_argument('--config',  required=True, help='Path to eva.json')
         p.add_argument('--eva-dir', required=True, help='Eva project root')
@@ -392,6 +392,7 @@ def main():
     fill('leiden_n_neighbors', 'leiden_n_neighbors', 15)
     fill('leiden_subsample', 'leiden_subsample', 50000)
     fill('folds_dir', 'folds_dir', 'quantification/processed/kfolds_StratifiedGroupKFold_level3')
+    fill('include_validation', 'include_validation', False)
 
     print(f"\n{'='*60}")
     print(f"run_eva.py | mode={args.mode} | dataset={args.dataset}")
