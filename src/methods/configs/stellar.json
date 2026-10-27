@@ -10,7 +10,8 @@
     "node_batch_size": 512,
     "num_neighbors": [10],
     "device": "cuda:0",
-    "folds_dir": "quantification/processed/kfolds_StratifiedGroupKFold_level3"
+    "folds_dir": "quantification/processed/kfolds_StratifiedGroupKFold_level3",
+    "include_validation": true
   },
   "datasets": {
     "IMMUcan": {

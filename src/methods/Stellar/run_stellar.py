@@ -479,7 +479,7 @@ def main():
                         help="Dataset directory (markers.txt, quantification/, raw_images/, segmentation/)")
     parser.add_argument("--folds-dir", default=None,
                         help="k-fold directory, absolute or relative to --dataset-path")
-    parser.add_argument("--include-validation", action="store_true",
+    parser.add_argument("--include-validation", action=argparse.BooleanOptionalAction, default=None,
                         help="Add fold_{i}_validation.csv cells to the training set")
     parser.add_argument("--config",  required=True, help="Path to stellar.json")
     parser.add_argument("--fold", type=int, default=None, help="Single fold (0-based). Default: all.")
@@ -531,7 +531,7 @@ def main():
     image_scale     = cfg.get("image_scale", 1.0)
 
     meta_df, folds, img_paths, seg_paths = get_folds_and_meta(
-        data_root, folds_dir, cli.include_validation)
+        data_root, folds_dir, pick(cli.include_validation, "include_validation", False))
     _, keep_idx = get_channel_info(cfg, data_root)
 
     valid_types = sorted(ct for ct in meta_df["cell_type"].unique()
@@ -572,6 +572,16 @@ def _print_and_save_summary(all_metrics, args, output_dir):
         print(f"  Mean MacroF1 : {df['macro_f1'].mean():.4f} ± {df['macro_f1'].std():.4f}")
         print(f"  Mean WF1     : {df['wf1'].mean():.4f} ± {df['wf1'].std():.4f}")
     df.to_csv(output_dir / "fold_metrics_summary.csv", index=False)
+    pred_dir = output_dir / "stellar_supervised" / "level3"
+    pred_dir.mkdir(parents=True, exist_ok=True)
+    with open(pred_dir / "fold_times.txt", "w") as f:
+        for _, r in df.iterrows():
+            f.write(f"fold_{int(r['fold'])}: {r['total_time_s']:.2f}s "
+                    f"(train={r['train_time_s']:.2f}s, predict={r['predict_time_s']:.2f}s)\n")
+        f.write(f"total: {df['total_time_s'].sum():.2f}s\n")
+        f.write(f"total_train: {df['train_time_s'].sum():.2f}s\n")
+        f.write(f"total_predict: {df['predict_time_s'].sum():.2f}s\n")
+        f.write(f"mean_fold: {df['total_time_s'].mean():.2f}s\n")
     print(f"\nSummary -> {output_dir / 'fold_metrics_summary.csv'}")
 
 
