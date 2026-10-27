@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-run_kronos2.py — KRONOS2 config-driven pipeline: IMMUcan + cHL_2_MIBI
-=======================================================================
+run_kronos2.py — KRONOS2 config-driven pipeline (dataset-agnostic)
+====================================================================
 
 KRONOS2 (MahmoodLab/KRONOS2 on HuggingFace) is the authors' next-generation,
 marker-aware successor to KRONOS. Same overall shape as run_kronos.py
@@ -33,10 +33,10 @@ dedicated env (not the shared `stellar` env used by KRONOS1/VirTues/Stellar):
 Usage
 -----
 python run_kronos2.py all \\
-    --dataset    immucan \\
-    --config     src/methods/configs/kronos2.json \\
-    --output-dir /home/juliaoesterle/results/kronos2/immucan \\
-    --device     cuda:0
+    --dataset-path /home/juliaoesterle/data/phenotyping_benchmark/IMMUcan \\
+    --config       src/methods/configs/kronos2.json \\
+    --output-dir   /home/juliaoesterle/results/kronos2/IMMUcan \\
+    --device       cuda:0
 """
 
 import os
@@ -59,8 +59,6 @@ import torch
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 from scipy import ndimage
-
-from utils.utils_foundational_models import load_label_map, load_folds, get_label
 
 warnings.filterwarnings('ignore')
 
@@ -86,11 +84,8 @@ def _rebase_local_paths(obj, prefix="/home/juliaoesterle", env_var="SPCELLEVAL_R
 def load_config(config_path: str, dataset: str) -> dict:
     with open(config_path) as f:
         cfg = json.load(f)
-    if dataset not in cfg["datasets"]:
-        raise ValueError(f"Dataset '{dataset}' not in {config_path}. "
-                         f"Available: {list(cfg['datasets'])}")
     merged = dict(cfg.get("defaults", {}))
-    merged.update(cfg["datasets"][dataset])
+    merged.update(cfg["datasets"].get(dataset, {}))
     merged["dataset"] = dataset
     return _rebase_local_paths(merged)
 
@@ -103,98 +98,44 @@ def get_clean_markers(biomarkers, exclude):
     return clean_idx, clean_names
 
 
-#  PATCH EXTRACTION — IMMUcan
-# Model-agnostic (raw per-marker crops + binary mask + label), identical in
-# spirit to run_kronos.py's bbox crop.
+#  DATA LOADING + PATCH EXTRACTION
 
-def extract_patches(args, cfg, all_images, clean_indices, clean_names, label_map):
-    data_root = Path(cfg["data_root"])
-    patch_dir = Path(args.output_dir) / 'patches'
-    patch_dir.mkdir(parents=True, exist_ok=True)
-
-    NPZ_DIR    = data_root / cfg["image_dir"]
-    MASK_DIR   = data_root / cfg["segmentation_dir"]
-    LABELS_DIR = data_root / cfg["label_dir"]
-
-    print(f"\nExtracting patches -> {patch_dir}")
-    print(f"  patch_size={args.patch_size} | markers={len(clean_names)}")
-
-    n_cells_total = n_skipped = 0
-    for img_name in tqdm(all_images, desc="Patch extraction"):
-        npz_file   = NPZ_DIR    / f"{img_name}.npz"
-        mask_file  = MASK_DIR   / f"{img_name}.tiff"
-        label_file = LABELS_DIR / f"{img_name}.txt"
-        if not all(f.exists() for f in [npz_file, mask_file, label_file]):
-            n_skipped += 1
-            continue
-
-        img = np.load(npz_file)['data'][clean_indices].transpose(1, 2, 0)  # (H,W,C) uint16
-        mask = tifffile.imread(mask_file)
-        with open(label_file) as f:
-            cell_labels = [int(line.strip()) for line in f.readlines()]
-
-        cell_ids = np.unique(mask)
-        cell_ids = cell_ids[cell_ids > 0]
-
-        for cell_id in cell_ids:
-            h5_path = patch_dir / f"{img_name}_{int(cell_id):06d}.h5"
-            if h5_path.exists():
-                continue
-
-            ys, xs = np.where(mask == cell_id)
-            y_min, y_max = int(ys.min()), int(ys.max())
-            x_min, x_max = int(xs.min()), int(xs.max())
-            crop = img[y_min:y_max+1, x_min:x_max+1, :]
-
-            ch, cw = crop.shape[:2]
-            if ch > args.patch_size or cw > args.patch_size:
-                # Keep y_min/x_min in sync with the center-crop so the mask
-                # slice below reads the same region as `crop`/`padded` --
-                # a bbox-exceeds-patch_size cell would otherwise give 'mask'
-                # a different shape than the marker datasets in the same h5.
-                cy, cx = ch // 2, cw // 2
-                half   = args.patch_size // 2
-                y_lo, x_lo = max(0, cy - half), max(0, cx - half)
-                crop   = crop[y_lo:cy+half, x_lo:cx+half, :]
-                y_min, x_min = y_min + y_lo, x_min + x_lo
-                ch, cw = crop.shape[:2]
-                y_max, x_max = y_min + ch - 1, x_min + cw - 1
-
-            pad_h = args.patch_size - ch
-            pad_w = args.patch_size - cw
-            padded = np.pad(crop, ((pad_h//2, pad_h-pad_h//2),
-                                   (pad_w//2, pad_w-pad_w//2), (0, 0)))
-
-            cell_mask_crop = (mask[y_min:y_max+1, x_min:x_max+1] == cell_id).astype(np.uint8)
-            cell_mask_pad  = np.pad(cell_mask_crop, ((pad_h//2, pad_h-pad_h//2),
-                                                     (pad_w//2, pad_w-pad_w//2)))
-
-            label = get_label(int(cell_id), cell_labels, label_map)
-
-            with h5py.File(h5_path, 'w') as f:
-                f.create_dataset('mask', data=cell_mask_pad, dtype=np.uint8)
-                f.attrs['label']    = label
-                f.attrs['image_id'] = img_name
-                f.attrs['cell_id']  = int(cell_id)
-                for c, marker_name in enumerate(clean_names):
-                    f.create_dataset(marker_name, data=padded[:, :, c], dtype=np.uint16)
-
-            n_cells_total += 1
-
-    print(f"Patch extraction complete: {n_cells_total:,} cells | {n_skipped} images skipped")
-    return patch_dir
+def _file_stem(name):
+    for ext in ('.ome.tiff', '.ome.tif', '.tiff', '.tif'):
+        if name.endswith(ext):
+            return name[:-len(ext)]
+    return name
 
 
-#  cHL DATA LOADING + PATCH EXTRACTION
+def find_image(img_dir, img_id):
+    files = [p for p in img_dir.iterdir() if not p.name.startswith('.')]
+    exact = [p for p in files if _file_stem(p.name) == img_id]
+    if exact:
+        return exact[0]
+    prefixed = [p for p in files if _file_stem(p.name).startswith(f'{img_id}_')]
+    return prefixed[0] if len(prefixed) == 1 else None
 
-def load_chl_data(cfg, data_root):
+
+def find_segmentation(seg_dir, img_id):
+    for ext in ('.tiff', '.tif'):
+        if (seg_dir / f'{img_id}{ext}').exists():
+            return seg_dir / f'{img_id}{ext}'
+    if (seg_dir / img_id).is_dir():
+        seg_files = sorted(p for p in (seg_dir / img_id).rglob('segmentationMap.tif')
+                           if not p.name.startswith('.'))
+        if seg_files:
+            return seg_files[0]
+    return None
+
+
+def load_data(cfg, data_root, folds_dir, include_validation=False):
     """
-    Returns meta_df[image_id, cell_id, label] and folds (cell-level: sets of
+    Returns meta_df[image_id, cell_id, label], folds (cell-level: sets of
     (image_id, cell_id) tuples read from the per-fold fold_{i}_train.csv/
-    fold_{i}_test.csv files, not fold_indices.json -- see kronos2.json's
-    _comment_folds_dir), img_paths, seg_paths.
+    fold_{i}_test.csv files), img_paths, seg_paths.
     """
-    raw_df = pd.read_csv(data_root / cfg["quant_csv"])
+    quant_csv = data_root / 'quantification' / 'processed' / f'{data_root.name}_quantification.csv'
+    raw_df = pd.read_csv(quant_csv, usecols=['sample_id', 'cell_id', 'cell_type'])
     raw_df['sample_id'] = raw_df['sample_id'].astype(str).str.replace('.csv', '', regex=False)
 
     def load_keys(path):
@@ -202,72 +143,66 @@ def load_chl_data(cfg, data_root):
         df['sample_id'] = df['sample_id'].astype(str).str.replace('.csv', '', regex=False)
         return set(zip(df['sample_id'], df['cell_id']))
 
-    folds_dir = data_root / cfg["folds_dir"]
     folds  = []
     fold_i = 1
     while (folds_dir / f'fold_{fold_i}_train.csv').exists():
+        train_keys = load_keys(folds_dir / f'fold_{fold_i}_train.csv')
+        if include_validation and (folds_dir / f'fold_{fold_i}_validation.csv').exists():
+            train_keys |= load_keys(folds_dir / f'fold_{fold_i}_validation.csv')
         folds.append({
-            'train': load_keys(folds_dir / f'fold_{fold_i}_train.csv'),
+            'train': train_keys,
             'test':  load_keys(folds_dir / f'fold_{fold_i}_test.csv'),
         })
         fold_i += 1
-    print(f"Loaded {len(folds)} folds (cell-level)")
+    print(f"Loaded {len(folds)} folds (cell-level) from {folds_dir}")
 
     exclude_labels = set(cfg.get("exclude_labels", []))
     meta_df = raw_df[~raw_df['cell_type'].isin(exclude_labels)].copy()
     meta_df = meta_df.rename(columns={'sample_id': 'image_id', 'cell_type': 'label'})
     meta_df = meta_df[['image_id', 'cell_id', 'label']]
-    print(f"Loaded cHL metadata: {len(meta_df):,} cells "
+    print(f"Loaded metadata: {len(meta_df):,} cells "
           f"(dropped {len(raw_df) - len(meta_df):,} excluded-label cells)")
 
-    img_dir   = data_root / cfg["image_dir"]
-    img_paths = {}
-    for tif in sorted(img_dir.glob('*_stacked.ome.tif')):
-        if tif.name.startswith('.'):
-            continue
-        img_paths[tif.name.replace('_stacked.ome.tif', '')] = tif
-
-    seg_dir   = data_root / cfg["segmentation_dir"]
-    seg_paths = {}
-    for img_id in img_paths:
-        seg_files = [p for p in (seg_dir / img_id).rglob('segmentationMap.tif')
-                     if not p.name.startswith('.')]
-        if seg_files:
-            seg_paths[img_id] = seg_files[0]
+    img_dir   = data_root / 'raw_images' / 'multistack_tiffs'
+    seg_dir   = data_root / 'segmentation'
+    img_paths, seg_paths = {}, {}
+    for img_id in sorted(meta_df['image_id'].unique()):
+        img_path = find_image(img_dir, img_id)
+        if img_path is not None:
+            img_paths[img_id] = img_path
+        seg_path = find_segmentation(seg_dir, img_id)
+        if seg_path is not None:
+            seg_paths[img_id] = seg_path
     print(f"Found {len(img_paths)} images, {len(seg_paths)} segmentation maps")
 
     return meta_df, folds, img_paths, seg_paths
 
 
-def extract_patches_chl(args, cfg, clean_indices, clean_names, meta_df, img_paths, seg_paths):
+def extract_patches(args, cfg, clean_indices, clean_names, meta_df, img_paths, seg_paths):
     """
-    cHL equivalent of extract_patches(). Same .h5 schema, so
-    extract_features_from_patches() is reused unmodified.
+    Raw per-marker bbox crops + binary mask + label, saved as one .h5 per
+    cell for extract_features_from_patches().
 
     Uses scipy.ndimage.find_objects (one O(pixels) pass per image) instead of
-    a per-cell np.where(mask==cell_id) full-image scan -- the latter measured
-    at ~2 patches/s on cHL's 2048x1536 images (~32h total); this is
-    ~290 patches/s. IMMUcan's images are small enough (600x600) that the
-    per-cell scan in extract_patches() above was never a practical problem.
+    a per-cell np.where(mask==cell_id) full-image scan.
 
-    Images here are float32 (already-processed intensities, not raw uint16
-    counts like IMMUcan); rounded (not truncated) to uint16 for h5 storage.
+    Intensities are rounded (not truncated) to uint16 for h5 storage.
     """
     patch_dir = Path(args.output_dir) / 'patches'
     patch_dir.mkdir(parents=True, exist_ok=True)
 
     label_lookup = dict(zip(zip(meta_df['image_id'], meta_df['cell_id']), meta_df['label']))
 
-    print(f"\nExtracting cHL patches -> {patch_dir}")
+    print(f"\nExtracting patches -> {patch_dir}")
     print(f"  patch_size={args.patch_size} | markers={len(clean_names)}")
 
     n_cells_total = n_skipped = 0
-    for img_id, img_path in tqdm(sorted(img_paths.items()), desc="Patch extraction (cHL)"):
+    for img_id, img_path in tqdm(sorted(img_paths.items()), desc="Patch extraction"):
         if img_id not in seg_paths:
             n_skipped += 1
             continue
 
-        img_raw = tifffile.imread(img_path).astype(np.float32)   # (46, H, W)
+        img_raw = tifffile.imread(img_path).astype(np.float32)   # (C, H, W)
         img     = img_raw[clean_indices].transpose(1, 2, 0)       # (H, W, C_clean)
         mask    = tifffile.imread(seg_paths[img_id]).astype(np.int32)
 
@@ -324,7 +259,7 @@ def extract_patches_chl(args, cfg, clean_indices, clean_names, meta_df, img_path
 
             n_cells_total += 1
 
-    print(f"cHL patch extraction complete: {n_cells_total:,} cells | {n_skipped} images skipped")
+    print(f"Patch extraction complete: {n_cells_total:,} cells | {n_skipped} images skipped")
     return patch_dir
 
 
@@ -543,7 +478,12 @@ def build_parser():
                 'all':        'extract -> supervised in sequence',
             }[mode],
         )
-        p.add_argument('--dataset', choices=['immucan', 'cHL_2_MIBI'], required=True)
+        p.add_argument('--dataset-path', required=True,
+                       help='Dataset directory (markers.txt, quantification/, raw_images/, segmentation/)')
+        p.add_argument('--folds-dir', default=None,
+                       help='k-fold directory, absolute or relative to --dataset-path')
+        p.add_argument('--include-validation', action='store_true',
+                       help='Add fold_{i}_validation.csv cells to the training set')
         p.add_argument('--config',  required=True, help='Path to kronos2.json')
         p.add_argument('--output-dir', required=True)
         p.add_argument('--spceleval-dir', default=None)
@@ -568,6 +508,8 @@ def main():
     args   = parser.parse_args()
     total_start = time.time()
 
+    data_root    = Path(args.dataset_path)
+    args.dataset = data_root.name
     cfg = load_config(args.config, args.dataset)
 
     def fill(attr, key, default=None):
@@ -583,29 +525,24 @@ def main():
     fill('max_iter', 'max_iter', 10000)
     fill('max_cells_per_type', 'max_cells_per_type', None)
     fill('n_jobs', 'n_jobs', -1)
+    fill('folds_dir', 'folds_dir', 'quantification/processed/kfolds_StratifiedGroupKFold_level3')
     args.exclude_labels = set(cfg.get('exclude_labels', []))
 
     print(f"\n{'='*60}")
     print(f"run_kronos2.py | mode={args.mode} | dataset={args.dataset}")
     print(f"{'='*60}")
 
-    data_root     = Path(cfg["data_root"])
-    fold_type     = cfg["fold_type"]
     name_mappings = cfg.get("name_mappings", {})
-    clean_indices, clean_names = get_clean_markers(cfg["biomarkers"], cfg["exclude_markers"])
+    with open(data_root / 'markers.txt') as f:
+        biomarkers = [line.strip() for line in f if line.strip()]
+    clean_indices, clean_names = get_clean_markers(biomarkers, cfg.get("exclude_markers", []))
 
-    if args.dataset == 'immucan':
-        label_map          = load_label_map(str(data_root))
-        folds, all_images  = load_folds(str(data_root), args.n_folds)
-    else:
-        meta_df, folds, img_paths, seg_paths = load_chl_data(cfg, data_root)
+    meta_df, folds, img_paths, seg_paths = load_data(
+        cfg, data_root, data_root / args.folds_dir, args.include_validation)
 
     if args.mode in ('extract', 'all'):
-        if args.dataset == 'immucan':
-            patch_dir = extract_patches(args, cfg, all_images, clean_indices, clean_names, label_map)
-        else:
-            patch_dir = extract_patches_chl(args, cfg, clean_indices, clean_names,
-                                            meta_df, img_paths, seg_paths)
+        patch_dir = extract_patches(args, cfg, clean_indices, clean_names,
+                                    meta_df, img_paths, seg_paths)
         model = load_kronos2_model(args.device)
         feature_dir, metadata_df = extract_features_from_patches(
             args, patch_dir, clean_names, name_mappings, model)
@@ -615,7 +552,7 @@ def main():
         metadata_df = pd.read_csv(meta_path)
 
     if args.mode in ('supervised', 'all'):
-        run_supervised_optuna(args, folds, fold_type, metadata_df, feature_dir)
+        run_supervised_optuna(args, folds, 'cell', metadata_df, feature_dir)
 
     total_time = time.time() - total_start
     print(f"\n{'='*60}")

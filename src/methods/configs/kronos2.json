@@ -11,25 +11,11 @@
     "c_high": 1e5,
     "max_iter": 10000,
     "max_cells_per_type": null,
-    "n_jobs": -1
+    "n_jobs": -1,
+    "folds_dir": "quantification/processed/kfolds_StratifiedGroupKFold_level3"
   },
   "datasets": {
-    "immucan": {
-      "data_root": "/home/juliaoesterle/data/phenotyping_benchmark/IMMUcan",
-      "fold_type": "image",
-      "image_dir": "CellTypes/data/images",
-      "label_dir": "CellTypes/cells2labels",
-      "segmentation_dir": "segmentation",
-      "folds_json": "CellTypes/folds.json",
-      "image_format": "npz",
-      "biomarkers": [
-        "MPO", "HistoneH3", "SMA", "CD16", "CD38", "HLADR", "CD27", "CD15",
-        "CD45RA", "CD163", "B2M", "CD20", "CD68", "Ido1", "CD3", "LAG3",
-        "CD11c", "PD1", "PDGFRb", "CD7", "GrzB", "PDL1", "TCF7", "CD45RO",
-        "FOXP3", "ICOS", "CD8a", "CarbonicAnhydrase", "CD33", "Ki67",
-        "VISTA", "CD40", "CD4", "CD14", "Ecad", "CD303", "CD206",
-        "cleavedPARP", "DNA1", "DNA2"
-      ],
+    "IMMUcan": {
       "_comment_exclude_markers": "DNA1/DNA2/HistoneH3 excluded for the same reason as every other method (nuclear/housekeeping stains, not phenotypic markers). CD33/Ecad/cleavedPARP additionally excluded: KRONOS2's marker-conditioning forward() (unlike its z-score preprocess() step) has no fallback for an unmatched marker -- it hard-fails with 'No (fuzzy) match found' against model.backbone.marker_builder for all three. KRONOS2 sees 34 markers here vs. KRONOS1's 37.",
       "exclude_markers": ["DNA1", "DNA2", "HistoneH3", "CD33", "Ecad", "cleavedPARP"],
       "_comment_name_mappings": "Checked against KRONOS2's bundled marker_metadata.csv (288 markers) and model.backbone.marker_builder's fuzzy matcher: SMA/GrzB/CD8a/TCF7/CD303/CarbonicAnhydrase have no match under their IMMUcan spelling but a biological-identity alias passes (A-SMA=SMA, GZMB=GrzB, CD8=CD8a, TCF1=TCF7, BDCA-2=CD303, CA9=CarbonicAnhydrase IX).",
@@ -43,25 +29,8 @@
       }
     },
     "cHL_2_MIBI": {
-      "data_root": "/home/juliaoesterle/data/phenotyping_benchmark/cHL_2_MIBI",
-      "fold_type": "cell",
-      "quant_csv": "quantification/processed/cHL_2_MIBI_quantification.csv",
-      "_comment_folds_dir": "fold_indices.json's own 'train'/'test' integer lists are NOT consistent row positions into the master quantification CSV -- they come from create_validation_set_from_fold()'s per-fold-file reset index. The per-fold fold_{i}_train.csv/fold_{i}_test.csv files are read directly instead, keyed by sample_id+cell_id. Same approach as eva.json/kronos.json/virtues.json and the classic_ml baseline.",
-      "folds_dir": "quantification/processed/kfolds_StratifiedGroupKFold_level3",
-      "image_dir": "raw_images/multistack_tiffs",
-      "segmentation_dir": "segmentation",
-      "image_format": "ome_tiff",
       "_comment_patch_size": "Same 64px as IMMUcan -- see kronos.json's cHL comment for the measured cell-footprint justification.",
       "patch_size": 64,
-      "biomarkers": [
-        "CD4", "CD20", "PD-1", "FoxP3", "CD14", "CD161", "Tbet", "CD25",
-        "CD68", "CD3", "CD57", "Pax-5", "GATA3", "TCRgd", "RORgT", "CD45RO",
-        "Na-K ATPase", "CD56", "Lag3", "CD45RA", "B2-Microglobulin", "TIM3",
-        "SLP-76", "Tox", "Histone H3", "CD30", "CXCR5", "Ki-67", "Granzyme B",
-        "CD8", "PD-L1", "CD45", "HLA1", "CD153 (CD30L)", "pSLP-76", "HLA-DR",
-        "CD16", "dsDNA", "CD86", "CD11c", "CD15", "CD28", "CD123",
-        "anti-H2AX (pS139)", "CD163", "IL-10"
-      ],
       "_comment_exclude_markers": "Histone H3/SLP-76/anti-H2AX (pS139)/dsDNA/pSLP-76: same 5 excluded for every method on cHL (housekeeping/nuclear, not phenotypic). CD153 (CD30L) additionally excluded: no row in the model's marker_metadata.csv (288 rows) matches CD153/CD30L/TNFSF8/'CD30 ligand' under any spelling. RORgT maps to the vocabulary entry 'RORGD' (marker_full_name: 'Retinoic acid-related orphan receptor gamma t') -- see name_mappings below. KRONOS2 sees 40 markers here.",
       "exclude_markers": ["Histone H3", "SLP-76", "anti-H2AX (pS139)", "dsDNA", "pSLP-76", "CD153 (CD30L)"],
       "exclude_labels": [],
