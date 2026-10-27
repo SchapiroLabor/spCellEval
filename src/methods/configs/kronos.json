@@ -10,7 +10,8 @@
     "leiden_resolution": 2.0,
     "leiden_n_neighbors": 15,
     "leiden_subsample": 50000,
-    "folds_dir": "quantification/processed/kfolds_StratifiedGroupKFold_level3"
+    "folds_dir": "quantification/processed/kfolds_StratifiedGroupKFold_level3",
+    "include_validation": true
   },
   "datasets": {
     "IMMUcan": {
