@@ -12,7 +12,8 @@
     "max_iter": 10000,
     "max_cells_per_type": null,
     "n_jobs": -1,
-    "folds_dir": "quantification/processed/kfolds_StratifiedGroupKFold_level3"
+    "folds_dir": "quantification/processed/kfolds_StratifiedGroupKFold_level3",
+    "include_validation": true
   },
   "datasets": {
     "IMMUcan": {

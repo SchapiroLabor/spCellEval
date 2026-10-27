@@ -482,7 +482,7 @@ def build_parser():
                        help='Dataset directory (markers.txt, quantification/, raw_images/, segmentation/)')
         p.add_argument('--folds-dir', default=None,
                        help='k-fold directory, absolute or relative to --dataset-path')
-        p.add_argument('--include-validation', action='store_true',
+        p.add_argument('--include-validation', action=argparse.BooleanOptionalAction, default=None,
                        help='Add fold_{i}_validation.csv cells to the training set')
         p.add_argument('--config',  required=True, help='Path to kronos2.json')
         p.add_argument('--output-dir', required=True)
@@ -526,6 +526,7 @@ def main():
     fill('max_cells_per_type', 'max_cells_per_type', None)
     fill('n_jobs', 'n_jobs', -1)
     fill('folds_dir', 'folds_dir', 'quantification/processed/kfolds_StratifiedGroupKFold_level3')
+    fill('include_validation', 'include_validation', False)
     args.exclude_labels = set(cfg.get('exclude_labels', []))
 
     print(f"\n{'='*60}")
@@ -549,7 +550,7 @@ def main():
     else:
         feature_dir = Path(args.output_dir) / 'features'
         meta_path   = Path(args.output_dir) / 'feature_metadata.csv'
-        metadata_df = pd.read_csv(meta_path)
+        metadata_df = pd.read_csv(meta_path, dtype={'image_id': str})
 
     if args.mode in ('supervised', 'all'):
         run_supervised_optuna(args, folds, 'cell', metadata_df, feature_dir)
