@@ -9,36 +9,17 @@
     "eval_every": 5,
     "node_batch_size": 512,
     "num_neighbors": [10],
-    "device": "cuda:0"
+    "device": "cuda:0",
+    "folds_dir": "quantification/processed/kfolds_StratifiedGroupKFold_level3"
   },
   "datasets": {
-    "immucan": {
-      "data_root": "/home/juliaoesterle/data/phenotyping_benchmark/IMMUcan",
-      "fold_type": "image",
-      "image_dir": "CellTypes/data/images",
-      "label_dir": "CellTypes/cells2labels",
-      "segmentation_dir": "segmentation",
-      "folds_json": "CellTypes/folds.json",
-      "output_root": "/home/juliaoesterle/results/stellar/immucan",
+    "IMMUcan": {
       "distance_threshold": 14.28,
-      "n_raw_channels": 40,
-      "_comment_excluded_channels": "Channel indices follow CellTypes/channels.txt's line order exactly (0-indexed): 1=HistoneH3, 38=DNA1, 39=DNA2 -- same nuclear/housekeeping exclusion as every other method.",
-      "excluded_channels": [1, 38, 39],
+      "excluded_markers": ["HistoneH3", "DNA1", "DNA2"],
       "image_scale": 65535.0,
-      "_comment_no_label_map": "There is no hardcoded label_map here -- the int-to-phenotype mapping is read directly from labels_csv (CellTypes/labels_cell_type.csv) via the same load_label_map() every other FM method already uses, instead of re-copying that table into every method's config where it can silently drift out of sync.",
       "excluded_labels": []
     },
     "cHL_2_MIBI": {
-      "data_root": "/home/juliaoesterle/data/phenotyping_benchmark/cHL_2_MIBI",
-      "fold_type": "cell",
-      "quant_csv": "quantification/processed/cHL_2_MIBI_quantification.csv",
-      "_comment_folds_dir": "fold_indices.json's own 'train'/'test' integer lists are NOT consistent row positions into the master quantification CSV -- they come from create_validation_set_from_fold()'s per-fold-file reset index. The per-fold fold_{i}_train.csv/fold_{i}_test.csv files are read directly instead, keyed by sample_id+cell_id. Same approach as eva.json/kronos.json/virtues.json/kronos2.json and the classic_ml baseline.",
-      "folds_dir": "quantification/processed/kfolds_StratifiedGroupKFold_level3",
-      "image_dir": "raw_images/multistack_tiffs",
-      "segmentation_dir": "segmentation",
-      "single_channel_dir": "raw_images/single_channel_tiffs/1",
-      "markers_txt": "markers.txt",
-      "output_root": "/home/juliaoesterle/results/stellar/chl",
       "distance_threshold": 31.73,
       "_comment_excluded_markers": "Must match the exact filenames under single_channel_dir / lines in markers.txt -- 'anti-H2AX' alone (no suffix) silently fails to match 'anti-H2AX (pS139)' and would NOT be excluded.",
       "excluded_markers": ["dsDNA", "Histone H3", "anti-H2AX (pS139)", "pSLP-76", "SLP-76"],

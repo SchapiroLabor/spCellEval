@@ -2,10 +2,10 @@
 """
 run_stellar.py
 ==============
-Unified, config-driven Stellar (supervised GNN) pipeline for IMMUcan and cHL_2_MIBI.
+Unified, config-driven Stellar (supervised GNN) pipeline (dataset-agnostic).
 
-All dataset-specific constants (paths, channels, excluded labels) live in
-src/methods/configs/stellar.json and are selected with --dataset.
+Per-dataset settings (distance threshold, excluded markers/labels) live in
+src/methods/configs/stellar.json, keyed by the dataset folder name.
 
 Architecture:
   - Per-image spatial neighbour graphs (distance threshold on cell centroids)
@@ -16,22 +16,17 @@ Architecture:
   - Train-split mean/std are reused as-is for the test split (no leakage)
 
 Env:    nix develop -> micromamba activate stellar
-Output: <output_root>/dt{threshold}/
+Output: <output_dir>/dt{threshold}/
 
 Usage:
-    # IMMUcan - all 5 image-level folds:
-    python run_stellar.py --dataset immucan --config src/methods/configs/stellar.json
-
-    # cHL - all 5 cell-level folds:
-    python run_stellar.py --dataset cHL_2_MIBI --config src/methods/configs/stellar.json
+    # All 5 folds:
+    python run_stellar.py --dataset-path /home/juliaoesterle/data/phenotyping_benchmark/IMMUcan \
+        --config src/methods/configs/stellar.json --output-dir /home/juliaoesterle/results/stellar/IMMUcan
 
     # Single fold, quick smoke test:
-    python run_stellar.py --dataset immucan --config src/methods/configs/stellar.json \
+    python run_stellar.py --dataset-path /home/juliaoesterle/data/phenotyping_benchmark/cHL_2_MIBI \
+        --config src/methods/configs/stellar.json --output-dir /home/juliaoesterle/results/stellar/cHL_2_MIBI \
         --fold 0 --epochs 2 --device cpu
-
-    # Full run on GPU:
-    python run_stellar.py --dataset immucan --config src/methods/configs/stellar.json \
-        --device cuda:0
 """
 
 import os
@@ -62,8 +57,6 @@ from tqdm import tqdm
 
 import anndata
 
-from utils.utils_foundational_models import load_label_map
-
 
 #  CONFIG LOADING
 
@@ -86,11 +79,8 @@ def _rebase_local_paths(obj, prefix="/home/juliaoesterle", env_var="SPCELLEVAL_R
 def load_config(config_path: str, dataset: str) -> dict:
     with open(config_path) as f:
         cfg = json.load(f)
-    if dataset not in cfg["datasets"]:
-        raise ValueError(f"Dataset '{dataset}' not in {config_path}. "
-                         f"Available: {list(cfg['datasets'])}")
     merged = dict(cfg.get("defaults", {}))
-    merged.update(cfg["datasets"][dataset])
+    merged.update(cfg["datasets"].get(dataset, {}))
     merged["dataset"] = dataset
     return _rebase_local_paths(merged)
 
@@ -234,128 +224,49 @@ def build_adata_from_arrays(
     return adata, mean, std
 
 
-#  IMMUcan DATA LOADING
+#  DATA LOADING
 
-def load_immucan_image_data(img_name, cfg, paths):
-    n_raw = cfg["n_raw_channels"]
-    keep  = [i for i in range(n_raw) if i not in set(cfg["excluded_channels"])]
-    scale = cfg["image_scale"]
-
-    img = np.load(paths["image_dir"] / f"{img_name}.npz")["data"].astype(np.float32)
-    img /= scale
-
-    mask       = tifffile.imread(str(paths["segmentation_dir"] / f"{img_name}.tiff")).astype(np.int32)
-    raw_labels = np.loadtxt(str(paths["label_dir"] / f"{img_name}.txt"), dtype=np.int32)
-
-    props = regionprops(mask)
-    if not props:
-        return None, None, None, None
-
-    cell_ids  = np.array([p.label for p in props], dtype=np.int32)
-    centroids = np.array([p.centroid for p in props], dtype=np.float32)
-
-    n_cells         = len(cell_ids)
-    expressions_all = np.zeros((n_cells, n_raw), dtype=np.float32)
-    flat_mask       = mask.ravel()
-    sort_idx        = np.argsort(flat_mask, kind="stable")
-    sorted_labels   = flat_mask[sort_idx]
-    boundaries      = np.searchsorted(sorted_labels, np.arange(1, cell_ids.max() + 2))
-    img_flat        = img.reshape(n_raw, -1)
-
-    for i, cid in enumerate(cell_ids):
-        start   = boundaries[cid - 1]
-        end     = boundaries[cid]
-        pix_idx = sort_idx[start:end]
-        expressions_all[i] = img_flat[:, pix_idx].mean(axis=1)
-
-    expressions = expressions_all[:, keep]
-
-    cell_types = np.array(
-        [raw_labels[cid - 1] if (cid - 1) < len(raw_labels) else -1
-         for cid in cell_ids],
-        dtype=np.int32,
-    )
-    return expressions, centroids, cell_ids, cell_types
-
-
-def build_immucan_anndata(img_names, cfg, paths, label_map, categories,
-                          cat_to_idx, excluded_labels, desc="Loading",
-                          mean=None, std=None):
-    all_exprs, all_sample, all_cell_id = [], [], []
-    all_pos_x, all_pos_y, all_labels   = [], [], []
-
-    for img_name in tqdm(img_names, desc=desc):
-        exprs, centroids, cell_ids, cell_types = load_immucan_image_data(img_name, cfg, paths)
-        if exprs is None:
-            print(f"  Warning: skipping {img_name} (empty mask)")
-            continue
-
-        valid = cell_types != -1
-        if valid.sum() == 0:
-            continue
-        exprs, centroids = exprs[valid], centroids[valid]
-        cell_ids, cell_types = cell_ids[valid], cell_types[valid]
-
-        known = np.array([label_map[int(ct)] not in excluded_labels for ct in cell_types])
-        if known.sum() == 0:
-            continue
-        exprs, centroids = exprs[known], centroids[known]
-        cell_ids, cell_types = cell_ids[known], cell_types[known]
-
-        n = exprs.shape[0]
-        all_exprs.append(exprs)
-        all_sample.extend([img_name] * n)
-        all_cell_id.extend(cell_ids.tolist())
-        all_pos_x.extend(centroids[:, 1].tolist())
-        all_pos_y.extend(centroids[:, 0].tolist())
-        all_labels.extend([label_map[int(ct)] for ct in cell_types])
-
-    return build_adata_from_arrays(
-        expressions=np.concatenate(all_exprs, axis=0),
-        pos_x=np.array(all_pos_x), pos_y=np.array(all_pos_y),
-        sample_ids=all_sample, cell_ids=all_cell_id, cell_types=all_labels,
-        categories=categories, cat_to_idx=cat_to_idx, mean=mean, std=std,
-    )
-
-
-def get_immucan_folds(folds_json):
-    with open(folds_json) as f:
-        raw = json.load(f)
-    n = sum(1 for k in raw if k.endswith("_train_set"))
-    return (
-        [raw[f"fold_{i}_train_set"] for i in range(n)],
-        [raw[f"fold_{i}_test_set"]  for i in range(n)],
-    )
-
-
-#  cHL DATA LOADING
-
-def get_chl_channel_info(cfg, paths):
-    excl = set(cfg["excluded_markers"])
-    sc_dir = paths["single_channel_dir"]
-    if sc_dir.exists():
-        all_names = sorted(f.stem for f in sc_dir.rglob("*.tiff")
-                           if not f.name.startswith("."))
-    else:
-        with open(paths["markers_txt"]) as f:
-            all_names = [l.strip() for l in f if l.strip()]
+def get_channel_info(cfg, data_root):
+    excl = set(cfg.get("excluded_markers", []))
+    with open(data_root / "markers.txt") as f:
+        all_names = [l.strip() for l in f if l.strip()]
     keep_idx = [i for i, n in enumerate(all_names) if n not in excl]
-    print(f"  [cHL] Channels: {len(keep_idx)}/{len(all_names)} kept (excluded: {excl})")
+    print(f"  Channels: {len(keep_idx)}/{len(all_names)} kept (excluded: {excl})")
     return all_names, keep_idx
 
 
-def load_chl_seg(img_id, paths):
-    seg_dir   = paths["segmentation_dir"] / str(img_id)
-    seg_files = [f for f in seg_dir.rglob("segmentationMap.tif")
-                 if not f.name.startswith(".")]
-    if not seg_files:
-        raise FileNotFoundError(f"No segmentationMap.tif under {seg_dir}")
-    return tifffile.imread(str(seg_files[0])).astype(np.int32)
+def _file_stem(name):
+    for ext in (".ome.tiff", ".ome.tif", ".tiff", ".tif"):
+        if name.endswith(ext):
+            return name[:-len(ext)]
+    return name
 
 
-def extract_chl_expressions(img_path, mask, keep_idx):
+def find_image(img_dir, img_id):
+    files = [p for p in img_dir.iterdir() if not p.name.startswith(".")]
+    exact = [p for p in files if _file_stem(p.name) == img_id]
+    if exact:
+        return exact[0]
+    prefixed = [p for p in files if _file_stem(p.name).startswith(f"{img_id}_")]
+    return prefixed[0] if len(prefixed) == 1 else None
+
+
+def find_segmentation(seg_dir, img_id):
+    for ext in (".tiff", ".tif"):
+        if (seg_dir / f"{img_id}{ext}").exists():
+            return seg_dir / f"{img_id}{ext}"
+    if (seg_dir / img_id).is_dir():
+        seg_files = sorted(f for f in (seg_dir / img_id).rglob("segmentationMap.tif")
+                           if not f.name.startswith("."))
+        if seg_files:
+            return seg_files[0]
+    return None
+
+
+def extract_expressions(img_path, mask, keep_idx, image_scale=1.0):
     img      = tifffile.imread(str(img_path)).astype(np.float32)
     img_keep = img[keep_idx]
+    img_keep /= image_scale
     C        = img_keep.shape[0]
 
     props = regionprops(mask)
@@ -381,8 +292,8 @@ def extract_chl_expressions(img_path, mask, keep_idx):
     return cell_ids, expressions, centroids
 
 
-def build_chl_anndata(subset_df, img_paths, keep_idx, categories, cat_to_idx,
-                      excluded_labels, paths, desc="Loading", mean=None, std=None):
+def build_anndata(subset_df, img_paths, seg_paths, keep_idx, image_scale, categories,
+                  cat_to_idx, excluded_labels, desc="Loading", mean=None, std=None):
     all_exprs, all_sample, all_cell_id = [], [], []
     all_pos_x, all_pos_y, all_labels   = [], [], []
 
@@ -390,13 +301,12 @@ def build_chl_anndata(subset_df, img_paths, keep_idx, categories, cat_to_idx,
         if img_id not in img_paths:
             print(f"  [WARN] No image for {img_id}, skipping")
             continue
-        try:
-            mask = load_chl_seg(img_id, paths)
-        except FileNotFoundError as e:
-            print(f"  [WARN] {e}, skipping")
+        if img_id not in seg_paths:
+            print(f"  [WARN] No segmentation for {img_id}, skipping")
             continue
+        mask = tifffile.imread(str(seg_paths[img_id])).astype(np.int32)
 
-        cell_ids, exprs, centroids = extract_chl_expressions(img_paths[img_id], mask, keep_idx)
+        cell_ids, exprs, centroids = extract_expressions(img_paths[img_id], mask, keep_idx, image_scale)
         if len(cell_ids) == 0:
             continue
 
@@ -428,39 +338,46 @@ def build_chl_anndata(subset_df, img_paths, keep_idx, categories, cat_to_idx,
     )
 
 
-def get_chl_folds_and_meta(cfg, paths):
+def get_folds_and_meta(data_root, folds_dir, include_validation=False):
     """
     Returns meta_df (sample_id, cell_id, cell_type) and folds (cell-level:
     sets of (sample_id, cell_id) tuples read from the per-fold
-    fold_{i}_train.csv/fold_{i}_test.csv files, not fold_indices.json --
-    see stellar.json's _comment_folds_dir), img_paths.
+    fold_{i}_train.csv/fold_{i}_test.csv files), img_paths, seg_paths.
     """
-    meta_df = pd.read_csv(paths["quant_csv"])
+    quant_csv = data_root / "quantification" / "processed" / f"{data_root.name}_quantification.csv"
+    meta_df = pd.read_csv(quant_csv, usecols=["sample_id", "cell_id", "cell_type"])
     meta_df["sample_id"] = meta_df["sample_id"].astype(str).str.replace(".csv", "", regex=False)
-    print(f"[cHL] {len(meta_df):,} cells, {meta_df['sample_id'].nunique()} images")
+    print(f"{len(meta_df):,} cells, {meta_df['sample_id'].nunique()} images")
 
     def load_keys(path):
         df = pd.read_csv(path, usecols=["sample_id", "cell_id"])
         df["sample_id"] = df["sample_id"].astype(str).str.replace(".csv", "", regex=False)
         return set(zip(df["sample_id"], df["cell_id"]))
 
-    folds_dir = paths["folds_dir"]
     folds, fold_i = [], 1
     while (folds_dir / f"fold_{fold_i}_train.csv").exists():
+        train_keys = load_keys(folds_dir / f"fold_{fold_i}_train.csv")
+        if include_validation and (folds_dir / f"fold_{fold_i}_validation.csv").exists():
+            train_keys |= load_keys(folds_dir / f"fold_{fold_i}_validation.csv")
         folds.append({
-            "train": load_keys(folds_dir / f"fold_{fold_i}_train.csv"),
+            "train": train_keys,
             "test":  load_keys(folds_dir / f"fold_{fold_i}_test.csv"),
         })
         fold_i += 1
-    print(f"[cHL] {len(folds)} folds (cell-level)")
+    print(f"{len(folds)} folds (cell-level) from {folds_dir}")
 
-    img_paths = {}
-    for p in sorted(paths["image_dir"].glob("*_stacked.ome.tif")):
-        if p.name.startswith("."):
-            continue
-        img_paths[p.name.replace("_stacked.ome.tif", "")] = p
-    print(f"[cHL] {len(img_paths)} images found")
-    return meta_df, folds, img_paths
+    img_dir = data_root / "raw_images" / "multistack_tiffs"
+    seg_dir = data_root / "segmentation"
+    img_paths, seg_paths = {}, {}
+    for img_id in sorted(meta_df["sample_id"].unique()):
+        img_path = find_image(img_dir, img_id)
+        if img_path is not None:
+            img_paths[img_id] = img_path
+        seg_path = find_segmentation(seg_dir, img_id)
+        if seg_path is not None:
+            seg_paths[img_id] = seg_path
+    print(f"{len(img_paths)} images, {len(seg_paths)} segmentation maps found")
+    return meta_df, folds, img_paths, seg_paths
 
 
 #  FOLD LOOP
@@ -558,7 +475,12 @@ def run_fold(fold_idx, train_adata, test_adata, categories, args, output_dir):
 
 def main():
     parser = argparse.ArgumentParser(description="Supervised Stellar GNN — config-driven")
-    parser.add_argument("--dataset", choices=["immucan", "cHL_2_MIBI"], required=True)
+    parser.add_argument("--dataset-path", required=True,
+                        help="Dataset directory (markers.txt, quantification/, raw_images/, segmentation/)")
+    parser.add_argument("--folds-dir", default=None,
+                        help="k-fold directory, absolute or relative to --dataset-path")
+    parser.add_argument("--include-validation", action="store_true",
+                        help="Add fold_{i}_validation.csv cells to the training set")
     parser.add_argument("--config",  required=True, help="Path to stellar.json")
     parser.add_argument("--fold", type=int, default=None, help="Single fold (0-based). Default: all.")
     # optional overrides (default None -> fall back to config)
@@ -570,10 +492,11 @@ def main():
     parser.add_argument("--eval-every",         type=int,   default=None)
     parser.add_argument("--node-batch-size",    type=int,   default=None)
     parser.add_argument("--device",             type=str,   default=None)
-    parser.add_argument("--output-dir",         type=str,   default=None)
+    parser.add_argument("--output-dir",         type=str,   required=True)
     cli = parser.parse_args()
 
-    cfg = load_config(cli.config, cli.dataset)
+    data_root = Path(cli.dataset_path)
+    cfg = load_config(cli.config, data_root.name)
 
     def pick(cli_val, key, default=None):
         if cli_val is not None:
@@ -581,7 +504,7 @@ def main():
         return cfg.get(key, default)
 
     args = argparse.Namespace(
-        dataset            = cli.dataset,
+        dataset            = data_root.name,
         fold               = cli.fold,
         hid_dim            = pick(cli.hid_dim, "hid_dim"),
         distance_threshold = pick(cli.distance_threshold, "distance_threshold"),
@@ -594,80 +517,47 @@ def main():
         device             = pick(cli.device, "device", "cuda:0"),
     )
 
-    data_root  = Path(cfg["data_root"])
+    folds_dir  = data_root / pick(cli.folds_dir, "folds_dir",
+                                  "quantification/processed/kfolds_StratifiedGroupKFold_level3")
     dt_str     = f"dt{args.distance_threshold:.2f}".replace(".", "_")
-    out_base   = Path(cli.output_dir) if cli.output_dir else Path(cfg["output_root"])
-    output_dir = out_base / dt_str
+    output_dir = Path(cli.output_dir) / dt_str
     output_dir.mkdir(parents=True, exist_ok=True)
 
     print(f"\nStellar — dataset={args.dataset}  distance_threshold={args.distance_threshold}px")
     print(f"  hid_dim={args.hid_dim}  epochs={args.epochs}  device={args.device}")
     print(f"  output_dir: {output_dir}\n")
 
-    excluded_labels = set(cfg["excluded_labels"])
+    excluded_labels = set(cfg.get("excluded_labels", []))
+    image_scale     = cfg.get("image_scale", 1.0)
 
-    if args.dataset == "immucan":
-        paths = {
-            "image_dir":        data_root / cfg["image_dir"],
-            "label_dir":        data_root / cfg["label_dir"],
-            "segmentation_dir": data_root / cfg["segmentation_dir"],
-        }
-        label_map  = load_label_map(str(data_root))
-        categories = np.array(sorted(v for v in label_map.values() if v not in excluded_labels))
-        cat_to_idx = {c: i for i, c in enumerate(categories)}
+    meta_df, folds, img_paths, seg_paths = get_folds_and_meta(
+        data_root, folds_dir, cli.include_validation)
+    _, keep_idx = get_channel_info(cfg, data_root)
 
-        train_folds, test_folds = get_immucan_folds(data_root / cfg["folds_json"])
-        fold_range = [args.fold] if args.fold is not None else range(len(train_folds))
-        all_metrics = []
-        for fi in fold_range:
-            t0 = time.time()
-            train_adata, tr_mean, tr_std = build_immucan_anndata(
-                train_folds[fi], cfg, paths, label_map,
-                categories, cat_to_idx, excluded_labels, desc=f"F{fi} train")
-            test_adata, _, _ = build_immucan_anndata(
-                test_folds[fi], cfg, paths, label_map,
-                categories, cat_to_idx, excluded_labels, desc=f"F{fi} test",
-                mean=tr_mean, std=tr_std)
-            m = run_fold(fi, train_adata, test_adata, categories, args, output_dir)
-            m["total_time_s"] = time.time() - t0
-            all_metrics.append(m)
+    valid_types = sorted(ct for ct in meta_df["cell_type"].unique()
+                         if ct not in excluded_labels)
+    categories = np.array(valid_types)
+    cat_to_idx = {c: i for i, c in enumerate(categories)}
+    print(f"Classes ({len(categories)}): {categories.tolist()}")
 
-    else:  # cHL_2_MIBI
-        paths = {
-            "quant_csv":          data_root / cfg["quant_csv"],
-            "folds_dir":          data_root / cfg["folds_dir"],
-            "image_dir":          data_root / cfg["image_dir"],
-            "segmentation_dir":   data_root / cfg["segmentation_dir"],
-            "single_channel_dir": data_root / cfg["single_channel_dir"],
-            "markers_txt":        data_root / cfg["markers_txt"],
-        }
-        meta_df, folds, img_paths = get_chl_folds_and_meta(cfg, paths)
-        _, keep_idx = get_chl_channel_info(cfg, paths)
-
-        valid_types = sorted(ct for ct in meta_df["cell_type"].unique()
-                             if ct not in excluded_labels)
-        categories = np.array(valid_types)
-        cat_to_idx = {c: i for i, c in enumerate(categories)}
-        print(f"[cHL] Classes ({len(categories)}): {categories.tolist()}")
-
-        cell_keys   = pd.Series(list(zip(meta_df["sample_id"], meta_df["cell_id"])), index=meta_df.index)
-        fold_range  = [args.fold] if args.fold is not None else range(len(folds))
-        all_metrics = []
-        for fi in fold_range:
-            t0        = time.time()
-            train_df  = meta_df[cell_keys.isin(folds[fi]["train"])].copy()
-            test_df   = meta_df[cell_keys.isin(folds[fi]["test"])].copy()
-            print(f"\n[cHL] Fold {fi}: {len(train_df):,} train / {len(test_df):,} test cells")
-            train_adata, tr_mean, tr_std = build_chl_anndata(
-                train_df, img_paths, keep_idx, categories,
-                cat_to_idx, excluded_labels, paths, desc=f"F{fi} train")
-            test_adata, _, _ = build_chl_anndata(
-                test_df, img_paths, keep_idx, categories,
-                cat_to_idx, excluded_labels, paths, desc=f"F{fi} test",
-                mean=tr_mean, std=tr_std)
-            m = run_fold(fi, train_adata, test_adata, categories, args, output_dir)
-            m["total_time_s"] = time.time() - t0
-            all_metrics.append(m)
+    cell_keys   = pd.Series(list(zip(meta_df["sample_id"], meta_df["cell_id"])), index=meta_df.index)
+    fold_range  = [args.fold] if args.fold is not None else range(len(folds))
+    all_metrics = []
+    for fi in fold_range:
+        t0        = time.time()
+        train_df  = meta_df[cell_keys.isin(folds[fi]["train"])].copy()
+        test_df   = meta_df[cell_keys.isin(folds[fi]["test"])].copy()
+        print(f"\nFold {fi}: {len(train_df):,} train / {len(test_df):,} test cells")
+        train_adata, tr_mean, tr_std = build_anndata(
+            train_df, img_paths, seg_paths, keep_idx, image_scale, categories,
+            cat_to_idx, excluded_labels, desc=f"F{fi} train")
+        test_adata, _, _ = build_anndata(
+            test_df, img_paths, seg_paths, keep_idx, image_scale, categories,
+            cat_to_idx, excluded_labels, desc=f"F{fi} test",
+            mean=tr_mean, std=tr_std)
+        m = run_fold(fi, train_adata, test_adata, categories, args, output_dir)
+        m["total_time_s"] = time.time() - t0
+        all_metrics.append(m)
 
     _print_and_save_summary(all_metrics, args, output_dir)
 
