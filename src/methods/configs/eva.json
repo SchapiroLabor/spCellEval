@@ -1,0 +1,40 @@
+{
+  "method": "eva",
+  "defaults": {
+    "device": "cuda:0",
+    "tile_size": 224,
+    "tile_stride": 112,
+    "logreg_c": 1.0,
+    "leiden_resolution": 2.0,
+    "leiden_n_neighbors": 15,
+    "leiden_subsample": 50000,
+    "folds_dir": "quantification/processed/kfolds_StratifiedGroupKFold_level3",
+    "include_validation": true
+  },
+  "datasets": {
+    "IMMUcan": {
+      "exclude_markers": ["DNA1", "DNA2", "HistoneH3"],
+      "exclude_labels": [],
+      "marker_name_map": {}
+    },
+    "cHL_2_MIBI": {
+      "exclude_markers": ["Histone H3", "dsDNA", "anti-H2AX (pS139)", "pSLP-76", "SLP-76", "CD161", "CD153 (CD30L)", "CD28", "IL-10"],
+      "exclude_labels": [],
+      "marker_name_map": {
+        "FoxP3": "FOXP3",
+        "PD-1": "PD1",
+        "Pax-5": "Pax5",
+        "TCRgd": "TCRgammadelta",
+        "RORgT": "RORgammaT",
+        "Na-K ATPase": "Na/K ATPase",
+        "Lag3": "LAG3",
+        "B2-Microglobulin": "B2M",
+        "Tox": "TOX",
+        "Ki-67": "Ki67",
+        "Granzyme B": "GranzymeB",
+        "PD-L1": "PDL1",
+        "HLA1": "HLA-ABC"
+      }
+    }
+  }
+}
