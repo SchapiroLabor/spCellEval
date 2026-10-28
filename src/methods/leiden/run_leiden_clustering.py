@@ -137,7 +137,7 @@ def leiden_with_greedy(adata, df, iterations, output_path, log, res, subcluster_
         os.makedirs(os.path.dirname(text_path), exist_ok=True)
         mode = 'w' if iteration == 0 else 'a'
         with open(text_path, mode) as f:
-            f.write(f"Fold {iteration} train_time, {elapsed:.2f}\n")
+            f.write(f"Fold {iteration} prediction_time, {elapsed:.2f}\n")
 
         ## greedy assignement
         results = greedy_f1_score(output, 'cell_type', 'cluster_label', tie_strategy='random')

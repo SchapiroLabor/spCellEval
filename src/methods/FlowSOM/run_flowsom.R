@@ -141,7 +141,7 @@ for (iteration in 0:(args$iterations - 1)) {
   text_path <- file.path(args$output_path, folder, "level3", "fold_times.txt")
   dir.create(dirname(text_path), recursive = TRUE, showWarnings = FALSE)
   con <- file(text_path, open = if (iteration == 0) "w" else "a")
-  writeLines(sprintf("Fold %d train_time, %.2f", iteration, elapsed), con)
+  writeLines(sprintf("Fold %d prediction_time, %.2f", iteration, elapsed), con)
   close(con)
 
   # Node clusters are never subclustered, so they are only saved in the default run

@@ -129,11 +129,11 @@ def lite_celllens(input, markers, iterations, output_path, log, path2crops):
         if log == 'short':
             logging.info(f'Fold {iteration} LENS_time, {elapsed:.2f}')
         #append time to the results
-        text_path = os.path.join(output_path, 'CellLENS_Lite', 'fold_times.txt')
+        text_path = os.path.join(output_path, 'CellLENS_Lite', 'level3', 'fold_times.txt')
         os.makedirs(os.path.dirname(text_path), exist_ok=True)
         mode = 'w' if iteration == 1 else 'a'
         with open(text_path, mode) as f:
-            f.write(f"Fold {iteration} LENS_time, {elapsed:.2f}\n")
+            f.write(f"Fold {iteration} train_time, {elapsed:.2f}\n")
 
         #save embedding
         embedding = pd.DataFrame(murine_celllens.lens_embedding)

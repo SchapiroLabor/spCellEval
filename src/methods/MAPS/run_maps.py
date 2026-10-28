@@ -97,8 +97,8 @@ def main(args):
         #get the time taken for each fold
         end_time = time.time()
         elapsed_time = end_time - start_time
-        #append time to the results
-        with open(os.path.join(args.results_dir, 'fold_times.txt'), 'a') as f:
+        #append time to the results (new file at the first fold)
+        with open(os.path.join(args.results_dir, 'fold_times.txt'), 'w' if fold_number == fold_numbers[0] else 'a') as f:
             f.write(f"Fold {fold_number} train_time: {elapsed_time:.2f} seconds\n")
 
         #get infernce time

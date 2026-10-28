@@ -148,6 +148,9 @@ def celllens_with_greedy(df, features_list, stitched, mode, iterations, output_p
         if log == 'long':
             logging.info(f"Running iteration {iteration} of {iterations} (seed {seed + iteration})")
         set_seed(seed + iteration)
+        # Train time = initial clustering + CNN training + CNN embedding (full only) + LENS-GNN training
+        # (image cropping is left out), prediction time = clustering on the embedding
+        start = time.time()
         dataset = NativeCropDataset(df,
                                     crop_px,
                                     features_list=features_list,
@@ -164,6 +167,7 @@ def celllens_with_greedy(df, features_list, stitched, mode, iterations, output_p
                            pca_components=min(25, len(features_list) - 1),
                            cluster_res=None,
                            n_clusters=init_n_clusters)
+        init_elapsed = time.time() - start
         if log == 'long':
             logging.info(f"{len(np.unique(dataset.feature_labels))} initial clusters (target {init_n_clusters})")
         if mode == 'full' and iteration == 1:
@@ -174,7 +178,6 @@ def celllens_with_greedy(df, features_list, stitched, mode, iterations, output_p
                          cnn_model='CNN' if mode == 'full' else 'LITE',
                          cnn_latent_dim=128,
                          gnn_latent_dim=32)
-        # Train time = CNN training + CNN embedding (full only) + LENS-GNN training
         start = time.time()
         if mode == 'full':
             model.fit_lens_cnn(batch_size=64,
@@ -200,28 +203,31 @@ def celllens_with_greedy(df, features_list, stitched, mode, iterations, output_p
                                  SchedulerAlg=None,
                                  scheduler_kwargs={},
                                  verbose=True)
-        elapsed = time.time() - start
-        if log == 'long':
-            logging.info(f"Iteration {iteration}: training took {elapsed/60:.2f} minutes")
-        if log == 'short':
-            logging.info(f'Fold {iteration} train_time, {elapsed:.2f}')
-        #append time to the results
-        os.makedirs(f'{method_dir}/level3', exist_ok=True)
-        with open(os.path.join(method_dir, 'level3', 'fold_times.txt'), 'w' if iteration == 1 else 'a') as f:
-            f.write(f"Fold {iteration} train_time, {elapsed:.2f}\n")
-
-        #save embedding (read by cluster_celllens_embedding.py for subclustering)
-        os.makedirs(f'{method_dir}/it{iteration}', exist_ok=True)
-        pd.DataFrame(model.lens_embedding).to_csv(f'{method_dir}/it{iteration}/celllens_{mode.upper()}_embedding.csv', index=False)
+        train_elapsed = init_elapsed + time.time() - start
 
         #leiden clustering on the embedding; its UMAP is kept although unused: sc.tl.umap prunes weak edges of the
         #kNN graph in place, so the Leiden clustering would differ without it
+        start = time.time()
         model.get_lens_clustering(neighbor=15,
                                   resolution=1.0,
                                   entropy_threshold=0.75,
                                   concen_threshold=1,
                                   max_breaks=3,
                                   size_lim=50)
+        pred_elapsed = time.time() - start
+        if log == 'long':
+            logging.info(f"Iteration {iteration}: training took {train_elapsed/60:.2f} minutes, clustering {pred_elapsed/60:.2f} minutes")
+        if log == 'short':
+            logging.info(f'Fold {iteration} train_time, {train_elapsed:.2f}; prediction_time, {pred_elapsed:.2f}')
+        #append time to the results
+        os.makedirs(f'{method_dir}/level3', exist_ok=True)
+        with open(os.path.join(method_dir, 'level3', 'fold_times.txt'), 'w' if iteration == 1 else 'a') as f:
+            f.write(f"Fold {iteration} train_time, {train_elapsed:.2f}\n")
+            f.write(f"Fold {iteration} prediction_time, {pred_elapsed:.2f}\n")
+
+        #save embedding (read by cluster_celllens_embedding.py for subclustering)
+        os.makedirs(f'{method_dir}/it{iteration}', exist_ok=True)
+        pd.DataFrame(model.lens_embedding).to_csv(f'{method_dir}/it{iteration}/celllens_{mode.upper()}_embedding.csv', index=False)
         cluster_df = dataset.df.copy()
         cluster_df["cluster_label"] = model.lens_clustering
 

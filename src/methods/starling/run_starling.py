@@ -97,9 +97,11 @@ def run_starling(
     method_dir = os.path.join(output_path, method_name)
     os.makedirs(os.path.join(method_dir, "level3"), exist_ok=True)
     train_times = []
-    # inference_times = []
+    inference_times = []
     for n in range(n_runs):
         seed_everything(seed + n)
+        # Training time = initial clustering (+ subclustering) + starling training, prediction time = cell assignment
+        train_start = time.time()
         adata_st = utility.init_clustering(initial_clustering, adata, k=k_cluster)
         if subcluster_times > 0:
             labels = subcluster_labels(np.asarray(adata_st.X), adata_st.obs["init_label"].to_numpy(),
@@ -121,7 +123,6 @@ def run_starling(
         cb_early_stopping = pl.callbacks.EarlyStopping(
             monitor="train_loss", mode="min", verbose=False
         )
-        train_start = time.time()
         st.train_and_fit(
             callbacks=[cb_early_stopping],
             logger=[log_tb],
@@ -131,7 +132,9 @@ def run_starling(
         elapsed_train = train_end - train_start
         train_times.append(elapsed_train)
 
+        pred_start = time.time()
         result = st.result()
+        inference_times.append(time.time() - pred_start)
 
         intensities = result.to_df()
         obs = result.obs
@@ -153,8 +156,9 @@ def run_starling(
         torch.cuda.empty_cache()
 
     with open(os.path.join(method_dir, "level3", "fold_times.txt"), "w") as f:
-        for i, elapsed_train in enumerate(train_times):
+        for i, (elapsed_train, elapsed_pred) in enumerate(zip(train_times, inference_times)):
             f.write(f"Fold {i} training_time: {elapsed_train:.2f}\n")
+            f.write(f"Fold {i} prediction_time: {elapsed_pred:.2f}\n")
 
 
 def main():

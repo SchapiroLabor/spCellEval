@@ -80,11 +80,12 @@ def subcluster(embedding, feature_labels, labels, times, min_cells, resolution, 
 
 
 def read_lens_times(path):
-    # 'Fold <i> <event>, <seconds>' lines written by run_celllens.py (and the old CellLENS Lite scripts; old Full scripts did not write them)
+    # 'Fold <i> train_time, <seconds>' lines written by run_celllens.py ('LENS_time' in old CellLENS Lite runs;
+    # old Full scripts did not write them), prediction_time lines are skipped
     if not os.path.exists(path):
         return None
     with open(path) as f:
-        return {int(m.group(1)): float(m.group(2)) for m in re.finditer(r"Fold (\d+) \w+, ([\d.]+)", f.read())}
+        return {int(m.group(1)): float(m.group(2)) for m in re.finditer(r"Fold (\d+) (?:train|LENS)_time, ([\d.]+)", f.read())}
 
 
 def main():
@@ -125,16 +126,17 @@ def main():
         path = os.path.join(out_dir, 'level3', f"predictions_{out_idx}.csv")
         os.makedirs(os.path.dirname(path), exist_ok=True)
         output.to_csv(path, index=False)
-        times.append(elapsed + lens_times[iteration] if lens_times is not None else None)
+        times.append((iteration, elapsed))
         print(f"Iteration {iteration}: {len(np.unique(labels))} clusters, saved to {path}")
 
-    # Train time = CellLENS training time (if recorded) + clustering/subclustering time
+    # Train time = CellLENS train time (if recorded), prediction time = clustering + subclustering
     if lens_times is None:
-        print(f"No fold_times.txt in {method_dir} or its level3, so no fold_times.txt is written")
-    else:
-        with open(os.path.join(out_dir, 'level3', 'fold_times.txt'), 'w') as f:
-            for out_idx, elapsed in enumerate(times):
-                f.write(f"Fold {out_idx} train_time, {elapsed:.2f}\n")
+        print(f"No fold_times.txt in {method_dir} or its level3, so only prediction times are written")
+    with open(os.path.join(out_dir, 'level3', 'fold_times.txt'), 'w') as f:
+        for out_idx, (iteration, elapsed) in enumerate(times):
+            if lens_times is not None:
+                f.write(f"Fold {out_idx} train_time, {lens_times[iteration]:.2f}\n")
+            f.write(f"Fold {out_idx} prediction_time, {elapsed:.2f}\n")
 
 
 if __name__ == "__main__":
