@@ -90,8 +90,17 @@ def read_lens_times(path):
 def main():
     method_dir = os.path.join(args.input_path or args.output_path, args.method)
     out_dir = os.path.join(args.output_path, f"{args.method}_subclust{args.subcluster_times}{purity_suffix(args.subcluster_purity)}")
-    lens_times = read_lens_times(os.path.join(method_dir, 'fold_times.txt'))
+    # fold_times.txt is in level3; older CellLENS runs wrote it to the method folder
+    lens_times = (read_lens_times(os.path.join(method_dir, 'level3', 'fold_times.txt'))
+                  or read_lens_times(os.path.join(method_dir, 'fold_times.txt')))
     iterations = sorted(int(d[2:]) for d in os.listdir(method_dir) if re.fullmatch(r"it\d+", d))
+    # Skip iterations of an unfinished CellLENS run (it<i> folder without embedding or predictions)
+    complete = [i for i in iterations
+                if glob.glob(os.path.join(method_dir, f"it{i}", "*_embedding.csv"))
+                and os.path.exists(os.path.join(method_dir, 'level3', f"predictions_{i}.csv"))]
+    if len(complete) < len(iterations):
+        print(f"Skipping incomplete iterations: {sorted(set(iterations) - set(complete))}")
+    iterations = complete
 
     times = []
     for out_idx, iteration in enumerate(iterations):
@@ -121,7 +130,7 @@ def main():
 
     # Train time = CellLENS training time (if recorded) + clustering/subclustering time
     if lens_times is None:
-        print(f"No fold_times.txt in {method_dir}, so no fold_times.txt is written")
+        print(f"No fold_times.txt in {method_dir} or its level3, so no fold_times.txt is written")
     else:
         with open(os.path.join(out_dir, 'level3', 'fold_times.txt'), 'w') as f:
             for out_idx, elapsed in enumerate(times):

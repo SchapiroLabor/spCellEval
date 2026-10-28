@@ -206,8 +206,8 @@ def celllens_with_greedy(df, features_list, stitched, mode, iterations, output_p
         if log == 'short':
             logging.info(f'Fold {iteration} train_time, {elapsed:.2f}')
         #append time to the results
-        os.makedirs(method_dir, exist_ok=True)
-        with open(os.path.join(method_dir, 'fold_times.txt'), 'w' if iteration == 1 else 'a') as f:
+        os.makedirs(f'{method_dir}/level3', exist_ok=True)
+        with open(os.path.join(method_dir, 'level3', 'fold_times.txt'), 'w' if iteration == 1 else 'a') as f:
             f.write(f"Fold {iteration} train_time, {elapsed:.2f}\n")
 
         #save embedding (read by cluster_celllens_embedding.py for subclustering)
