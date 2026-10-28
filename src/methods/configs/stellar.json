@@ -1,0 +1,27 @@
+{
+  "method": "stellar",
+  "defaults": {
+    "hid_dim": 160,
+    "epochs": 50,
+    "lr": 0.001,
+    "weight_decay": 0.0001,
+    "node_batch_size": 512,
+    "num_neighbors": [10],
+    "neighbourhood_um": 14.28,
+    "device": "cuda:0",
+    "folds_dir": "quantification/processed/kfolds_StratifiedGroupKFold_level3",
+    "include_validation": true
+  },
+  "datasets": {
+    "IMMUcan": {
+      "pixel_size_um": 1.0,
+      "exclude_markers": ["HistoneH3", "DNA1", "DNA2"],
+      "exclude_labels": []
+    },
+    "cHL_2_MIBI": {
+      "pixel_size_um": 0.78,
+      "exclude_markers": ["dsDNA", "Histone H3", "anti-H2AX (pS139)", "pSLP-76", "SLP-76"],
+      "exclude_labels": []
+    }
+  }
+}
