@@ -7,7 +7,7 @@ library(RColorBrewer)
 library(ggplot2)
 library(colorspace)
 setwd(dirname(normalizePath(sys.frame(1)$ofile)))
-path <- "/Users/lukashat/sds_mount/sds/sd22c003/phenotyping_benchmark/final_results/final_results_averaged.csv"
+path <- "/Users/lukashat/Documents/PhD_Schapiro/Projects/phenotype_benchmark/github/pheno_benchmark_small/src/plotting/final_results_averaged.csv"
 results <- read_delim(path, delim = ",", escape_double = FALSE, trim_ws = TRUE)
 #old <- read_csv("Documents/uni/PhD/pheno_benchmark/results/results_lvl3.csv")
 results <- results[ , c("method", "Weighted F1","Hierarchical F1", "Macro F1",  "MCC", "ARI", "JSD Scaled", "Overall Performance" ,"Stability", "Scalability")]
@@ -22,7 +22,7 @@ rcinfo <- tibble(
   name = c("", "Weighted F1", "Hierarchical F1", "Macro F1", "MCC", "ARI", "JSD Scaled", "Overall Performance", "Stability", "Scalability"),
   palette = c(NA, rep("CP_palette", 4), rep("Composition_palette", 2), "overall_palette",  rep("Computation_palette", 2)), 
   geom = c("text", "circle","circle", "circle", "circle", "funkyrect", "funkyrect", "bar", "rect", "rect"),
-  width = c(7, 1, 1, 1, 1,1,1,4,1,1),
+  width = c(9, 1, 1, 1, 1,1,1,4,1,1),
   hjust = c(0,NA,NA,NA,NA,NA,NA,NA,NA,NA)
 )
 
@@ -97,10 +97,12 @@ method_groups <- c(
   "Starling"              = "Unsupervised",
   "RIBCA_adapted"         = "Pre-Trained Models",
   "RIBCA"                 = "Pre-Trained Models",
-  "FlowSOM Meta Clusters" = "Unsupervised",
-  "Deepcelltypes_adapted" = "Pre-Trained Models",
+  "FlowSOM_Meta_Clusters" = "Unsupervised",
+  "FlowSOM"               = "Unsupervised",
+  "Agentic_Leiden_Clustering" = "Unsupervised",
+  "DeepCellTypes_adapted" = "Pre-Trained Models",
   "Stratified sampler"    = "Baseline",
-  "Deepcelltypes"         = "Pre-Trained Models",
+  "DeepCellTypes"         = "Pre-Trained Models",
   "Most Frequent"         = "Baseline",
   "Stellar"               = "Supervised",
   "VirTues"               = "Supervised",
