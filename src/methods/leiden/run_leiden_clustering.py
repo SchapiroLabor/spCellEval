@@ -7,7 +7,7 @@ import pandas as pd
 import scanpy as sc
 import anndata as ad
 import numpy as np
-from utils.greedy_f1_utils import greedy_f1_score
+from utils.greedy_f1_utils import greedy_f1_score, cluster_purity, purity_suffix
 import warnings
 from anndata._core.aligned_df import ImplicitModificationWarning
 import logging
@@ -18,18 +18,22 @@ import argparse
 parser = argparse.ArgumentParser(description='Leiden clustering with greedy assignment and optional preprocessing.')
 parser.add_argument('-i', '--input', dest='input', type = str, help='Path to input CSV file')
 parser.add_argument('-o', '--output', dest='output_path', type = str, help='Path to output folder (usually ends with dataset name). Do not put a slash in the end!')
-parser.add_argument('-m', '--markers', dest='markers', nargs='+', help='List of marker names to use for clustering')
-parser.add_argument('-p', '--PCA', dest='PCA', action='store_true', help='Perform PCA (default: False)')
-parser.add_argument('-a', '--arcsine', dest='arcsine', action='store_true', help='Perform arcsine transformation (default: False)')
+parser.add_argument('-s', '--split_col_name', dest='split_col_name', type=str, required=True, help='First non-marker column; all columns before it are used as markers (e.g. cell_id)')
+parser.add_argument('-e', '--exclude_markers', dest='exclude_markers', nargs='+', default=[], help='Marker names to exclude from clustering (e.g. DAPI)')
+parser.add_argument('-p', '--PCA', dest='PCA', action='store_true', help='Cluster on the first 30 PCs (default: False)')
+parser.add_argument('-t', '--transform', dest='transform', default='none', choices=['none', 'log1p', 'arcsinh'], help='Transformation applied to the markers after normalization (default: none)')
+parser.add_argument('-cf', '--cofactor', dest='cofactor', type=float, default=5.0, help='Cofactor for arcsinh, i.e. arcsinh(x / cofactor) (default: 5)')
 parser.add_argument('-n', '--normalization', dest='normalization', action='store_true', help='Perform normalization (default: False)')
-parser.add_argument('-ha', '--harmony', dest='harmony', action='store_true', help='Perform Harmony integration (default: False)')
+parser.add_argument('-ha', '--harmony', dest='harmony', action='store_true', help='Harmony integration on sample_id; on the PCs with -p, otherwise on the markers (default: False)')
 parser.add_argument('-l', '--log', dest='log', required= False, default='off', choices=['short', 'long', 'off'], help='Logging level: short, long, or off (default: long)')
 parser.add_argument('-it', '--iterations', dest='iterations', type=int, required= False, default=5, help='Number of iterations to run (default: 5)')
-parser.add_argument('-r', '--resolutions', dest='resolutions', nargs='+', type=float, required= False, default=[0.5, 0.8, 1.0, 2.0], help='List of resolutions for Leiden clustering (default: [0.5, 0.8, 1.0, 2.0])')
+parser.add_argument('-r', '--resolution', dest='resolution', type=float, required= False, default=1.0, help='Resolution for Leiden clustering (default: 1.0)')
+parser.add_argument('-sc', '--subcluster_times', dest='subcluster_times', type=int, default=0, help='Number of recursive subclustering rounds applied to the resulting clusters (default: 0 = off)')
+parser.add_argument('-sm', '--subcluster_min_cells', dest='subcluster_min_cells', type=int, default=20, help='Minimal number of cells a cluster needs to be subclustered (default: 20)')
+parser.add_argument('-sr', '--subcluster_resolution', dest='subcluster_resolution', type=float, default=1.0, help='Leiden resolution used for subclustering (default: 1.0)')
+parser.add_argument('-sp', '--subcluster_purity', dest='subcluster_purity', type=float, default=None, help='Clusters whose majority cell_type fraction is >= this are not subclustered further, -sc is then the max depth. Uses the ground truth (oracle setting) (default: None = off)')
 args = parser.parse_args()
 
-# define parameters
-granularity = pd.Series({'level3':'cell_type', 'level1':'level_1_cell_type', 'level2':'level_2_cell_type'})
 # Suppress specific warning from anndata
 warnings.filterwarnings("ignore", category=ImplicitModificationWarning)
 # Suppress specific FutureWarning from scanpy or general usage
@@ -52,76 +56,109 @@ def logging_setup(output_path):
     )
 
 # Define preprocessing function
-def preprocessing(input, markers, PCA, normalization, arcsine, harmony):
+def preprocessing(input, split_col_name, exclude_markers, PCA, normalization, transform, cofactor, harmony):
     # Read in data
     df = pd.read_csv(input)
-    features_list = markers
+    # Markers are all columns before split_col_name, minus excluded ones
+    markers = df.columns[:df.columns.get_loc(split_col_name)]
+    features_list = [m for m in markers if m not in exclude_markers]
     # Subset DataFrame into features and observations
     X = df[features_list]
     obs = df.drop(columns=features_list)
     # Create AnnData object
     adata = ad.AnnData(X=X, obs=obs)
-    #if arcsine == True:
-    #    #insert arcsine transformation here
 
     if normalization == True:
         sc.pp.normalize_total(adata, target_sum=1)
+    if transform == 'log1p':
+        sc.pp.log1p(adata)
+    elif transform == 'arcsinh':
+        adata.X = np.arcsinh(adata.X / cofactor)
 
+    # Representation for the kNN graph: markers, PCs (30, or n_markers - 1 if fewer markers) and/or Harmony on top
+    rep = 'X'
     if PCA == True:
-        sc.pp.pca(adata, n_comps=30)
-        sc.pp.neighbors(adata, n_neighbors=10, use_rep='X_pca')
-    elif harmony == True:
-        sc.pp.pca(adata, n_comps=30)
-        sc.external.pp.harmony_integrate(adata, 'sample_id', basis='X_pca', adjusted_basis='X_harmony')
-        sc.pp.neighbors(adata, n_neighbors=10, use_rep='X_harmony')
-    else:
-        sc.pp.neighbors(adata, n_neighbors=10)
-    return adata, df
+        sc.pp.pca(adata, n_comps=min(30, adata.n_vars - 1))
+        rep = 'X_pca'
+    if harmony == True:
+        if rep == 'X':
+            adata.obsm['X_markers'] = np.asarray(adata.X)
+            rep = 'X_markers'
+        # harmonypy needs the batch column as categories (fails with 'KeyError: unique' for numeric sample_id)
+        adata.obs['sample_id'] = adata.obs['sample_id'].astype(str).astype('category')
+        sc.external.pp.harmony_integrate(adata, 'sample_id', basis=rep, adjusted_basis='X_harmony')
+        rep = 'X_harmony'
+    # The kNN graph is the same for all iterations, so it is built (and timed) once
+    start = time.time()
+    sc.pp.neighbors(adata, n_neighbors=15, use_rep=rep)
+    knn_time = time.time() - start
+    return adata, df, knn_time
+
+# Define recursive subclustering function
+def subcluster(adata, key, times, min_cells, resolution, random_state, purity):
+    # Each round re-clusters every cluster with >= min_cells on a new kNN graph built from its cells only
+    # (same representation as the top-level graph), new labels are '<parent>,<child>'.
+    # With purity, clusters whose cell_type purity is >= purity are kept
+    rep = adata.uns['neighbors']['params']['use_rep']
+    labels = adata.obs[key].astype(str).to_numpy()
+    true_labels = adata.obs['cell_type'].to_numpy()
+    for _ in range(times):
+        new_labels = labels.copy()
+        for cluster, idx in pd.Series(labels).groupby(labels).indices.items():
+            if purity is not None and cluster_purity(true_labels[idx]) >= purity:
+                continue
+            if len(idx) >= min_cells:
+                sub = adata[idx].copy()
+                sc.pp.neighbors(sub, n_neighbors=15, use_rep=rep)
+                sc.tl.leiden(sub, resolution=resolution, random_state=random_state, flavor='igraph', n_iterations=2, directed=False)
+                new_labels[idx] = cluster + ',' + sub.obs['leiden'].astype(str).to_numpy()
+        labels = new_labels
+    adata.obs[key] = pd.Categorical(labels)
 
 # Define Leiden clustering with greedy assignment function
-def leiden_with_greedy(adata, df, iterations, output_path, log, resolutions):
-    for iteration in range(1, iterations+1):
-        for res in resolutions:
-            start = time.time()
-            sc.tl.leiden(adata, resolution=res, key_added=f'leiden_res{res}')
-            elapsed = time.time() - start
-            if log == 'long':
-                logging.info(f'Iteration {iteration}: Leiden clustering with resolution={res} took {elapsed/60:.2f} minutes')
-            if log == 'short':
-                logging.info(f'Resolution={res}: {elapsed/60:.2f} min')
-            output = df.copy()
-            output[f'leiden_res{str(res).replace(".", "_")}'] = adata.obs[f'leiden_res{res}'].values
-            resolution = f'leiden_res{str(res).replace(".", "_")}'
-            #append time to the results
-            text_path = os.path.join(output_path, resolution, 'fold_times.txt')
-            os.makedirs(os.path.dirname(text_path), exist_ok=True)
-            mode = 'w' if iteration == 1 else 'a'
-            with open(text_path, mode) as f:
-                f.write(f"Fold {iteration} train_time, {elapsed:.2f}\n")
+def leiden_with_greedy(adata, df, knn_time, iterations, output_path, log, res, subcluster_times, subcluster_min_cells, subcluster_resolution, subcluster_purity, harmony):
+    resolution = f'leiden_res{str(res).replace(".", "_")}'
+    # Subclustering runs are saved in a separate method folder (e.g. '<method>_subclust3', with purity '<method>_subclust3_purity0_9'),
+    # Harmony runs get '_harm' appended
+    suffix = f'_subclust{subcluster_times}{purity_suffix(subcluster_purity)}' if subcluster_times > 0 else ''
+    if harmony:
+        suffix += '_harm'
+    for iteration in range(iterations):
+        start = time.time()
+        # Seed per iteration, otherwise all iterations give identical clusters (scanpy default random_state=0)
+        sc.tl.leiden(adata, resolution=res, key_added=resolution, random_state=iteration, flavor='igraph', n_iterations=2, directed=False)
+        subcluster(adata, resolution, subcluster_times, subcluster_min_cells, subcluster_resolution, iteration, subcluster_purity)
+        # Prediction time = kNN graph + Leiden + subclustering
+        elapsed = knn_time + time.time() - start
+        if log == 'long':
+            logging.info(f'Iteration {iteration}: Leiden clustering with resolution={res} took {elapsed/60:.2f} minutes')
+        if log == 'short':
+            logging.info(f'Resolution={res}: {elapsed/60:.2f} min')
+        output = df.copy()
+        output['cluster_label'] = adata.obs[resolution].values
+        #append time to the results
+        text_path = os.path.join(output_path, resolution + suffix, 'level3', 'fold_times.txt')
+        os.makedirs(os.path.dirname(text_path), exist_ok=True)
+        mode = 'w' if iteration == 0 else 'a'
+        with open(text_path, mode) as f:
+            f.write(f"Fold {iteration} prediction_time, {elapsed:.2f}\n")
 
-            for k in granularity:
-                ## greedy assignement
-                results = greedy_f1_score(output, k, resolution, tie_strategy='random')
-                output['predicted_phenotype'] = results['mapped_predictions']
-                output = output.rename(columns={k: "true_phenotype"})
-                name = granularity[granularity==k].index[0]
-                path = f"{output_path}/{resolution}/{name}/predictions_{iteration}.csv"
-                os.makedirs(os.path.dirname(path), exist_ok=True)  # Ensure the directory exists
-                if log == 'long':
-                    logging.info(f"Saving predictions to {path}")
-                output.to_csv(path, index=False)
+        ## greedy assignement
+        results = greedy_f1_score(output, 'cell_type', 'cluster_label', tie_strategy='random')
+        output['predicted_phenotype'] = results['mapped_predictions']
+        output = output.rename(columns={'cell_type': "true_phenotype"})
+        path = f"{output_path}/{resolution}{suffix}/level3/predictions_{iteration}.csv"
+        os.makedirs(os.path.dirname(path), exist_ok=True)  # Ensure the directory exists
+        if log == 'long':
+            logging.info(f"Saving predictions to {path}")
+        output.to_csv(path, index=False)
 
 def main():
     if args.log != 'off':
         logging_setup(args.output_path)
-    adata, df = preprocessing(args.input, args.markers, args.PCA, args.normalization, args.arcsine, args.harmony)
-    leiden_with_greedy(adata, df, args.iterations, args.output_path, args.log, args.resolutions)
+    adata, df, knn_time = preprocessing(args.input, args.split_col_name, args.exclude_markers, args.PCA, args.normalization, args.transform, args.cofactor, args.harmony)
+    leiden_with_greedy(adata, df, knn_time, args.iterations, args.output_path, args.log, args.resolution, args.subcluster_times, args.subcluster_min_cells, args.subcluster_resolution, args.subcluster_purity, args.harmony)
 
 
 if __name__ == "__main__":
     main()
-
-
-#example usage: python3 leiden_clustering.py -i ../chl2/cHL_2_MIBI_quantification.csv -o ../chl2/CLI_test -m CD163 CD11c CD28 -r 2 5 1 -l short
-#MPO SMA CD16 CD38 HLADR CD27 CD15 CD45RA CD163 B2M CD20 CD68 Ido1 CD3 LAG3 CD11c PD1 PDGFRb CD7 GrzB PDL1 TCF7 CD45RO FOXP3 ICOS CD8a CarbonicAnhydrase CD33 Ki67 VISTA CD40 CD4 CD14 Ecad CD303 CD206 cleavedPARP ## nuclear: HistoneH3
-#CD45 CD20 'pSLP-76' 'SLP-76' 'anti-H2AX (pS139)' CD163 CD45RO CD28 'CD153 (CD30L)' Lag3 CD4 CD11c CD56 FoxP3 GATA3 'Granzyme B' 'PD-L1' CD16 'Ki-67' 'PD-1' 'Pax-5' Tox CD161 CD68 'B2-Microglobulin' CD8 CD3 HLA1 CD15 Tbet CD14 CD123 CXCR5 CD45RA 'HLA-DR' CD57 'IL-10' CD30 TIM3 RORgT TCRgd CD86 CD25 'Na-K ATPase' ## nuclear: dsDNA 'Histone H3'

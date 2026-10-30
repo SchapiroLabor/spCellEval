@@ -33,26 +33,30 @@ def run_astir(
         df[marker_cols] = np.log1p(df[marker_cols])
     df.to_csv(os.path.join(output_path, "quantification_astir.csv"), index=True)
 
+    train_times = []
     inference_times = []
     for n in range(n_runs):
         seed = random_seed + n
         ast = from_csv_yaml(os.path.join(output_path, "quantification_astir.csv"), marker_yaml=decision_matrix_path, random_seed=seed)
 
+        # Training time = fit_type (ends with one forward pass giving the cell type probabilities),
+        # prediction time = cell type assignment from these probabilities
         start_time = time.time()
         ast.fit_type(max_epochs=max_epochs, n_init=n_init, n_init_epochs=n_init_epochs, delta_loss=delta_loss, learning_rate=learning_rate, batch_size=batch_size)
-        end_time = time.time()
-        elapsed_time = end_time - start_time
+        train_times.append(time.time() - start_time)
 
-        inference_times.append(elapsed_time)
+        start_time = time.time()
         cts = ast.get_celltypes()
+        inference_times.append(time.time() - start_time)
 
         df_cts = df.copy()
         df_cts['predicted_phenotype'] = cts
 
         df_cts.to_csv(os.path.join(output_path, f"predictions_{n}.csv"))
         with open(os.path.join(output_path, "fold_times.txt"), "w") as f:
-            for i, elapsed in enumerate(inference_times):
-                f.write(f"Fold {i+1} inference_time: {elapsed:.2f}\n")
+            for i, (elapsed_train, elapsed_pred) in enumerate(zip(train_times, inference_times)):
+                f.write(f"Fold {i+1} training_time: {elapsed_train:.2f}\n")
+                f.write(f"Fold {i+1} prediction_time: {elapsed_pred:.2f}\n")
 
 def main():
     parser = argparse.ArgumentParser(description="Run ASTIR with specified parameters.")

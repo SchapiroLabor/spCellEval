@@ -64,7 +64,7 @@ addHandler(
 greedy_assignment_save <- function() {
   for (k in granularity) {
     results <- greedy_f1_score(nimbus_df, k, clustering, tie_strategy = 'random')
-    output <- select(nimbus_df, all_of(original_cols), clustering)
+    output <- select(nimbus_df, all_of(original_cols), cluster_label = all_of(clustering))
     output$predicted_phenotype <- as.vector(results$mapped_predictions)
     output = rename(output, true_phenotype = k)
     safe_write_csv(output, paste0(args$output_path, "/", clustering, 
@@ -118,10 +118,10 @@ for (iteration in 1:args$iterations) {
     }
 
     # Write time to txt file
-    text_path <- file.path(args$output_path, clustering, "fold_times.txt")
+    text_path <- file.path(args$output_path, clustering, "level3", "fold_times.txt")
     dir.create(dirname(text_path), recursive = TRUE, showWarnings = FALSE)
     con <- file(text_path, open = if (iteration == 1) "w" else "a")
-    writeLines(sprintf("Fold %d phenograph_time, %.2f", iteration, elapsed), con)
+    writeLines(sprintf("Fold %d prediction_time, %.2f", iteration, elapsed), con)
     close(con)
     
     greedy_assignment_save()
@@ -140,10 +140,10 @@ for (iteration in 1:args$iterations) {
   
   # Write time to txt file
   for (cl in c("flowsom", "flowsom_meta_clusters")){
-    text_path <- file.path(args$output_path, cl, "fold_times.txt")
+    text_path <- file.path(args$output_path, cl, "level3", "fold_times.txt")
     dir.create(dirname(text_path), recursive = TRUE, showWarnings = FALSE)
     con <- file(text_path, open = if (iteration == 1) "w" else "a")
-    writeLines(sprintf("Fold %d flowsom_time, %.2f", iteration, elapsed), con)
+    writeLines(sprintf("Fold %d prediction_time, %.2f", iteration, elapsed), con)
     close(con)
   }
 
@@ -165,10 +165,10 @@ for (iteration in 1:args$iterations) {
     end_time <- Sys.time()
     elapsed <- round(as.numeric(difftime(end_time, start_time, units = "sec")), 2)
 
-  text_path <- file.path(args$output_path, clustering, "fold_times.txt")
+  text_path <- file.path(args$output_path, clustering, "level3", "fold_times.txt")
   dir.create(dirname(text_path), recursive = TRUE, showWarnings = FALSE)
   con <- file(text_path, open = if (iteration == 1) "w" else "a")
-  writeLines(sprintf("Fold %d FuseSOM_time, %.2f", iteration, elapsed), con)
+  writeLines(sprintf("Fold %d prediction_time, %.2f", iteration, elapsed), con)
   close(con)
     
     nimbus_df[[clustering]] <- fuse_df$clusters

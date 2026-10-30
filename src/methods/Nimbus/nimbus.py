@@ -145,7 +145,7 @@ def run_nimbus(input_dir, mask_dir, output_base, markers, fov, img_suffix, itera
         if log == 'short':
             logging.info(f'Nimbus: {elapsed/60:.2f} min')
 
-        text_path = os.path.join(output_base, "nimbus", 'fold_times.txt')
+        text_path = os.path.join(output_base, "nimbus", 'level3', 'fold_times.txt')
         os.makedirs(os.path.dirname(text_path), exist_ok=True)
         mode = 'w' if iteration == 1 else 'a'
         with open(text_path, mode) as f:

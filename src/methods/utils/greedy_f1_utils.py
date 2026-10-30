@@ -7,6 +7,15 @@ from sklearn.metrics import (
     matthews_corrcoef, cohen_kappa_score
 )
 
+def cluster_purity(true_labels):
+    # Fraction of cells with the majority true label, i.e. the fraction greedy F1 assigns correctly
+    return pd.Series(true_labels).value_counts(normalize=True).iloc[0]
+
+def purity_suffix(purity):
+    # Method folder suffix for purity-stopped subclustering (e.g. '_purity0_9'), empty if off
+    # ':g' formats like R's as.character (1.0 -> '1'), so Python and R methods get the same folder names
+    return '' if purity is None else f'_purity{purity:g}'.replace(".", "_")
+
 def greedy_f1_score(df, true_label_col, predicted_cluster_col, tie_strategy="first"):
     contingency = pd.crosstab(df[true_label_col], df[predicted_cluster_col])
     cluster_to_label = {}

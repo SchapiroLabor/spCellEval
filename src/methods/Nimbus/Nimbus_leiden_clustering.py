@@ -8,7 +8,7 @@ import scanpy as sc
 import anndata as ad
 import numpy as np
 import re
-from utils.greedy_f1_utils import greedy_f1_score
+from utils.greedy_f1_utils import greedy_f1_score, cluster_purity, purity_suffix
 import warnings
 from anndata._core.aligned_df import ImplicitModificationWarning
 import logging
@@ -20,19 +20,22 @@ parser = argparse.ArgumentParser(description='Leiden clustering with greedy assi
 parser.add_argument("-gt", "--ground_truth", dest = "ground_truth", required = True, help = "Path to input quantification GT CSV file")
 parser.add_argument('-i', '--input', dest='input', type = str, help='Path to nimbus output folder containing one folder per iteration with quantification csv. EG immucan/nimbus/outputs')
 parser.add_argument('-o', '--output', dest='output_path', type = str, help='Path to output folder (usually ends with dataset name). Do not put a slash in the end!')
-parser.add_argument('-m', '--markers', dest='markers', nargs='+', help='List of marker names to use for clustering')
+parser.add_argument('-e', '--exclude_markers', dest='exclude_markers', nargs='+', default=[], help='Marker names to exclude from clustering (e.g. DAPI); all other Nimbus marker columns are used')
 parser.add_argument("--remove_str", dest = "remove_str", required = False, default = "None", type = str, help = "String to remove from sample_id column of quantification data to match fov column of nimbus data.")
-parser.add_argument('-p', '--PCA', dest='PCA', action='store_true', help='Perform PCA (default: False)')
-parser.add_argument('-a', '--arcsine', dest='arcsine', action='store_true', help='Perform arcsine transformation (default: False)')
+parser.add_argument('-p', '--PCA', dest='PCA', action='store_true', help='Cluster on the first 30 PCs (default: False)')
 parser.add_argument('-n', '--normalization', dest='normalization', action='store_true', help='Perform normalization (default: False)')
-parser.add_argument('-ha', '--harmony', dest='harmony', action='store_true', help='Perform Harmony integration (default: False)')
+parser.add_argument('-ha', '--harmony', dest='harmony', action='store_true', help='Harmony integration on sample_id; on the PCs with -p, otherwise on the markers (default: False)')
 parser.add_argument('-l', '--log', dest='log', required= False, default='off', choices=['short', 'long', 'off'], help='Logging level: short, long, or off (default: long)')
 parser.add_argument('-it', '--iterations', dest='iterations', type=int, required= False, default=5, help='Number of iterations to run (default: 5)')
-parser.add_argument('-r', '--resolutions', dest='resolutions', nargs='+', type=float, required= False, default=[0.5, 0.8, 1.0, 2.0], help='List of resolutions for Leiden clustering (default: [0.5, 0.8, 1.0, 2.0])')
+parser.add_argument('-r', '--resolution', dest='resolution', type=float, required= False, default=1.0, help='Resolution for Leiden clustering (default: 1.0)')
+parser.add_argument('-sc', '--subcluster_times', dest='subcluster_times', type=int, default=0, help='Number of recursive subclustering rounds applied to the resulting clusters (default: 0 = off)')
+parser.add_argument('-sm', '--subcluster_min_cells', dest='subcluster_min_cells', type=int, default=20, help='Minimal number of cells a cluster needs to be subclustered (default: 20)')
+parser.add_argument('-sr', '--subcluster_resolution', dest='subcluster_resolution', type=float, default=1.0, help='Leiden resolution used for subclustering (default: 1.0)')
+parser.add_argument('-sp', '--subcluster_purity', dest='subcluster_purity', type=float, default=None, help='Clusters whose majority cell_type fraction is >= this are not subclustered further, -sc is then the max depth. Uses the ground truth (oracle setting) (default: None = off)')
 args = parser.parse_args()
 
-# define parameters
-granularity = pd.Series({'level3':'cell_type', 'level1':'level_1_cell_type', 'level2':'level_2_cell_type'})
+# Columns of the joined table that are not Nimbus marker columns
+NON_MARKER_COLUMNS = ["cell_id", "sample_id", "level_1_cell_type", "level_2_cell_type", "cell_type", "fov", "label"]
 # Suppress specific warning from anndata
 warnings.filterwarnings("ignore", category=ImplicitModificationWarning)
 # Suppress specific FutureWarning from scanpy or general usage
@@ -58,6 +61,8 @@ def logging_setup(output_path):
 def join_ground_truth_with_nimbus(ground_truth,input, remove_str, iteration):
     # Read gt data
     gt = pd.read_csv(ground_truth)
+    # sample_id as string to match the (string) fov column of nimbus, also for numeric sample ids
+    gt['sample_id'] = gt['sample_id'].astype(str)
     # Remove substrings from sample_id if specified
     if remove_str != "None":
         gt['sample_id'] = gt['sample_id'].str.replace(remove_str, '', regex=True)
@@ -67,7 +72,7 @@ def join_ground_truth_with_nimbus(ground_truth,input, remove_str, iteration):
     nimbus_df = pd.read_csv(nimbus_path)
     # Convert fov column to string type
     nimbus_df['fov'] = nimbus_df['fov'].astype(str)
-    
+
     # Reduce nimbus data to only contain cells also present in gt, based on labels and fov
     nimbus_df = pd.merge(
         nimbus_df,
@@ -90,76 +95,107 @@ def join_ground_truth_with_nimbus(ground_truth,input, remove_str, iteration):
     return nimbus_df
 
 # Define preprocessing function
-def preprocessing(nimbus_df, markers, PCA, normalization, arcsine, harmony):
+def preprocessing(nimbus_df, exclude_markers, PCA, normalization, harmony):
+    # Markers are all Nimbus columns, minus excluded ones
+    features_list = [c for c in nimbus_df.columns if c not in NON_MARKER_COLUMNS + exclude_markers]
     # Subset DataFrame into features and observations
-    features_list = markers
     X = nimbus_df[features_list]
     obs = nimbus_df.drop(columns=features_list)
     # Create AnnData object
     adata = ad.AnnData(X=X, obs=obs)
-    #if arcsine == True:
-    #    #insert arcsine transformation here
 
     if normalization == True:
         sc.pp.normalize_total(adata, target_sum=1)
 
+    # Representation for the kNN graph: markers, PCs (30, or n_markers - 1 if fewer markers) and/or Harmony on top
+    rep = 'X'
     if PCA == True:
-        sc.pp.pca(adata, n_comps=30)
-        sc.pp.neighbors(adata, n_neighbors=10, use_rep='X_pca')
-    elif harmony == True:
-        sc.pp.pca(adata, n_comps=30)
-        sc.external.pp.harmony_integrate(adata, 'sample_id', basis='X_pca', adjusted_basis='X_harmony')
-        sc.pp.neighbors(adata, n_neighbors=10, use_rep='X_harmony')
-    else:
-        sc.pp.neighbors(adata, n_neighbors=10)
-    return adata
+        sc.pp.pca(adata, n_comps=min(30, adata.n_vars - 1))
+        rep = 'X_pca'
+    if harmony == True:
+        if rep == 'X':
+            adata.obsm['X_markers'] = np.asarray(adata.X)
+            rep = 'X_markers'
+        # harmonypy needs the batch column as categories (fails with 'KeyError: unique' for numeric sample_id)
+        adata.obs['sample_id'] = adata.obs['sample_id'].astype(str).astype('category')
+        sc.external.pp.harmony_integrate(adata, 'sample_id', basis=rep, adjusted_basis='X_harmony')
+        rep = 'X_harmony'
+    start = time.time()
+    sc.pp.neighbors(adata, n_neighbors=15, use_rep=rep)
+    knn_time = time.time() - start
+    return adata, knn_time
+
+# Define recursive subclustering function
+def subcluster(adata, key, times, min_cells, resolution, random_state, purity):
+    # Each round re-clusters every cluster with >= min_cells on a new kNN graph built from its cells only
+    # (same representation as the top-level graph), new labels are '<parent>,<child>'.
+    # With purity, clusters whose cell_type purity is >= purity are kept
+    rep = adata.uns['neighbors']['params']['use_rep']
+    labels = adata.obs[key].astype(str).to_numpy()
+    true_labels = adata.obs['cell_type'].to_numpy()
+    for _ in range(times):
+        new_labels = labels.copy()
+        for cluster, idx in pd.Series(labels).groupby(labels).indices.items():
+            if purity is not None and cluster_purity(true_labels[idx]) >= purity:
+                continue
+            if len(idx) >= min_cells:
+                sub = adata[idx].copy()
+                sc.pp.neighbors(sub, n_neighbors=15, use_rep=rep)
+                sc.tl.leiden(sub, resolution=resolution, random_state=random_state, flavor='igraph', n_iterations=2, directed=False)
+                new_labels[idx] = cluster + ',' + sub.obs['leiden'].astype(str).to_numpy()
+        labels = new_labels
+    adata.obs[key] = pd.Categorical(labels)
 
 # Define Leiden clustering with greedy assignment function
-def leiden_with_greedy(adata, nimbus_df, iteration, output_path, log, resolutions):
-    for res in resolutions:
-        start = time.time()
-        sc.tl.leiden(adata, resolution=res, key_added=f'leiden_res{res}')
-        elapsed = time.time() - start
-        if log == 'long':
-            logging.info(f'Iteration {iteration}: Leiden clustering with resolution={res} took {elapsed/60:.2f} minutes')
-        if log == 'short':
-            logging.info(f'Resolution={res}: {elapsed/60:.2f} min')
-        output = nimbus_df.copy()
-        output[f'leiden_res{str(res).replace(".", "_")}'] = adata.obs[f'leiden_res{res}'].values
-        resolution = f'leiden_res{str(res).replace(".", "_")}'
-        #append time to the results
-        text_path = os.path.join(output_path, resolution, 'fold_times.txt')
-        os.makedirs(os.path.dirname(text_path), exist_ok=True)
-        mode = 'w' if iteration == 1 else 'a'
-        with open(text_path, mode) as f:
-            f.write(f"Fold {iteration} train_time, {elapsed:.2f}\n")
+def leiden_with_greedy(adata, nimbus_df, knn_time, iteration, output_path, log, res, subcluster_times, subcluster_min_cells, subcluster_resolution, subcluster_purity):
+    resolution = f'leiden_res{str(res).replace(".", "_")}'
+    # Method folder 'nimbus_leiden_res<r>' (distinct from the Leiden-on-intensities folders);
+    # subclustering runs are saved in a separate method folder (e.g. 'nimbus_leiden_res1_0_subclust3',
+    # with purity 'nimbus_leiden_res1_0_subclust3_purity0_9')
+    suffix = f'_subclust{subcluster_times}{purity_suffix(subcluster_purity)}' if subcluster_times > 0 else ''
+    folder = f'nimbus_{resolution}{suffix}'
+    start = time.time()
+    # Seed per iteration, otherwise all iterations on the same input give identical clusters (scanpy default random_state=0)
+    sc.tl.leiden(adata, resolution=res, key_added=resolution, random_state=iteration, flavor='igraph', n_iterations=2, directed=False)
+    subcluster(adata, resolution, subcluster_times, subcluster_min_cells, subcluster_resolution, iteration, subcluster_purity)
+    # Prediction time = kNN graph + Leiden + subclustering
+    elapsed = knn_time + time.time() - start
+    if log == 'long':
+        logging.info(f'Iteration {iteration}: Leiden clustering with resolution={res} took {elapsed/60:.2f} minutes')
+    if log == 'short':
+        logging.info(f'Resolution={res}: {elapsed/60:.2f} min')
+    output = nimbus_df.copy()
+    output['cluster_label'] = adata.obs[resolution].values
+    #append time to the results
+    text_path = os.path.join(output_path, folder, 'level3', 'fold_times.txt')
+    os.makedirs(os.path.dirname(text_path), exist_ok=True)
+    mode = 'w' if iteration == 0 else 'a'
+    with open(text_path, mode) as f:
+        f.write(f"Fold {iteration} prediction_time, {elapsed:.2f}\n")
 
-        for k in granularity:
-            ## greedy assignement
-            results = greedy_f1_score(output, k, resolution, tie_strategy='random')
-            output['predicted_phenotype'] = results['mapped_predictions']
-            output = output.rename(columns={k: "true_phenotype"})
-            name = granularity[granularity==k].index[0]
-            path = f"{output_path}/{resolution}/{name}/predictions_{iteration}.csv"
-            os.makedirs(os.path.dirname(path), exist_ok=True)  # Ensure the directory exists
-            if log == 'long':
-                logging.info(f"Saving predictions to {path}")
-            output.to_csv(path, index=False)
+    ## greedy assignement
+    results = greedy_f1_score(output, 'cell_type', 'cluster_label', tie_strategy='random')
+    output['predicted_phenotype'] = results['mapped_predictions']
+    output = output.rename(columns={'cell_type': "true_phenotype"})
+    path = f"{output_path}/{folder}/level3/predictions_{iteration}.csv"
+    os.makedirs(os.path.dirname(path), exist_ok=True)  # Ensure the directory exists
+    if log == 'long':
+        logging.info(f"Saving predictions to {path}")
+    output.to_csv(path, index=False)
 
 def main():
     if args.log != 'off':
         logging_setup(args.output_path)
-    for iteration in range(1, args.iterations + 1):
-        # Join ground truth with nimbus output
-        nimbus_df = join_ground_truth_with_nimbus(args.ground_truth, args.input, args.remove_str, iteration)
-        adata = preprocessing(nimbus_df, args.markers, args.PCA, args.normalization, args.arcsine, args.harmony)
-        leiden_with_greedy(adata, nimbus_df, iteration, args.output_path, args.log, args.resolutions)
+    for iteration in range(args.iterations):
+        # Join ground truth with nimbus output (Nimbus writes iteration_1 ... iteration_N)
+        nimbus_df = join_ground_truth_with_nimbus(args.ground_truth, args.input, args.remove_str, iteration + 1)
+        adata, knn_time = preprocessing(nimbus_df, args.exclude_markers, args.PCA, args.normalization, args.harmony)
+        leiden_with_greedy(adata, nimbus_df, knn_time, iteration, args.output_path, args.log, args.resolution,
+                           args.subcluster_times, args.subcluster_min_cells, args.subcluster_resolution, args.subcluster_purity)
 
 
 if __name__ == "__main__":
     main()
 
 
-#example usage: python3 leiden_clustering.py -gt ../chl2/cHL_2_MIBI_quantification.csv -i ../chl2/nimbus_out -o ../chl2/CLI_test -m CD163 CD11c CD28 -r 0.8 -l off
-#MPO SMA CD16 CD38 HLADR CD27 CD15 CD45RA CD163 B2M CD20 CD68 Ido1 CD3 LAG3 CD11c PD1 PDGFRb CD7 GrzB PDL1 TCF7 CD45RO FOXP3 ICOS CD8a CarbonicAnhydrase CD33 Ki67 VISTA CD40 CD4 CD14 Ecad CD303 CD206 cleavedPARP ## nuclear: HistoneH3
-#CD45 CD20 'pSLP-76' 'SLP-76' 'anti-H2AX (pS139)' CD163 CD45RO CD28 'CD153 (CD30L)' Lag3 CD4 CD11c CD56 FoxP3 GATA3 'Granzyme B' 'PD-L1' CD16 'Ki-67' 'PD-1' 'Pax-5' Tox CD161 CD68 'B2-Microglobulin' CD8 CD3 HLA1 CD15 Tbet CD14 CD123 CXCR5 CD45RA 'HLA-DR' CD57 'IL-10' CD30 TIM3 RORgT TCRgd CD86 CD25 'Na-K ATPase' ## nuclear: dsDNA 'Histone H3'
+#example usage: python3 Nimbus_leiden_clustering.py -gt ../chl2/cHL_2_MIBI_quantification.csv -i ../chl2/nimbus/outputs -o ../chl2/CLI_test -e HistoneH3 -l off
