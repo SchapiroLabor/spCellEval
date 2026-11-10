@@ -26,12 +26,8 @@ python src/methods/VirTues/run_virtues.py all \\
 import os
 import sys
 import time
-import json
 import argparse
-import warnings
 from pathlib import Path
-
-os.environ.setdefault('PYTORCH_CUDA_ALLOC_CONF', 'expandable_segments:True')
 
 import numpy as np
 import pandas as pd
@@ -41,13 +37,12 @@ from tqdm import tqdm
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(SCRIPT_DIR.parent / 'utils'))
-from benchmark_io import load_config, read_markers, load_benchmark_data, read_image, read_segmentation
-from utils_foundational_models import (
-    save_embeddings, load_embeddings, rebuild_img_feature_store,
-    check_fold_coverage, run_supervised, run_leiden,
+from benchmark_io import (
+    fill_from_config, load_config, read_markers, load_benchmark_data, read_image, read_segmentation,
 )
-
-warnings.filterwarnings('ignore', category=FutureWarning)
+from utils_foundational_models import (
+    save_embeddings, load_embeddings, check_cache_params, run_supervised, run_leiden,
+)
 
 
 #  MARKERS
@@ -182,45 +177,17 @@ def run_compute_cell_tokens(img_processed, seg_np, marker_indices, model, conf, 
     return cell_ids_out, cell_tokens.numpy()
 
 
-#  EMBEDDING CACHE
-
-def check_cache_params(output_dir, params):
-    """
-    Bind the embedding cache in <output_dir>/embeddings to the extraction settings:
-    write params.json for a new cache, refuse to reuse one made with other settings.
-    """
-    emb_dir = Path(output_dir) / 'embeddings'
-    params_file = emb_dir / 'params.json'
-    if params_file.exists():
-        with open(params_file) as f:
-            cached = json.load(f)
-        diff = {k: (cached.get(k), v) for k, v in params.items() if cached.get(k) != v}
-        if diff:
-            raise ValueError(f"{emb_dir} was extracted with different settings "
-                             f"(cached, requested): {diff}. Use another --output-dir.")
-        return
-    has_cache = (emb_dir / 'all_cell_features.npy').exists() or any((emb_dir / 'cache').glob('*_feat.npy'))
-    if has_cache:
-        raise ValueError(f"{emb_dir} contains embeddings without params.json; "
-                         f"their settings are unknown. Use another --output-dir.")
-    emb_dir.mkdir(parents=True, exist_ok=True)
-    with open(params_file, 'w') as f:
-        json.dump(params, f, indent=2)
-
-
 #  FEATURE EXTRACTION
 
 def extract_features(args, model, conf, all_images, clean_indices, channel_mask,
                      marker_indices, meta_df, img_paths, seg_paths):
     """
     Runs compute_cell_tokens per image (one token per segmented cell) and keeps
-    the cells present in meta_df. Per-image results are cached in the format
-    rebuild_img_feature_store()/load_embeddings() expect.
+    the cells present in meta_df. Per-image results are cached for resumption.
     """
     cache_dir = Path(args.output_dir) / 'embeddings' / 'cache'
     cache_dir.mkdir(parents=True, exist_ok=True)
 
-    img_feature_store = {}
     all_feats_list, meta_records = [], []
     print(f"\ncrop_size={args.crop_size} | stride={args.stride} | pad={args.pad_size}")
 
@@ -230,7 +197,6 @@ def extract_features(args, model, conf, all_images, clean_indices, channel_mask,
         if cache_feat.exists() and cache_meta.exists():
             feats = np.load(cache_feat)
             meta  = pd.read_csv(cache_meta, dtype={'image_id': str})
-            img_feature_store[img_id] = (feats, meta['label'].tolist(), meta['cell_id'].tolist())
             all_feats_list.append(feats)
             meta_records.append(meta)
             continue
@@ -268,7 +234,6 @@ def extract_features(args, model, conf, all_images, clean_indices, channel_mask,
         meta_out = pd.DataFrame({'image_id': img_id, 'cell_id': cell_ids, 'label': labels})
         meta_out.to_csv(cache_meta, index=False)
 
-        img_feature_store[img_id] = (feats_arr, labels, cell_ids)
         all_feats_list.append(feats_arr)
         meta_records.append(meta_out)
 
@@ -278,7 +243,7 @@ def extract_features(args, model, conf, all_images, clean_indices, channel_mask,
     print(metadata_all['label'].value_counts().to_string())
 
     save_embeddings(args.output_dir, all_feats_arr, metadata_all)
-    return img_feature_store, all_feats_arr, metadata_all
+    return all_feats_arr, metadata_all
 
 
 #  ARGUMENT PARSER
@@ -340,22 +305,7 @@ def main():
         args.spceleval_dir = str(Path(args.spceleval_dir).resolve())
     args.dataset = data_root.name
     cfg = load_config(args.config, args.dataset)
-
-    def fill(attr, key, default=None):
-        if getattr(args, attr) is None:
-            setattr(args, attr, cfg.get(key, default))
-    fill('checkpoint', 'checkpoint', 'sp32')
-    fill('device', 'device', 'cuda:0')
-    fill('crop_size', 'crop_size', 64)
-    fill('stride', 'stride', 21)
-    fill('chunk_size', 'chunk_size', 32)
-    fill('pad_size', 'pad_size', 120)
-    fill('logreg_c', 'logreg_c', 1.0)
-    fill('leiden_resolution', 'leiden_resolution', 2.0)
-    fill('leiden_n_neighbors', 'leiden_n_neighbors', 15)
-    fill('leiden_subsample', 'leiden_subsample', 50000)
-    fill('folds_dir', 'folds_dir', 'quantification/processed/kfolds_StratifiedGroupKFold_level3')
-    fill('include_validation', 'include_validation', False)
+    fill_from_config(args, cfg)
 
     emb_dir = Path(args.marker_embedding_dir or SCRIPT_DIR / 'marker_embeddings' / args.dataset).resolve()
     if not emb_dir.is_dir():
@@ -373,33 +323,27 @@ def main():
         data_root, data_root / args.folds_dir, cfg.get('exclude_labels', []), args.include_validation)
     all_images = sorted(img_paths.keys())
 
-    check_cache_params(args.output_dir, {
+    check_cache_params(Path(args.output_dir) / 'embeddings', {
         'checkpoint': args.checkpoint, 'crop_size': args.crop_size, 'stride': args.stride,
         'pad_size': args.pad_size, 'markers': clean_names,
         'markers_with_embedding': [m for m, has in zip(clean_names, channel_mask.tolist()) if has],
     })
 
     all_feats_arr, metadata_all = load_embeddings(args.output_dir)
-    if all_feats_arr is not None and args.mode in ('supervised', 'leiden'):
-        img_feature_store = rebuild_img_feature_store(args.output_dir, all_images)
-    else:
+    if all_feats_arr is None or args.mode in ('extract', 'all'):
         model, conf = load_virtues_model(virtues_dir, args.device, args.checkpoint, emb_dir)
         if args.crop_size % conf.model.patch_size:
             raise ValueError(f"crop_size {args.crop_size} must be a multiple of the "
                              f"model patch_size {conf.model.patch_size}")
-        img_feature_store, all_feats_arr, metadata_all = extract_features(
+        all_feats_arr, metadata_all = extract_features(
             args, model, conf, all_images, clean_indices, channel_mask,
             marker_indices, meta_df, img_paths, seg_paths,
         )
 
-    check_fold_coverage(folds, zip(metadata_all['image_id'], metadata_all['cell_id']))
-
     if args.mode in ('supervised', 'all'):
-        run_supervised(args, folds, img_feature_store, all_feats_arr, metadata_all,
-                       method_name='VIRTUES_supervised', fold_type='cell')
+        run_supervised(args, folds, all_feats_arr, metadata_all, method_name='VIRTUES_supervised')
     if args.mode in ('leiden', 'all'):
-        run_leiden(args, folds, img_feature_store, all_feats_arr, metadata_all,
-                   method_name='VIRTUES_leiden', fold_type='cell')
+        run_leiden(args, folds, all_feats_arr, metadata_all, method_name='VIRTUES_leiden')
 
     total_time = time.time() - total_start
     print(f"\n{'='*60}")
