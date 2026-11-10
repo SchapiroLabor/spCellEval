@@ -55,7 +55,7 @@ warnings.filterwarnings('ignore', category=FutureWarning)
 def get_clean_markers(all_channels, exclude, uniprot_map, marker_embedding_dir):
     exclude_set = set(exclude)
     # Sort by filename, exactly like VirTues' load_marker_embeddings: sorting the stripped
-    # ids instead reorders e.g. P08575 vs P08575-5 and silently swaps marker embeddings.
+    # ids instead reorders e.g. P08575 vs P08575-4 and silently swaps marker embeddings.
     pt_files      = sorted(f for f in os.listdir(marker_embedding_dir) if f.endswith('.pt'))
     available_ids = {f.removesuffix('.pt') for f in pt_files}
     embed_idx     = {f.removesuffix('.pt'): i for i, f in enumerate(pt_files)}
