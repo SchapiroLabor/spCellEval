@@ -27,7 +27,6 @@ python run_eva.py all \\
 """
 
 import argparse
-import json
 import os
 import sys
 import time
@@ -39,10 +38,11 @@ import torch
 from scipy.sparse import coo_matrix
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / 'utils'))
-from benchmark_io import load_benchmark_data, load_config, read_image, read_markers, read_segmentation
+from benchmark_io import (
+    fill_from_config, load_benchmark_data, load_config, read_image, read_markers, read_segmentation,
+)
 from utils_foundational_models import (
-    check_fold_coverage, load_embeddings, rebuild_img_feature_store, run_leiden,
-    run_supervised, save_embeddings,
+    check_cache_params, load_embeddings, run_leiden, run_supervised, save_embeddings,
 )
 
 EVA_REPO_ID = 'yandrewl/Eva'
@@ -73,28 +73,6 @@ def get_markers(cfg, data_root):
     print(f"Markers: {len(all_markers)} total, "
           f"{len(clean_indices)} kept (excluded: {sorted(exclude_set)})")
     return clean_indices, biomarkers
-
-
-def check_cache_params(output_dir, params):
-    """Refuse to mix embeddings extracted with different settings in one output directory."""
-    emb_dir = Path(output_dir) / 'embeddings'
-    params_file = emb_dir / 'params.json'
-    if params_file.exists():
-        with open(params_file) as f:
-            cached = json.load(f)
-        if cached != params:
-            diff = {k: (cached.get(k), params.get(k)) for k in set(cached) | set(params)
-                    if cached.get(k) != params.get(k)}
-            raise ValueError(f"{emb_dir} was extracted with different settings "
-                             f"(cached, requested): {diff}. Use a new --output-dir.")
-        return
-    cache_dir = emb_dir / 'cache'
-    if (emb_dir / 'all_cell_features.npy').exists() or (cache_dir.exists() and any(cache_dir.iterdir())):
-        raise ValueError(f"{emb_dir} contains embeddings without params.json; "
-                         f"their extraction settings are unknown. Use a new --output-dir.")
-    emb_dir.mkdir(parents=True, exist_ok=True)
-    with open(params_file, 'w') as f:
-        json.dump(params, f, indent=2)
 
 
 #  FEATURE EXTRACTION  (v3: spatial token map averaged over each cell's pixels)
@@ -168,7 +146,6 @@ def extract_features(args, model, all_images, clean_indices, biomarkers,
     cache_dir = Path(args.output_dir) / 'embeddings' / 'cache'
     cache_dir.mkdir(parents=True, exist_ok=True)
 
-    img_feature_store = {}
     all_feats_list, meta_records = [], []
     t0_total = time.time()
 
@@ -178,7 +155,6 @@ def extract_features(args, model, all_images, clean_indices, biomarkers,
         if cache_feat.exists() and cache_meta.exists():
             feats = np.load(cache_feat)
             meta = pd.read_csv(cache_meta, dtype={'image_id': str})
-            img_feature_store[img_id] = (feats, meta['label'].tolist(), meta['cell_id'].tolist())
             all_feats_list.append(feats)
             meta_records.append(meta)
             continue
@@ -201,7 +177,6 @@ def extract_features(args, model, all_images, clean_indices, biomarkers,
         np.save(cache_feat, feats_arr)
         meta_out.to_csv(cache_meta, index=False)
 
-        img_feature_store[img_id] = (feats_arr, meta_out['label'].tolist(), meta_out['cell_id'].tolist())
         all_feats_list.append(feats_arr)
         meta_records.append(meta_out)
         print(f"  {img_id}: {len(feats_arr)} cells | {time.time() - t0:.1f}s")
@@ -211,7 +186,7 @@ def extract_features(args, model, all_images, clean_indices, biomarkers,
     print(f"\nExtracted {len(all_feats_arr):,} cells total in {time.time() - t0_total:.1f}s")
 
     save_embeddings(args.output_dir, all_feats_arr, metadata_all)
-    return img_feature_store, all_feats_arr, metadata_all
+    return all_feats_arr, metadata_all
 
 
 def build_parser():
@@ -252,19 +227,7 @@ def main():
     args.output_dir = str(Path(args.output_dir).resolve())
     args.dataset = data_root.name
     cfg = load_config(args.config, args.dataset)
-
-    def fill(attr, key, default):
-        if getattr(args, attr) is None:
-            setattr(args, attr, cfg.get(key, default))
-    fill('device', 'device', 'cuda:0')
-    fill('tile_size', 'tile_size', 224)
-    fill('tile_stride', 'tile_stride', 112)
-    fill('logreg_c', 'logreg_c', 1.0)
-    fill('leiden_resolution', 'leiden_resolution', 2.0)
-    fill('leiden_n_neighbors', 'leiden_n_neighbors', 15)
-    fill('leiden_subsample', 'leiden_subsample', 50000)
-    fill('folds_dir', 'folds_dir', 'quantification/processed/kfolds_StratifiedGroupKFold_level3')
-    fill('include_validation', 'include_validation', True)
+    fill_from_config(args, cfg)
 
     print(f"\n{'=' * 60}\nrun_eva.py | mode={args.mode} | dataset={args.dataset}\n{'=' * 60}")
 
@@ -273,26 +236,21 @@ def main():
     clean_indices, biomarkers = get_markers(cfg, data_root)
     all_images = sorted(img_paths)
 
-    check_cache_params(args.output_dir, {
+    check_cache_params(Path(args.output_dir) / 'embeddings', {
         'model': EVA_REPO_ID, 'tile_size': args.tile_size, 'tile_stride': args.tile_stride,
         'markers': biomarkers,
     })
 
     all_feats_arr, metadata_all = load_embeddings(args.output_dir)
-    if all_feats_arr is not None and args.mode in ('supervised', 'leiden'):
-        img_feature_store = rebuild_img_feature_store(args.output_dir, all_images)
-    else:
+    if all_feats_arr is None or args.mode in ('extract', 'all'):
         model = load_eva_model(args.eva_dir, args.device)
-        img_feature_store, all_feats_arr, metadata_all = extract_features(
+        all_feats_arr, metadata_all = extract_features(
             args, model, all_images, clean_indices, biomarkers, meta_df, img_paths, seg_paths)
-    check_fold_coverage(folds, zip(metadata_all['image_id'], metadata_all['cell_id']))
 
     if args.mode in ('supervised', 'all'):
-        run_supervised(args, folds, img_feature_store, all_feats_arr, metadata_all,
-                       method_name='EVA_supervised', fold_type='cell')
+        run_supervised(args, folds, all_feats_arr, metadata_all, method_name='EVA_supervised')
     if args.mode in ('leiden', 'all'):
-        run_leiden(args, folds, img_feature_store, all_feats_arr, metadata_all,
-                   method_name='EVA_leiden', fold_type='cell')
+        run_leiden(args, folds, all_feats_arr, metadata_all, method_name='EVA_leiden')
 
     print(f"\n{'=' * 60}\nrun_eva.py complete | dataset={args.dataset} | "
           f"total: {time.time() - total_start:.1f}s\n{'=' * 60}\n")
