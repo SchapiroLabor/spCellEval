@@ -12,6 +12,7 @@ Expected dataset layout (<data_root> = .../<dataset>):
 Functions
 ---------
 load_config(config_path, dataset)
+fill_from_config(args, cfg)
 read_markers(data_root)
 file_stem(name)
 find_image(img_dir, img_id)
@@ -42,6 +43,13 @@ def load_config(config_path, dataset):
     merged.update(datasets[dataset])
     merged["dataset"] = dataset
     return merged
+
+
+def fill_from_config(args, cfg):
+    """Set every CLI option left at None to the config's value (CLI > dataset block > defaults)."""
+    for key, value in cfg.items():
+        if hasattr(args, key) and getattr(args, key) is None:
+            setattr(args, key, value)
 
 
 def read_markers(data_root):
