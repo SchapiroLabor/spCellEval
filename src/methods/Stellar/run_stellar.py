@@ -41,7 +41,7 @@ from torch_geometric.nn import SAGEConv
 from tqdm import tqdm
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from utils.benchmark_io import (load_benchmark_data, load_config, read_image,  # noqa: E402
+from utils.benchmark_io import (fill_from_config, load_benchmark_data, load_config, read_image,  # noqa: E402
                                 read_markers, read_segmentation)
 
 
@@ -248,33 +248,25 @@ def main():
     p.add_argument("--weight-decay", type=float, default=None)
     p.add_argument("--node-batch-size", type=int, default=None)
     p.add_argument("--device", default=None)
-    cli = p.parse_args()
+    args = p.parse_args()
 
-    data_root = Path(cli.dataset_path)
-    cfg = load_config(cli.config, data_root.name)
-    pick = lambda value, key, default=None: value if value is not None else cfg.get(key, default)
+    data_root = Path(args.dataset_path)
+    cfg = load_config(args.config, data_root.name)
+    fill_from_config(args, cfg)
+    args.num_neighbors = cfg["num_neighbors"]
 
-    if cli.distance_threshold is not None:
-        radius_px = cli.distance_threshold
+    if args.distance_threshold is not None:
+        radius_px = args.distance_threshold
     elif "pixel_size_um" in cfg and "neighbourhood_um" in cfg:
         radius_px = cfg["neighbourhood_um"] / cfg["pixel_size_um"]
     else:
-        raise ValueError(f"{cli.config}: set neighbourhood_um and pixel_size_um for {data_root.name}")
+        raise ValueError(f"{args.config}: set neighbourhood_um and pixel_size_um for {data_root.name}")
+    args.radius_px = radius_px
 
-    args = argparse.Namespace(
-        radius_px=radius_px,
-        hid_dim=pick(cli.hid_dim, "hid_dim"),
-        epochs=pick(cli.epochs, "epochs"),
-        lr=pick(cli.lr, "lr"),
-        weight_decay=pick(cli.weight_decay, "weight_decay"),
-        node_batch_size=pick(cli.node_batch_size, "node_batch_size"),
-        num_neighbors=cfg.get("num_neighbors", [10]),
-        device=pick(cli.device, "device", "cuda:0"),
-    )
-    out_dir = Path(cli.output_dir) / "stellar_supervised"
+    out_dir = Path(args.output_dir) / "stellar_supervised"
     (out_dir / "level3").mkdir(parents=True, exist_ok=True)
     print(f"\nStellar — {data_root.name}  radius={radius_px:.2f}px"
-          + (f" ({cfg['neighbourhood_um']} um at {cfg['pixel_size_um']} um/px)" if cli.distance_threshold is None else "")
+          + (f" ({cfg['neighbourhood_um']} um at {cfg['pixel_size_um']} um/px)" if args.distance_threshold is None else "")
           + f"  hid_dim={args.hid_dim}  epochs={args.epochs}  device={args.device}\n  output: {out_dir}")
 
     markers = read_markers(data_root)
@@ -285,11 +277,8 @@ def main():
     channel_idx = [i for i, m in enumerate(markers) if m not in exclude]
     print(f"  Channels: {len(channel_idx)}/{len(markers)} kept (excluded: {exclude})")
 
-    folds_dir = data_root / pick(cli.folds_dir, "folds_dir",
-                                 "quantification/processed/kfolds_StratifiedGroupKFold_level3")
     meta, folds, img_paths, seg_paths = load_benchmark_data(
-        data_root, folds_dir, cfg.get("exclude_labels", []),
-        pick(cli.include_validation, "include_validation", False))
+        data_root, data_root / args.folds_dir, cfg.get("exclude_labels", []), args.include_validation)
     missing = sorted(set(meta["image_id"]) - (set(img_paths) & set(seg_paths)))
     if missing:
         raise FileNotFoundError(f"No image or segmentation for {len(missing)} images, e.g. {missing[:3]}")
@@ -302,7 +291,7 @@ def main():
 
     cell_keys = pd.Series(list(zip(meta["image_id"], meta["cell_id"])), index=meta.index)
     metrics = []
-    for fi in ([cli.fold] if cli.fold is not None else range(len(folds))):
+    for fi in ([args.fold] if args.fold is not None else range(len(folds))):
         t0 = time.time()
         train, mean, std = build_split(meta[cell_keys.isin(folds[fi]["train"])], features, cat_to_idx)
         test, _, _ = build_split(meta[cell_keys.isin(folds[fi]["test"])], features, cat_to_idx, mean, std)
