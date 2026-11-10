@@ -16,14 +16,16 @@
   },
   "datasets": {
     "IMMUcan": {
-      "exclude_markers": ["DNA1", "DNA2", "HistoneH3", "CD33", "Ecad", "cleavedPARP"],
+      "exclude_markers": ["DNA1", "DNA2", "HistoneH3", "cleavedPARP"],
       "marker_name_map": {
         "SMA": "A-SMA",
         "GrzB": "GZMB",
         "CD8a": "CD8",
         "TCF7": "TCF1",
         "CD303": "BDCA-2",
-        "CarbonicAnhydrase": "CA9"
+        "CarbonicAnhydrase": "CA9",
+        "Ecad": "E-CADHERIN",
+        "CD33": "SIGELC-3"
       }
     },
     "cHL_2_MIBI": {
