@@ -28,7 +28,6 @@ python run_kronos2.py all \\
 """
 
 import sys
-import json
 import time
 import argparse
 from pathlib import Path
@@ -41,8 +40,8 @@ from tqdm import tqdm
 from scipy import ndimage
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / 'utils'))
-from benchmark_io import load_config, read_markers, load_benchmark_data, read_segmentation
-from utils_foundational_models import check_fold_coverage, _save_fold_times
+from benchmark_io import fill_from_config, load_config, read_markers, load_benchmark_data, read_segmentation
+from utils_foundational_models import check_cache_params, check_fold_coverage, _save_fold_times
 
 
 #  FEATURE EXTRACTION
@@ -73,13 +72,8 @@ def cell_patch(img, box, patch_size):
 
 def extract_features(args, model, marker_indices, model_markers, meta_df, img_paths, seg_paths):
     feature_dir = Path(args.output_dir) / 'features'
-    feature_dir.mkdir(parents=True, exist_ok=True)
-    params = {'model': 'MahmoodLab/KRONOS2', 'patch_size': args.patch_size, 'markers': model_markers}
-    params_path = feature_dir / 'params.json'
-    if params_path.exists() and json.loads(params_path.read_text()) != params:
-        raise ValueError(f"{feature_dir} holds features computed with different parameters "
-                         f"({params_path}); use a new --output-dir")
-    params_path.write_text(json.dumps(params, indent=1))
+    check_cache_params(feature_dir, {'model': 'MahmoodLab/KRONOS2', 'patch_size': args.patch_size,
+                                     'markers': model_markers})
 
     cells_by_image = meta_df.groupby('image_id')['cell_id'].apply(list)
     print(f"\nExtracting KRONOS2 features | patch_size={args.patch_size} | markers={len(model_markers)}")
@@ -240,13 +234,7 @@ def main():
     total_start = time.time()
     data_root = Path(args.dataset_path)
     cfg = load_config(args.config, data_root.name)
-    for key, default in [('device', 'cuda:0'), ('patch_size', 64), ('batch_size', 16), ('n_trials', 25),
-                         ('c_low', 1e-10), ('c_high', 1e5), ('max_iter', 10000),
-                         ('max_cells_per_type', None), ('seed', 42),
-                         ('folds_dir', 'quantification/processed/kfolds_StratifiedGroupKFold_level3'),
-                         ('include_validation', False)]:
-        if getattr(args, key) is None:
-            setattr(args, key, cfg.get(key, default))
+    fill_from_config(args, cfg)
     if args.patch_size % 16:
         raise ValueError(f"patch_size must be a multiple of 16 (ViT-B/16), got {args.patch_size}")
 
