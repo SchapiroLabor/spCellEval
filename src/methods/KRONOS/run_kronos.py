@@ -59,7 +59,7 @@ VIT_PATCH = 16
 CHECKPOINT = 'hf_hub:MahmoodLab/kronos'
 
 
-#  Markers + normalisation
+#  Markers
 
 def select_markers(markers, exclude):
     exclude = set(exclude)
@@ -72,36 +72,22 @@ def select_markers(markers, exclude):
     return keep, names
 
 
-def build_normalisation_params(names, marker_meta_path, marker_name_map, no_equivalent):
-    """
-    Per-marker mean/std from KRONOS' marker_metadata.csv. Markers without a
-    KRONOS equivalent are left unnormalised (mean=0, std=1).
-    """
+def build_marker_params(names, marker_meta_path, marker_name_map):
+    """Per-marker KRONOS marker_id, mean and std from KRONOS' marker_metadata.csv."""
     df = pd.read_csv(marker_meta_path)
-    lookup = {name.upper(): (mean, std) for name, mean, std
-              in zip(df['marker_name'], df['marker_mean'], df['marker_std'])}
-    no_equivalent = set(no_equivalent)
+    lookup = {name.upper(): (mid, mean, std) for name, mid, mean, std
+              in zip(df['marker_name'], df['marker_id'], df['marker_mean'], df['marker_std'])}
+    kronos_names = [marker_name_map.get(m, m) for m in names]
+    missing = [m for m, k in zip(names, kronos_names) if k.upper() not in lookup]
+    if missing:
+        raise ValueError(f"No KRONOS marker for {missing}; add them to marker_name_map or exclude_markers")
 
-    means, stds = [], []
-    print("\nKRONOS marker normalisation params:")
-    for m in names:
-        kronos_name = marker_name_map.get(m, m)
-        if kronos_name.upper() in lookup:
-            mean, std = lookup[kronos_name.upper()]
-            std = std if std > 0 else 1.0
-            status = f"FOUND    -> {kronos_name:20s} mean={mean:.3f} std={std:.3f}"
-        else:
-            mean, std = 0.0, 1.0
-            status = ("FALLBACK -> no KRONOS equivalent" if m in no_equivalent
-                      else "MISSING  -> not in KRONOS training data")
-        means.append(mean)
-        stds.append(std)
-        print(f"  {m:25s} {status}")
-
-    n_found = sum(1 for m in names if marker_name_map.get(m, m).upper() in lookup)
-    print(f"\nNormalisation: {n_found} markers with KRONOS stats | "
-          f"{len(names) - n_found} markers unnormalised")
-    return np.array(means, dtype=np.float32), np.array(stds, dtype=np.float32)
+    ids, means, stds = zip(*(lookup[k.upper()] for k in kronos_names))
+    print("\nKRONOS markers:")
+    for m, k, mid in zip(names, kronos_names, ids):
+        print(f"  {m:25s} -> {k:20s} id={mid}")
+    return (np.array(ids, dtype=np.int64), np.array(means, dtype=np.float32),
+            np.array([s if s > 0 else 1.0 for s in stds], dtype=np.float32))
 
 
 #  Embedding cache
@@ -159,18 +145,19 @@ def get_bbox_patch(img, bbox, patch_size):
                          (0, 0)))
 
 
-def embed_patches(patches, model, mean_t, std_t, device):
+def embed_patches(patches, model, ids_t, mean_t, std_t, device):
     batch = torch.from_numpy(np.stack(patches)).to(device).permute(0, 3, 1, 2).float()
     batch = (batch - mean_t[None, :, None, None]) / std_t[None, :, None, None]
     with torch.no_grad():
-        patch_embeddings, _, _ = model(batch)
+        patch_embeddings, _, _ = model(batch, marker_ids=ids_t.expand(len(batch), -1))
     return patch_embeddings.cpu().numpy()
 
 
-def extract_features(args, model, all_images, keep_idx, means, stds, meta_df, img_paths, seg_paths):
+def extract_features(args, model, all_images, keep_idx, ids, means, stds, meta_df, img_paths, seg_paths):
     """Embed every labelled cell, caching per image for crash-safe resumption."""
     cache_dir = Path(args.output_dir) / 'embeddings' / 'cache'
     cache_dir.mkdir(parents=True, exist_ok=True)
+    ids_t = torch.tensor(ids, dtype=torch.int64, device=args.device)
     mean_t = torch.tensor(means, dtype=torch.float32, device=args.device)
     std_t = torch.tensor(stds, dtype=torch.float32, device=args.device)
 
@@ -212,7 +199,7 @@ def extract_features(args, model, all_images, keep_idx, means, stds, meta_df, im
             continue
 
         feats = np.concatenate([
-            embed_patches(patches[i:i + args.batch_size], model, mean_t, std_t, args.device)
+            embed_patches(patches[i:i + args.batch_size], model, ids_t, mean_t, std_t, args.device)
             for i in range(0, len(patches), args.batch_size)
         ])
         np.save(cache_feat, feats)
@@ -297,8 +284,7 @@ def main():
     print(f"\n{'=' * 60}\nrun_kronos.py | mode={args.mode} | dataset={args.dataset}\n{'=' * 60}")
 
     keep_idx, names = select_markers(read_markers(data_root), cfg.get('exclude_markers', []))
-    means, stds = build_normalisation_params(
-        names, args.marker_meta, cfg.get('marker_name_map', {}), cfg.get('no_equivalent', []))
+    ids, means, stds = build_marker_params(names, args.marker_meta, cfg.get('marker_name_map', {}))
     meta_df, folds, img_paths, seg_paths = load_benchmark_data(
         data_root, data_root / args.folds_dir, cfg.get('exclude_labels', []), args.include_validation)
     all_images = sorted(img_paths)
@@ -307,6 +293,7 @@ def main():
         'checkpoint': CHECKPOINT,
         'patch_size': args.patch_size,
         'markers': names,
+        'marker_ids': ids.tolist(),
         'normalisation': 'image / image.max(), then per-marker (x - mean) / std',
         'marker_mean': means.tolist(),
         'marker_std': stds.tolist(),
@@ -318,7 +305,7 @@ def main():
     else:
         model = load_kronos_model(args.kronos_dir, args.device)
         img_feature_store, all_feats_arr, metadata_all = extract_features(
-            args, model, all_images, keep_idx, means, stds, meta_df, img_paths, seg_paths)
+            args, model, all_images, keep_idx, ids, means, stds, meta_df, img_paths, seg_paths)
 
     if args.mode != 'extract':
         check_fold_coverage(folds, zip(metadata_all['image_id'], metadata_all['cell_id']))
