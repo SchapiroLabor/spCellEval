@@ -30,14 +30,9 @@ python run_kronos.py all \\
 """
 
 import argparse
-import json
-import os
 import sys
 import time
-import warnings
 from pathlib import Path
-
-os.environ.setdefault('PYTORCH_CUDA_ALLOC_CONF', 'expandable_segments:True')
 
 import numpy as np
 import pandas as pd
@@ -46,14 +41,12 @@ from scipy import ndimage
 from tqdm import tqdm
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / 'utils'))
-from benchmark_io import load_config, read_markers, read_image, read_segmentation, load_benchmark_data
-from utils_foundational_models import (
-    save_embeddings, load_embeddings, rebuild_img_feature_store, check_fold_coverage,
-    run_supervised, run_leiden,
+from benchmark_io import (
+    fill_from_config, load_config, read_markers, read_image, read_segmentation, load_benchmark_data,
 )
-
-warnings.filterwarnings('ignore', category=FutureWarning)
-warnings.filterwarnings('ignore', message='xFormers is not available')
+from utils_foundational_models import (
+    save_embeddings, load_embeddings, check_cache_params, run_supervised, run_leiden,
+)
 
 VIT_PATCH = 16
 CHECKPOINT = 'hf_hub:MahmoodLab/kronos'
@@ -88,29 +81,6 @@ def build_marker_params(names, marker_meta_path, marker_name_map):
         print(f"  {m:25s} -> {k:20s} id={mid}")
     return (np.array(ids, dtype=np.int64), np.array(means, dtype=np.float32),
             np.array([s if s > 0 else 1.0 for s in stds], dtype=np.float32))
-
-
-#  Embedding cache
-
-def check_cache_params(output_dir, params):
-    """Refuse to reuse cached embeddings written with different extraction parameters."""
-    emb_dir = Path(output_dir) / 'embeddings'
-    path = emb_dir / 'params.json'
-    params = json.loads(json.dumps(params))
-    if path.exists():
-        with open(path) as f:
-            cached = json.load(f)
-        if cached != params:
-            changed = sorted(k for k in set(cached) | set(params) if cached.get(k) != params.get(k))
-            raise ValueError(f"{emb_dir} was extracted with different parameters ({changed}); "
-                             f"use a new --output-dir")
-        return
-    if (emb_dir / 'cache').exists() and any((emb_dir / 'cache').iterdir()):
-        raise ValueError(f"{emb_dir} holds cached embeddings without params.json; "
-                         f"use a new --output-dir")
-    emb_dir.mkdir(parents=True, exist_ok=True)
-    with open(path, 'w') as f:
-        json.dump(params, f, indent=1)
 
 
 #  KRONOS model
@@ -165,13 +135,13 @@ def extract_features(args, model, all_images, keep_idx, ids, means, stds, meta_d
           f"batch_size={args.batch_size} | device={args.device}")
     print("=" * 60)
 
-    img_feature_store = {}
+    per_image = {}
     for img_id in tqdm(all_images, desc="KRONOS (bbox)"):
         cache_feat = cache_dir / f"{img_id}_feat.npy"
         cache_meta = cache_dir / f"{img_id}_meta.csv"
         if cache_feat.exists() and cache_meta.exists():
             meta = pd.read_csv(cache_meta, dtype={'image_id': str})
-            img_feature_store[img_id] = (np.load(cache_feat), meta['label'].tolist(),
+            per_image[img_id] = (np.load(cache_feat), meta['label'].tolist(),
                                          meta['cell_id'].tolist())
             continue
         if img_id not in img_paths or img_id not in seg_paths:
@@ -205,18 +175,18 @@ def extract_features(args, model, all_images, keep_idx, ids, means, stds, meta_d
         np.save(cache_feat, feats)
         pd.DataFrame({'image_id': img_id, 'cell_id': cell_ids, 'label': labels}).to_csv(
             cache_meta, index=False)
-        img_feature_store[img_id] = (feats, labels, cell_ids)
+        per_image[img_id] = (feats, labels, cell_ids)
 
-    all_feats_arr = np.concatenate([feats for feats, _, _ in img_feature_store.values()])
+    all_feats_arr = np.concatenate([feats for feats, _, _ in per_image.values()])
     metadata_all = pd.DataFrame({
-        'image_id': [img_id for img_id, (_, _, ids) in img_feature_store.items() for _ in ids],
-        'cell_id':  [c for _, _, ids in img_feature_store.values() for c in ids],
-        'label':    [l for _, labels, _ in img_feature_store.values() for l in labels],
+        'image_id': [img_id for img_id, (_, _, ids) in per_image.items() for _ in ids],
+        'cell_id':  [c for _, _, ids in per_image.values() for c in ids],
+        'label':    [l for _, labels, _ in per_image.values() for l in labels],
     })
     save_embeddings(args.output_dir, all_feats_arr, metadata_all)
     print(f"\nExtraction complete: {len(all_feats_arr):,} cells | embedding_dim={all_feats_arr.shape[1]}")
     print(metadata_all['label'].value_counts().to_string())
-    return img_feature_store, all_feats_arr, metadata_all
+    return all_feats_arr, metadata_all
 
 
 #  CLI
@@ -254,19 +224,6 @@ def build_parser():
     return parser
 
 
-DEFAULTS = {
-    'device': 'cuda:0',
-    'patch_size': 64,
-    'batch_size': 16,
-    'logreg_c': 1.0,
-    'leiden_resolution': 2.0,
-    'leiden_n_neighbors': 15,
-    'leiden_subsample': 50000,
-    'folds_dir': 'quantification/processed/kfolds_StratifiedGroupKFold_level3',
-    'include_validation': False,
-}
-
-
 def main():
     args = build_parser().parse_args()
     total_start = time.time()
@@ -274,9 +231,7 @@ def main():
     data_root = Path(args.dataset_path)
     args.dataset = data_root.name
     cfg = load_config(args.config, args.dataset)
-    for attr, default in DEFAULTS.items():
-        if getattr(args, attr) is None:
-            setattr(args, attr, cfg.get(attr, default))
+    fill_from_config(args, cfg)
     if args.patch_size % VIT_PATCH:
         raise ValueError(f"patch_size must be a multiple of {VIT_PATCH} (KRONOS is ViT-S/{VIT_PATCH}), "
                          f"got {args.patch_size}")
@@ -289,7 +244,7 @@ def main():
         data_root, data_root / args.folds_dir, cfg.get('exclude_labels', []), args.include_validation)
     all_images = sorted(img_paths)
 
-    check_cache_params(args.output_dir, {
+    check_cache_params(Path(args.output_dir) / 'embeddings', {
         'checkpoint': CHECKPOINT,
         'patch_size': args.patch_size,
         'markers': names,
@@ -300,21 +255,15 @@ def main():
     })
 
     all_feats_arr, metadata_all = load_embeddings(args.output_dir)
-    if all_feats_arr is not None and args.mode in ('supervised', 'leiden'):
-        img_feature_store = rebuild_img_feature_store(args.output_dir, all_images)
-    else:
+    if all_feats_arr is None or args.mode in ('extract', 'all'):
         model = load_kronos_model(args.kronos_dir, args.device)
-        img_feature_store, all_feats_arr, metadata_all = extract_features(
+        all_feats_arr, metadata_all = extract_features(
             args, model, all_images, keep_idx, ids, means, stds, meta_df, img_paths, seg_paths)
 
-    if args.mode != 'extract':
-        check_fold_coverage(folds, zip(metadata_all['image_id'], metadata_all['cell_id']))
     if args.mode in ('supervised', 'all'):
-        run_supervised(args, folds, img_feature_store, all_feats_arr, metadata_all,
-                       method_name='KRONOS_supervised', fold_type='cell')
+        run_supervised(args, folds, all_feats_arr, metadata_all, method_name='KRONOS_supervised')
     if args.mode in ('leiden', 'all'):
-        run_leiden(args, folds, img_feature_store, all_feats_arr, metadata_all,
-                   method_name='KRONOS_leiden', fold_type='cell')
+        run_leiden(args, folds, all_feats_arr, metadata_all, method_name='KRONOS_leiden')
 
     total_time = time.time() - total_start
     print(f"\n{'=' * 60}\nrun_kronos.py complete | total: {total_time:.1f}s ({total_time / 3600:.2f}h)\n{'=' * 60}\n")
