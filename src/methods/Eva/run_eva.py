@@ -163,7 +163,8 @@ def extract_features(args, model, all_images, clean_indices, biomarkers,
             continue
 
         t0 = time.time()
-        img = np.ascontiguousarray(read_image(img_paths[img_id], clean_indices).transpose(1, 2, 0))
+        img = read_image(img_paths[img_id], clean_indices)
+        img = np.ascontiguousarray((img / (img.max() + 1e-8)).transpose(1, 2, 0))
         seg = read_segmentation(seg_paths[img_id])
         cell_feats = extract_cell_features(img, seg, model, biomarkers, args.device,
                                            args.tile_size, args.tile_stride)
@@ -238,7 +239,7 @@ def main():
 
     check_cache_params(Path(args.output_dir) / 'embeddings', {
         'model': EVA_REPO_ID, 'tile_size': args.tile_size, 'tile_stride': args.tile_stride,
-        'markers': biomarkers,
+        'normalisation': 'image / image.max()', 'markers': biomarkers,
     })
 
     all_feats_arr, metadata_all = load_embeddings(args.output_dir)
