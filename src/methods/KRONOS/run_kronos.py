@@ -3,9 +3,15 @@
 run_kronos.py — KRONOS foundation model: config-driven benchmark CLI
 ====================================================================
 
-Each cell's segmentation bounding box is cropped, zero-padded to
-patch_size x patch_size and embedded with KRONOS (MahmoodLab/kronos,
-ViT-S/16). The supervised head, Leiden clustering, greedy F1 and output
+Cells are embedded with KRONOS (MahmoodLab/kronos, ViT-S/16) as in the
+authors' cell-phenotyping tutorial: a patch_size x patch_size window centred on
+the cell centroid, standardised per marker, every pixel outside the cell mask set
+to 0, overlapping tokens (stride 8), and the per-marker features flattened
+(n_markers x 384) as the embedding. The only deviation: each image is scaled to
+[0, 1] by its maximum instead of by the dtype maximum (65535), because the
+tutorial's divisor assumes 16-bit data and our images do not use that range.
+--patch-mode bbox instead crops the cell's bounding box and zero-pads it,
+without masking. The supervised head, Leiden clustering, greedy F1 and output
 layout are shared with the other foundation-model methods
 (utils/utils_foundational_models.py, utils/benchmark_io.py). Dataset-specific
 settings (marker exclusions, KRONOS name mappings) live in configs/kronos.json,
@@ -85,14 +91,16 @@ def build_marker_params(names, marker_meta_path, marker_name_map):
 
 #  KRONOS model
 
-def load_kronos_model(kronos_dir, device):
+def load_kronos_model(kronos_dir, device, token_overlap):
     """MahmoodLab/kronos is a gated HuggingFace repo (requires `huggingface-cli login`)."""
     sys.path.insert(0, str(kronos_dir))
     from kronos import create_model_from_pretrained
 
     cache_dir = Path(kronos_dir) / 'model_assets'
     cache_dir.mkdir(parents=True, exist_ok=True)
-    model, _, _ = create_model_from_pretrained(checkpoint_path=CHECKPOINT, cache_dir=str(cache_dir))
+    model, _, _ = create_model_from_pretrained(
+        checkpoint_path=CHECKPOINT, cache_dir=str(cache_dir),
+        cfg={'model_type': 'vits16', 'token_overlap': token_overlap})
     model = model.to(device).eval()
     print(f"KRONOS loaded on: {device}")
     return model
@@ -115,12 +123,30 @@ def get_bbox_patch(img, bbox, patch_size):
                          (0, 0)))
 
 
-def embed_patches(patches, model, ids_t, mean_t, std_t, device):
+def get_centroid_patch(img, mask, cell_id, centroid, patch_size):
+    """Window of patch_size centred on the cell centroid, zero-padded only at image borders,
+    plus the binary mask of that cell within the window."""
+    h, w = mask.shape
+    y0, x0 = centroid[0] - patch_size // 2, centroid[1] - patch_size // 2
+    ys, xs = slice(max(y0, 0), min(y0 + patch_size, h)), slice(max(x0, 0), min(x0 + patch_size, w))
+    inner = (slice(ys.start - y0, ys.stop - y0), slice(xs.start - x0, xs.stop - x0))
+    patch = np.zeros((patch_size, patch_size, img.shape[2]), dtype=img.dtype)
+    cell_mask = np.zeros((patch_size, patch_size), dtype=bool)
+    patch[inner] = img[ys, xs]
+    cell_mask[inner] = mask[ys, xs] == cell_id
+    return patch, cell_mask
+
+
+def embed_patches(patches, cell_masks, model, ids_t, mean_t, std_t, device):
+    """Standardise per marker, zero everything outside the cell (if masks are given) and
+    return the flattened marker features (n_cells, n_markers * 384)."""
     batch = torch.from_numpy(np.stack(patches)).to(device).permute(0, 3, 1, 2).float()
     batch = (batch - mean_t[None, :, None, None]) / std_t[None, :, None, None]
+    if cell_masks is not None:
+        batch = batch * torch.from_numpy(np.stack(cell_masks)).to(device)[:, None]
     with torch.no_grad():
-        patch_embeddings, _, _ = model(batch, marker_ids=ids_t.expand(len(batch), -1))
-    return patch_embeddings.cpu().numpy()
+        _, marker_features, _ = model(batch, marker_ids=ids_t.expand(len(batch), -1))
+    return marker_features.reshape(len(batch), -1).cpu().numpy()
 
 
 def extract_features(args, model, all_images, keep_idx, ids, means, stds, meta_df, img_paths, seg_paths):
@@ -131,12 +157,12 @@ def extract_features(args, model, all_images, keep_idx, ids, means, stds, meta_d
     mean_t = torch.tensor(means, dtype=torch.float32, device=args.device)
     std_t = torch.tensor(stds, dtype=torch.float32, device=args.device)
 
-    print(f"\nExtracting KRONOS features | patch_size={args.patch_size} | "
-          f"batch_size={args.batch_size} | device={args.device}")
+    print(f"\nExtracting KRONOS features | patch_mode={args.patch_mode} | patch_size={args.patch_size} | "
+          f"token_overlap={args.token_overlap} | batch_size={args.batch_size} | device={args.device}")
     print("=" * 60)
 
     per_image = {}
-    for img_id in tqdm(all_images, desc="KRONOS (bbox)"):
+    for img_id in tqdm(all_images, desc=f"KRONOS ({args.patch_mode})"):
         cache_feat = cache_dir / f"{img_id}_feat.npy"
         cache_meta = cache_dir / f"{img_id}_meta.csv"
         if cache_feat.exists() and cache_meta.exists():
@@ -154,22 +180,26 @@ def extract_features(args, model, all_images, keep_idx, ids, means, stds, meta_d
         img = read_image(img_paths[img_id], keep_idx)
         img = (img / (img.max() + 1e-8)).transpose(1, 2, 0)
         mask = read_segmentation(seg_paths[img_id])
-        bboxes = ndimage.find_objects(mask)
-
-        patches, labels, cell_ids = [], [], []
-        for cell_id in np.unique(mask):
-            cell_id = int(cell_id)
-            if cell_id == 0 or cell_id not in label_lookup:
-                continue
-            patches.append(get_bbox_patch(img, bboxes[cell_id - 1], args.patch_size))
-            labels.append(label_lookup[cell_id])
-            cell_ids.append(cell_id)
-        if not patches:
+        cell_ids = [int(c) for c in np.unique(mask) if c != 0 and int(c) in label_lookup]
+        if not cell_ids:
             print(f"  Skipping {img_id}: no labelled cells in the segmentation")
             continue
+        labels = [label_lookup[c] for c in cell_ids]
+
+        if args.patch_mode == 'centroid':
+            centroids = ndimage.center_of_mass(np.ones_like(mask, dtype=np.float32), mask, cell_ids)
+            patches, cell_masks = zip(*(
+                get_centroid_patch(img, mask, c, (int(round(cy)), int(round(cx))), args.patch_size)
+                for c, (cy, cx) in zip(cell_ids, centroids)))
+        else:
+            bboxes = ndimage.find_objects(mask)
+            patches = [get_bbox_patch(img, bboxes[c - 1], args.patch_size) for c in cell_ids]
+            cell_masks = None
 
         feats = np.concatenate([
-            embed_patches(patches[i:i + args.batch_size], model, ids_t, mean_t, std_t, args.device)
+            embed_patches(patches[i:i + args.batch_size],
+                          None if cell_masks is None else cell_masks[i:i + args.batch_size],
+                          model, ids_t, mean_t, std_t, args.device)
             for i in range(0, len(patches), args.batch_size)
         ])
         np.save(cache_feat, feats)
@@ -216,6 +246,11 @@ def build_parser():
         p.add_argument('--spceleval-dir', default=None)
         p.add_argument('--device', default=None)
         p.add_argument('--patch-size', type=int, default=None)
+        p.add_argument('--patch-mode', choices=['centroid', 'bbox'], default=None,
+                       help='centroid: masked window centred on the cell (authors); '
+                            'bbox: zero-padded bounding-box crop, unmasked')
+        p.add_argument('--token-overlap', action=argparse.BooleanOptionalAction, default=None,
+                       help='Overlapping tokens (stride 8), as in the authors\' tutorial')
         p.add_argument('--batch-size', type=int, default=None)
         p.add_argument('--logreg-c', type=float, default=None)
         p.add_argument('--leiden-resolution', type=float, default=None)
@@ -247,6 +282,9 @@ def main():
     check_cache_params(Path(args.output_dir) / 'embeddings', {
         'checkpoint': CHECKPOINT,
         'patch_size': args.patch_size,
+        'patch_mode': args.patch_mode,
+        'token_overlap': args.token_overlap,
+        'embedding': 'marker_features',
         'markers': names,
         'marker_ids': ids.tolist(),
         'normalisation': 'image / image.max(), then per-marker (x - mean) / std',
@@ -256,7 +294,7 @@ def main():
 
     all_feats_arr, metadata_all = load_embeddings(args.output_dir)
     if all_feats_arr is None or args.mode in ('extract', 'all'):
-        model = load_kronos_model(args.kronos_dir, args.device)
+        model = load_kronos_model(args.kronos_dir, args.device, args.token_overlap)
         all_feats_arr, metadata_all = extract_features(
             args, model, all_images, keep_idx, ids, means, stds, meta_df, img_paths, seg_paths)
 
