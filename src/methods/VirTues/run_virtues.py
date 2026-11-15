@@ -11,8 +11,8 @@ clustering, greedy F1 and output saving via utils_foundational_models.py.
 --checkpoint selects the pretrained VirTues weights from the bunnelab/virtues
 HF repo: sp32 (default), sp31, imc14, or legacy (local model.safetensors).
 
-Marker (ESM) embeddings are read from marker_embeddings/<dataset>/ next to this
-script unless --marker-embedding-dir is given.
+Marker (ESM) embeddings are read from marker_embeddings/ next to this script
+(shared by all datasets) unless --marker-embedding-dir is given.
 
 Usage
 -----
@@ -277,7 +277,7 @@ def build_parser():
                        help='Add fold_<i>_validation.csv cells to the training set')
         p.add_argument('--marker-embedding-dir', default=None,
                        help='Directory of <UniProt id>.pt ESM embeddings '
-                            '(default: marker_embeddings/<dataset> next to this script)')
+                            '(default: marker_embeddings/ next to this script)')
         p.add_argument('--spceleval-dir', default=None)
         p.add_argument('--checkpoint', choices=['sp32', 'sp31', 'imc14', 'legacy'], default=None)
         p.add_argument('--device',      default=None)
@@ -307,7 +307,7 @@ def main():
     cfg = load_config(args.config, args.dataset)
     fill_from_config(args, cfg)
 
-    emb_dir = Path(args.marker_embedding_dir or SCRIPT_DIR / 'marker_embeddings' / args.dataset).resolve()
+    emb_dir = Path(args.marker_embedding_dir or SCRIPT_DIR / 'marker_embeddings').resolve()
     if not emb_dir.is_dir():
         raise FileNotFoundError(f"Marker embedding directory not found: {emb_dir}")
 
