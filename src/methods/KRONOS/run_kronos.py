@@ -13,7 +13,10 @@ tutorial's divisor assumes 16-bit data and our images do not use that range.
 --patch-mode bbox instead crops the cell's bounding box and zero-pads it,
 without masking. The supervised head, Leiden clustering, greedy F1 and output
 layout are shared with the other foundation-model methods
-(utils/utils_foundational_models.py, utils/benchmark_io.py). Dataset-specific
+(utils/utils_foundational_models.py, utils/benchmark_io.py), except that the
+predictions CSVs have no emb_* columns: with n_markers x 384 dimensions they
+would be ~36x larger, so the embeddings are kept once, in
+embeddings/all_cell_features.npy. Dataset-specific
 settings (marker exclusions, KRONOS name mappings) live in configs/kronos.json,
 keyed by the dataset directory name.
 
@@ -299,9 +302,11 @@ def main():
             args, model, all_images, keep_idx, ids, means, stds, meta_df, img_paths, seg_paths)
 
     if args.mode in ('supervised', 'all'):
-        run_supervised(args, folds, all_feats_arr, metadata_all, method_name='KRONOS_supervised')
+        run_supervised(args, folds, all_feats_arr, metadata_all, method_name='KRONOS_supervised',
+                       embedding_columns=False)
     if args.mode in ('leiden', 'all'):
-        run_leiden(args, folds, all_feats_arr, metadata_all, method_name='KRONOS_leiden')
+        run_leiden(args, folds, all_feats_arr, metadata_all, method_name='KRONOS_leiden',
+                   embedding_columns=False)
 
     total_time = time.time() - total_start
     print(f"\n{'=' * 60}\nrun_kronos.py complete | total: {total_time:.1f}s ({total_time / 3600:.2f}h)\n{'=' * 60}\n")
