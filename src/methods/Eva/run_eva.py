@@ -3,7 +3,15 @@
 run_eva.py — Eva Foundation Model: config-driven unified benchmark CLI
 ======================================================================
 
-Dataset-agnostic CLI for Eva v3 (the authors' spatial-token-map / full-tile
+Dataset-agnostic CLI for Eva. By default each cell is embedded as in the Eva
+preprint's cell phenotyping: a 32x32 block around the cell centroid with every
+pixel outside the cell set to 0, placed in the middle of an empty 224x224 patch,
+embedded as the mean of all tokens. Each channel is clipped at its 99th percentile
+and scaled to [0, 1] (the preprint uses histogram-threshold bounds without
+specifying them). --input bbox instead places the cell's whole bounding box,
+unmasked, in the empty patch (adaptive bbox, see
+eva/project/notebooks/Eva-pipeline-v7.ipynb). --input tile runs Eva on overlapping
+full-image tiles and averages the token map over each cell's pixels (our own
 approach, see eva/project/notebooks/Eva-pipeline-v3.ipynb). Dataset-specific
 settings (marker exclusions, marker name map, fold directory) live in
 src/methods/configs/eva.json; data access is shared via benchmark_io.py and
@@ -30,11 +38,13 @@ import argparse
 import os
 import sys
 import time
+from itertools import islice
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
 import torch
+from scipy import ndimage
 from scipy.sparse import coo_matrix
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / 'utils'))
@@ -46,6 +56,8 @@ from utils_foundational_models import (
 )
 
 EVA_REPO_ID = 'yandrewl/Eva'
+EVA_PATCH = 224   # Eva's fixed input size
+CELL_BLOCK = 32   # block around the centroid in the preprint's cell phenotyping
 
 
 def load_eva_model(eva_dir, device):
@@ -75,7 +87,64 @@ def get_markers(cfg, data_root):
     return clean_indices, biomarkers
 
 
-#  FEATURE EXTRACTION  (v3: spatial token map averaged over each cell's pixels)
+#  PREPROCESSING
+
+def scale_channels(img):
+    """Clip each channel of a (C, H, W) image at its 99th percentile and scale it to [0, 1]."""
+    high = np.percentile(img.reshape(len(img), -1), 99, axis=1)[:, None, None]
+    return np.clip(img / np.maximum(high, 1e-8), 0, 1).astype(np.float32)
+
+
+#  FEATURE EXTRACTION  (--input cell / bbox: one patch per cell)
+
+def get_cell_patch(img, seg, cell_id, centroid):
+    """CELL_BLOCK x CELL_BLOCK block around the centroid, pixels outside the cell set to 0,
+    centred in an empty EVA_PATCH x EVA_PATCH patch. img: (H, W, C)."""
+    h, w = seg.shape
+    y0, x0 = centroid[0] - CELL_BLOCK // 2, centroid[1] - CELL_BLOCK // 2
+    ys, xs = slice(max(y0, 0), min(y0 + CELL_BLOCK, h)), slice(max(x0, 0), min(x0 + CELL_BLOCK, w))
+    off = (EVA_PATCH - CELL_BLOCK) // 2
+    patch = np.zeros((EVA_PATCH, EVA_PATCH, img.shape[2]), dtype=np.float32)
+    patch[off + ys.start - y0:off + ys.stop - y0, off + xs.start - x0:off + xs.stop - x0] = \
+        img[ys, xs] * (seg[ys, xs] == cell_id)[..., None]
+    return patch
+
+
+def get_bbox_patch(img, bbox):
+    """The cell's bounding box, unmasked, centre-cropped to EVA_PATCH if larger and centred
+    in an empty EVA_PATCH x EVA_PATCH patch. img: (H, W, C)."""
+    crop = img[bbox]
+    h, w = crop.shape[:2]
+    y, x = max(0, h // 2 - EVA_PATCH // 2), max(0, w // 2 - EVA_PATCH // 2)
+    crop = crop[y:y + EVA_PATCH, x:x + EVA_PATCH]
+    h, w = crop.shape[:2]
+    oy, ox = (EVA_PATCH - h) // 2, (EVA_PATCH - w) // 2
+    patch = np.zeros((EVA_PATCH, EVA_PATCH, img.shape[2]), dtype=np.float32)
+    patch[oy:oy + h, ox:ox + w] = crop
+    return patch
+
+
+def extract_patch_features(img, seg, cell_ids, model, biomarkers, device, batch_size, bbox=False):
+    """Mean of all Eva tokens per cell patch, as Eva.utils.extract_features(cls=False); the patch
+    is get_bbox_patch if bbox else get_cell_patch.
+    img: (H, W, C) float32, seg: (H, W) int labels. Returns {cell_id: (D,) float32}."""
+    if bbox:
+        boxes = ndimage.find_objects(seg)
+        patches = (get_bbox_patch(img, boxes[c - 1]) for c in cell_ids)
+    else:
+        centroids = ndimage.center_of_mass(np.ones_like(seg, dtype=np.float32), seg, cell_ids)
+        patches = (get_cell_patch(img, seg, c, (int(round(cy)), int(round(cx))))
+                   for c, (cy, cx) in zip(cell_ids, centroids))
+    feats = []
+    while batch := list(islice(patches, batch_size)):
+        t = torch.from_numpy(np.stack(batch)).to(device).permute(0, 3, 1, 2).contiguous()
+        with torch.no_grad():
+            token_out, _ = model.model.forward_encoder(t, [biomarkers] * len(batch))
+        feats.append(token_out[:, :, 1:, :].mean(2).reshape(len(batch), -1).cpu().numpy())
+    return dict(zip(cell_ids, np.concatenate(feats))) if feats else {}
+
+
+#  FEATURE EXTRACTION  (--input tile: spatial token map averaged over each cell's pixels)
 
 def _tile_starts(size, tile_size, stride):
     starts = list(range(0, max(1, size - tile_size + 1), stride))
@@ -163,11 +232,17 @@ def extract_features(args, model, all_images, clean_indices, biomarkers,
             continue
 
         t0 = time.time()
-        img = read_image(img_paths[img_id], clean_indices)
-        img = np.ascontiguousarray((img / (img.max() + 1e-8)).transpose(1, 2, 0))
+        img = scale_channels(read_image(img_paths[img_id], clean_indices))
+        img = np.ascontiguousarray(img.transpose(1, 2, 0))
         seg = read_segmentation(seg_paths[img_id])
-        cell_feats = extract_cell_features(img, seg, model, biomarkers, args.device,
-                                           args.tile_size, args.tile_stride)
+        if args.input == 'tile':
+            cell_feats = extract_cell_features(img, seg, model, biomarkers, args.device,
+                                               args.tile_size, args.tile_stride)
+        else:
+            labelled = set(meta_df.loc[meta_df['image_id'] == img_id, 'cell_id'])
+            cell_ids = sorted(labelled & set(np.unique(seg).tolist()) - {0})
+            cell_feats = extract_patch_features(img, seg, cell_ids, model, biomarkers, args.device,
+                                                args.batch_size, bbox=args.input == 'bbox')
 
         meta_img = meta_df[(meta_df['image_id'] == img_id) & meta_df['cell_id'].isin(list(cell_feats))]
         if meta_img.empty:
@@ -193,7 +268,7 @@ def extract_features(args, model, all_images, clean_indices, biomarkers,
 def build_parser():
     parser = argparse.ArgumentParser(
         prog='run_eva.py',
-        description='Eva v3 config-driven pipeline (dataset-agnostic)',
+        description='Eva config-driven pipeline (dataset-agnostic)',
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
     sub = parser.add_subparsers(dest='mode', required=True)
@@ -209,6 +284,12 @@ def build_parser():
         p.add_argument('--eva-dir', required=True, help='Eva project root')
         p.add_argument('--output-dir', required=True)
         p.add_argument('--device', default=None)
+        p.add_argument('--input', choices=['cell', 'bbox', 'tile'], default=None,
+                       help='cell: masked 32x32 cell block in an empty 224x224 patch (preprint); '
+                            'bbox: unmasked bounding box of the cell in an empty 224x224 patch; '
+                            'tile: token map of overlapping full-image tiles')
+        p.add_argument('--batch-size', type=int, default=None,
+                       help='Cell patches per forward pass (--input cell / bbox)')
         p.add_argument('--tile-size', type=int, default=None)
         p.add_argument('--tile-stride', type=int, default=None)
         p.add_argument('--logreg-c', type=float, default=None)
@@ -238,8 +319,8 @@ def main():
     all_images = sorted(img_paths)
 
     check_cache_params(Path(args.output_dir) / 'embeddings', {
-        'model': EVA_REPO_ID, 'tile_size': args.tile_size, 'tile_stride': args.tile_stride,
-        'normalisation': 'image / image.max()', 'markers': biomarkers,
+        'model': EVA_REPO_ID, 'input': args.input, 'tile_size': args.tile_size, 'tile_stride': args.tile_stride,
+        'normalisation': 'per-channel clip at the 99th percentile, scaled to [0, 1]', 'markers': biomarkers,
     })
 
     all_feats_arr, metadata_all = load_embeddings(args.output_dir)

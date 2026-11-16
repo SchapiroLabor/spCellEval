@@ -2,6 +2,8 @@
   "method": "eva",
   "defaults": {
     "device": "cuda:0",
+    "input": "cell",
+    "batch_size": 32,
     "tile_size": 224,
     "tile_stride": 112,
     "logreg_c": 1.0,
