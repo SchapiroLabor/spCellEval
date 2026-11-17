@@ -3,6 +3,7 @@
   "defaults": {
     "device": "cuda:0",
     "patch_size": 64,
+    "patch_mode": "centroid",
     "batch_size": 16,
     "n_trials": 25,
     "c_low": 1e-10,
@@ -16,8 +17,9 @@
   },
   "datasets": {
     "IMMUcan": {
-      "exclude_markers": ["DNA1", "DNA2", "HistoneH3", "cleavedPARP"],
+      "exclude_markers": ["DNA2", "HistoneH3", "cleavedPARP"],
       "marker_name_map": {
+        "DNA1": "DAPI",
         "SMA": "A-SMA",
         "GrzB": "GZMB",
         "CD8a": "CD8",
@@ -29,8 +31,9 @@
       }
     },
     "cHL_2_MIBI": {
-      "exclude_markers": ["Histone H3", "SLP-76", "anti-H2AX (pS139)", "dsDNA", "pSLP-76", "CD153 (CD30L)"],
+      "exclude_markers": ["Histone H3", "SLP-76", "anti-H2AX (pS139)", "pSLP-76", "CD153 (CD30L)"],
       "marker_name_map": {
+        "dsDNA": "DAPI",
         "B2-Microglobulin": "B2M",
         "Na-K ATPase": "NAKATP",
         "RORgT": "RORGD"

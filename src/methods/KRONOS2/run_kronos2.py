@@ -4,9 +4,13 @@ run_kronos2.py — KRONOS2 config-driven benchmark pipeline (dataset-agnostic)
 =============================================================================
 
 KRONOS2 (MahmoodLab/KRONOS2 on HuggingFace) is the marker-aware successor of
-KRONOS: each cell's bounding-box patch is passed together with its marker names,
-normalised by the model's own per-marker statistics (model.preprocess) and
-embedded with a ViT-B/16 (768-dim CLS token, fp32). The classifier head is a
+KRONOS. Cells are embedded as in the authors' cell phenotyping (mahmoodlab/CORAL):
+a patch_size x patch_size window centred on the cell centroid, zero-padded only at
+image borders, every pixel outside the cell set to 0, intensities divided by the
+source dtype's scaling factor, normalised by the model's own per-marker statistics
+(model.preprocess, with the nuclear stain mapped to DAPI as its nuclear channel)
+and embedded with a ViT-B/16 (768-dim CLS token, fp32). --patch-mode bbox instead
+crops the cell's bounding box and zero-pads it, without masking. The classifier head is a
 logistic regression whose C is tuned per fold with Optuna on a held-out part of
 the training cells.
 
@@ -70,13 +74,37 @@ def cell_patch(img, box, patch_size):
     return np.pad(crop, ((0, 0), (pad_h // 2, pad_h - pad_h // 2), (pad_w // 2, pad_w - pad_w // 2)))
 
 
+def centroid_patch(img, mask, cell_id, centroid, patch_size):
+    """Window centred on the cell centroid, zero-padded at image borders, pixels outside the cell set to 0."""
+    c, h, w = img.shape
+    y0, x0 = centroid[0] - patch_size // 2, centroid[1] - patch_size // 2
+    ys, xs = slice(max(y0, 0), min(y0 + patch_size, h)), slice(max(x0, 0), min(x0 + patch_size, w))
+    patch = np.zeros((c, patch_size, patch_size), dtype=img.dtype)
+    patch[:, ys.start - y0:ys.stop - y0, xs.start - x0:xs.stop - x0] = img[:, ys, xs] * (mask[ys, xs] == cell_id)
+    return patch
+
+
+def check_markers(model, model_markers):
+    """model.preprocess silently uses default statistics for a marker outside the KRONOS2 vocabulary."""
+    kronos2 = sys.modules[type(model).__module__]
+    index = kronos2.build_marker_index(model._marker_stats)
+    unknown = [m for m in model_markers if kronos2.marker_match_key(m) not in index]
+    if unknown:
+        raise ValueError(f"Not in the KRONOS2 marker vocabulary: {unknown}; "
+                         f"add them to marker_name_map or exclude_markers")
+
+
 def extract_features(args, model, marker_indices, model_markers, meta_df, img_paths, seg_paths):
     feature_dir = Path(args.output_dir) / 'features'
+    dapi = 'DAPI' if 'DAPI' in model_markers else None
     check_cache_params(feature_dir, {'model': 'MahmoodLab/KRONOS2', 'patch_size': args.patch_size,
-                                     'markers': model_markers})
+                                     'patch_mode': args.patch_mode, 'markers': model_markers,
+                                     'preferred_dapi': dapi})
+    check_markers(model, model_markers)
 
     cells_by_image = meta_df.groupby('image_id')['cell_id'].apply(list)
-    print(f"\nExtracting KRONOS2 features | patch_size={args.patch_size} | markers={len(model_markers)}")
+    print(f"\nExtracting KRONOS2 features | patch_mode={args.patch_mode} | patch_size={args.patch_size} | "
+          f"markers={len(model_markers)} | nuclear stain={dapi}")
     for img_id, cell_ids in tqdm(cells_by_image.items(), total=len(cells_by_image), desc="Images"):
         out_path = feature_dir / f'{img_id}.npz'
         if out_path.exists() or img_id not in img_paths or img_id not in seg_paths:
@@ -87,11 +115,16 @@ def extract_features(args, model, marker_indices, model_markers, meta_df, img_pa
         boxes = ndimage.find_objects(mask)
 
         kept = [c for c in cell_ids if c - 1 < len(boxes) and boxes[c - 1] is not None]
+        centroids = None
+        if args.patch_mode == 'centroid':
+            centroids = {c: (int(round(y)), int(round(x))) for c, (y, x) in
+                         zip(kept, ndimage.center_of_mass(np.ones_like(mask, dtype=np.float32), mask, kept))}
         feats = []
         for start in range(0, len(kept), args.batch_size):
             batch = kept[start:start + args.batch_size]
-            patches = np.stack([cell_patch(img, boxes[c - 1], args.patch_size) for c in batch])
-            x = torch.from_numpy(model.preprocess(patches, model_markers, preferred_dapi=None)).to(args.device)
+            patches = np.stack([cell_patch(img, boxes[c - 1], args.patch_size) if centroids is None
+                                else centroid_patch(img, mask, c, centroids[c], args.patch_size) for c in batch])
+            x = torch.from_numpy(model.preprocess(patches, model_markers, preferred_dapi=dapi)).to(args.device)
             with torch.inference_mode():
                 feats.append(model(x, model_markers).float().cpu().numpy())
         np.savez(out_path, features=np.concatenate(feats) if feats else np.zeros((0, 768), np.float32),
@@ -222,6 +255,9 @@ def build_parser():
         p.add_argument('--spceleval-dir', default=None)
         p.add_argument('--folds-dir', default=None, help='k-fold directory, absolute or relative to --dataset-path')
         p.add_argument('--include-validation', action=argparse.BooleanOptionalAction, default=None)
+        p.add_argument('--patch-mode', choices=['centroid', 'bbox'], default=None,
+                       help='centroid: masked window centred on the cell (authors); '
+                            'bbox: zero-padded bounding-box crop, unmasked')
         for name, typ in [('device', str), ('patch-size', int), ('batch-size', int), ('n-trials', int),
                           ('c-low', float), ('c-high', float), ('max-iter', int),
                           ('max-cells-per-type', int), ('seed', int)]:
