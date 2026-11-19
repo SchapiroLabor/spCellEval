@@ -187,7 +187,7 @@ def check_fold_coverage(folds, available_keys, splits=('train', 'test')):
 
 #  Supervised: Logistic Regression
 
-def run_supervised(args, folds, all_feats_arr, metadata_all, method_name):
+def run_supervised(args, folds, all_feats_arr, metadata_all, method_name, embedding_columns=True):
     """
     Cross-validation with a logistic-regression head on the frozen embeddings
     (StandardScaler + LogisticRegression), the protocol shared by all FM methods.
@@ -197,7 +197,7 @@ def run_supervised(args, folds, all_feats_arr, metadata_all, method_name):
         {output_dir}/{method_name}/level3/fold_times.txt
 
     CSV columns: image_id, cell_id, true_phenotype, fold, predicted_phenotype,
-                 confidence, emb_0 ... emb_N
+                 confidence, emb_0 ... emb_N (emb_* only if embedding_columns)
 
     Parameters
     ----------
@@ -206,6 +206,8 @@ def run_supervised(args, folds, all_feats_arr, metadata_all, method_name):
     all_feats_arr : (N_cells, D) numpy array
     metadata_all  : pd.DataFrame with image_id, cell_id, label (row-aligned)
     method_name   : output folder name
+    embedding_columns : write the emb_* columns; the full embeddings are always
+                        in {output_dir}/embeddings/all_cell_features.npy
     """
     from sklearn.linear_model import LogisticRegression
     from sklearn.preprocessing import StandardScaler
@@ -251,7 +253,8 @@ def run_supervised(args, folds, all_feats_arr, metadata_all, method_name):
         fold_df['fold']                = fold_idx
         fold_df['predicted_phenotype'] = y_pred
         fold_df['confidence']          = y_proba.max(axis=1)
-        fold_df = pd.concat([fold_df, pd.DataFrame(all_feats_arr[test_mask], columns=feat_cols)], axis=1)
+        if embedding_columns:
+            fold_df = pd.concat([fold_df, pd.DataFrame(all_feats_arr[test_mask], columns=feat_cols)], axis=1)
         fold_df.to_csv(out_dir / f"predictions_{fold_idx}.csv", index=False)
 
         fold_times.append(time.time() - fold_start)
@@ -281,7 +284,7 @@ def run_supervised(args, folds, all_feats_arr, metadata_all, method_name):
 
 #  Leiden + Greedy F1 
 
-def run_leiden(args, folds, all_feats_arr, metadata_all, method_name):
+def run_leiden(args, folds, all_feats_arr, metadata_all, method_name, embedding_columns=True):
     """
     Leiden clustering on all cell embeddings + greedy F1 majority assignment.
 
@@ -290,7 +293,7 @@ def run_leiden(args, folds, all_feats_arr, metadata_all, method_name):
         {output_dir}/{method_name}/level3/fold_times.txt
 
     CSV columns: image_id, cell_id, fold, true_phenotype, predicted_phenotype,
-                 leiden_cluster, emb_0 ... emb_767
+                 leiden_cluster, emb_0 ... emb_767 (emb_* only if embedding_columns)
 
     Parameters
     ----------
@@ -302,6 +305,8 @@ def run_leiden(args, folds, all_feats_arr, metadata_all, method_name):
     all_feats_arr : (N_cells, D) numpy array
     metadata_all  : pd.DataFrame with image_id, cell_id, label (row-aligned)
     method_name   : output folder name
+    embedding_columns : write the emb_* columns; the full embeddings are always
+                        in {output_dir}/embeddings/all_cell_features.npy
     """
     import scanpy as sc
     from sklearn.neighbors import KNeighborsClassifier
@@ -414,7 +419,6 @@ def run_leiden(args, folds, all_feats_arr, metadata_all, method_name):
         fold_meta    = metadata_all[fold_mask].reset_index(drop=True)
         test_indices = metadata_all[fold_mask].index.values
 
-        emb_df  = pd.DataFrame(all_feats_arr[test_indices], columns=feat_cols)
         base_df = fold_meta[['image_id', 'cell_id', 'label',
                              'leiden_cluster', 'leiden_predicted']].rename(columns={
             'label':            'true_phenotype',
@@ -422,7 +426,9 @@ def run_leiden(args, folds, all_feats_arr, metadata_all, method_name):
         }).reset_index(drop=True)
         base_df['fold'] = fold_idx
 
-        out_df = pd.concat([base_df, emb_df], axis=1)
+        out_df = base_df
+        if embedding_columns:
+            out_df = pd.concat([base_df, pd.DataFrame(all_feats_arr[test_indices], columns=feat_cols)], axis=1)
         out_df.to_csv(out_dir / f"predictions_{fold_idx}.csv", index=False)
 
         fold_time = time.time() - fold_start
