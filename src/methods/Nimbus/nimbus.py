@@ -2,12 +2,17 @@
 import warnings
 warnings.simplefilter("ignore")
 import os
+import sys
 from nimbus_inference.nimbus import Nimbus
 from nimbus_inference.utils import MultiplexDataset
 from alpineer import io_utils
 import logging
 import time
 import argparse
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'utils'))
+from fold_timer import FoldTimer
+
+START = time.perf_counter()  # fold_times.csv: the run is timed from here, after the package imports
 
 
 ### TODO write instructions for how data needs to be structured
@@ -103,12 +108,13 @@ def run_nimbus(input_dir, mask_dir, output_base, markers, fov, img_suffix, itera
             f"Segmentation data does not exist for {fov_paths[0]} or naming convention is incorrect"
         )
     
+    timer = FoldTimer(START)
     for iteration in range(1, iterations+1):
         # Create nimbus output directory
         output_dir = os.path.join(output_base, f"nimbus/outputs/iteration_{iteration}")
         os.makedirs(output_dir, exist_ok=True)
 
-        start = time.time()
+        start = time.perf_counter()
         dataset = MultiplexDataset(
             fov_paths=fov_paths,
             suffix=f'.{img_suffix}',
@@ -139,18 +145,14 @@ def run_nimbus(input_dir, mask_dir, output_base, markers, fov, img_suffix, itera
         )
         cell_table = nimbus.predict_fovs()
 
-        elapsed = time.time() - start
+        elapsed = timer.folds[iteration] = time.perf_counter() - start
         if log == 'long':
             logging.info(f'Nimbus training took {elapsed/60:.2f} minutes')
         if log == 'short':
             logging.info(f'Nimbus: {elapsed/60:.2f} min')
 
-        text_path = os.path.join(output_base, "nimbus", 'level3', 'fold_times.txt')
-        os.makedirs(os.path.dirname(text_path), exist_ok=True)
-        mode = 'w' if iteration == 1 else 'a'
-        with open(text_path, mode) as f:
-            f.write(f"Fold {iteration} prediction_time, {elapsed:.2f}\n")
         cell_table.to_csv(os.path.join(output_dir, f"nimbus_cell_table.csv"), index=False) 
+    timer.write(os.path.join(output_base, "nimbus", "level3"))
 
 def main():
     if args.log != 'off':

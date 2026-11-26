@@ -6,6 +6,9 @@ sys.path.insert(0, project_root)
 from utils.default_classic_ml_models_kfolds import ClassicMLDefault
 import argparse
 import json
+import time
+
+START = time.perf_counter()  # fold_times.csv: the run is timed from here, after the package imports
 
 def run_on_datasets(main_dir, dataset_path, model, kfold_method, granularity_level, random_state, n_jobs_model, model_kwargs, verbose, scaling, dumb_columns, output_path):
     """
@@ -36,6 +39,7 @@ def run_on_datasets(main_dir, dataset_path, model, kfold_method, granularity_lev
             dumb_columns = dumb_columns_clean
 
     # Starting the loop through datasets
+    start = START  # each dataset's fold_times.csv starts where the previous dataset ended
     if main_dir is not None:
         for dataset_dir in os.listdir(os.path.join(main_dir, 'datasets')):
             if not os.path.isdir(os.path.join(main_dir, 'datasets', dataset_dir)):
@@ -51,7 +55,8 @@ def run_on_datasets(main_dir, dataset_path, model, kfold_method, granularity_lev
 
             data_object = ClassicMLDefault(random_state=random_state, model = model, n_jobs = n_jobs_model, **model_kwargs_dict)
             data_object.train_tune_evaluate(kfold_dir, label_dir, verbose, scaling, dumb_columns)
-            data_object.save_results(save_dir, label_dir, kfold_dir)
+            data_object.save_results(save_dir, label_dir, kfold_dir, start)
+            start = time.perf_counter()
     else:
         print(f"Processing dataset {dataset_path}")
 
@@ -63,7 +68,7 @@ def run_on_datasets(main_dir, dataset_path, model, kfold_method, granularity_lev
 
         data_object = ClassicMLDefault(random_state=random_state, model = model, n_jobs = n_jobs_model, **model_kwargs_dict)
         data_object.train_tune_evaluate(kfold_dir, label_dir, verbose, scaling, dumb_columns)
-        data_object.save_results(output_path, label_dir, kfold_dir, save_model=False)
+        data_object.save_results(output_path, label_dir, kfold_dir, start, save_model=False)
 
 
 

@@ -13,6 +13,9 @@ import anndata as ad
 import scanpy as sc
 from celllens.utils import drop_zero_variability_columns, cluster_refine, clean_cluster
 from utils.greedy_f1_utils import greedy_f1_score, cluster_purity, purity_suffix
+from utils.fold_timer import FoldTimer
+
+START = time.perf_counter()  # fold_times.csv: the run is timed from here, after the package imports
 
 # Re-runs the CellLENS clustering (get_lens_clustering) on saved CellLENS embeddings, with optional
 # recursive subclustering. Needs the outputs of the CellLENS run scripts:
@@ -80,20 +83,21 @@ def subcluster(embedding, feature_labels, labels, times, min_cells, resolution, 
 
 
 def read_lens_times(path):
-    # 'Fold <i> train_time, <seconds>' lines written by run_celllens.py ('LENS_time' in old CellLENS Lite runs;
-    # old Full scripts did not write them), prediction_time lines are skipped
+    # fold_times.csv of run_celllens.py: 'shared' and one row per iteration (1-based), in seconds
     if not os.path.exists(path):
         return None
-    with open(path) as f:
-        return {int(m.group(1)): float(m.group(2)) for m in re.finditer(r"Fold (\d+) (?:train|LENS)_time, ([\d.]+)", f.read())}
+    return pd.read_csv(path, index_col='fold', dtype={'fold': str})['time_s']
 
 
 def main():
     method_dir = os.path.join(args.input_path or args.output_path, args.method)
     out_dir = os.path.join(args.output_path, f"{args.method}_subclust{args.subcluster_times}{purity_suffix(args.subcluster_purity)}")
-    # fold_times.txt is in level3; older CellLENS runs wrote it to the method folder
-    lens_times = (read_lens_times(os.path.join(method_dir, 'level3', 'fold_times.txt'))
-                  or read_lens_times(os.path.join(method_dir, 'fold_times.txt')))
+    lens_times = read_lens_times(os.path.join(method_dir, 'level3', 'fold_times.csv'))
+    if lens_times is None:
+        print(f"No fold_times.csv in {method_dir}/level3, so only the clustering times are written")
+    # Fold time = CellLENS fold time (if recorded) + clustering + subclustering; the CellLENS run's
+    # 'shared' time is added to this run's 'shared' by starting the timer that much earlier
+    timer = FoldTimer(START - (lens_times['shared'] if lens_times is not None else 0))
     iterations = sorted(int(d[2:]) for d in os.listdir(method_dir) if re.fullmatch(r"it\d+", d))
     # Skip iterations of an unfinished CellLENS run (it<i> folder without embedding or predictions)
     complete = [i for i in iterations
@@ -103,7 +107,6 @@ def main():
         print(f"Skipping incomplete iterations: {sorted(set(iterations) - set(complete))}")
     iterations = complete
 
-    times = []
     for out_idx, iteration in enumerate(iterations):
         embedding = pd.read_csv(glob.glob(os.path.join(method_dir, f"it{iteration}", "*_embedding.csv"))[0]).to_numpy()
         df = pd.read_csv(os.path.join(method_dir, 'level3', f"predictions_{iteration}.csv"))
@@ -111,12 +114,12 @@ def main():
             raise ValueError(f"Iteration {iteration}: {len(df)} cells in predictions but {len(embedding)} in embedding")
         feature_labels = df['feature_labels'].to_numpy()
 
-        start = time.time()
+        start = time.perf_counter()
         labels = lens_clustering(embedding, feature_labels, NEIGHBOR, RESOLUTION, umap=True)
         labels = subcluster(embedding, feature_labels, labels, args.subcluster_times, args.subcluster_min_cells,
                             args.subcluster_resolution, args.subcluster_small_neighbors,
                             df['true_phenotype'].to_numpy(), args.subcluster_purity)
-        elapsed = time.time() - start
+        timer.folds[out_idx] = time.perf_counter() - start + (lens_times[str(iteration)] if lens_times is not None else 0)
 
         ## greedy assignement
         output = df.drop(columns=['cluster_label', 'predicted_phenotype'])
@@ -126,17 +129,9 @@ def main():
         path = os.path.join(out_dir, 'level3', f"predictions_{out_idx}.csv")
         os.makedirs(os.path.dirname(path), exist_ok=True)
         output.to_csv(path, index=False)
-        times.append((iteration, elapsed))
         print(f"Iteration {iteration}: {len(np.unique(labels))} clusters, saved to {path}")
 
-    # Train time = CellLENS train time (if recorded), prediction time = clustering + subclustering
-    if lens_times is None:
-        print(f"No fold_times.txt in {method_dir} or its level3, so only prediction times are written")
-    with open(os.path.join(out_dir, 'level3', 'fold_times.txt'), 'w') as f:
-        for out_idx, (iteration, elapsed) in enumerate(times):
-            if lens_times is not None:
-                f.write(f"Fold {out_idx} train_time, {lens_times[iteration]:.2f}\n")
-            f.write(f"Fold {out_idx} prediction_time, {elapsed:.2f}\n")
+    timer.write(os.path.join(out_dir, 'level3'))
 
 
 if __name__ == "__main__":

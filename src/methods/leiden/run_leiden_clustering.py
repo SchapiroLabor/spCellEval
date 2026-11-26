@@ -13,6 +13,9 @@ from anndata._core.aligned_df import ImplicitModificationWarning
 import logging
 import time
 import argparse
+from utils.fold_timer import FoldTimer
+
+START = time.perf_counter()  # fold_times.csv: the run is timed from here, after the package imports
 
 #Parse arguments from command line
 parser = argparse.ArgumentParser(description='Leiden clustering with greedy assignment and optional preprocessing.')
@@ -88,11 +91,9 @@ def preprocessing(input, split_col_name, exclude_markers, PCA, normalization, tr
         adata.obs['sample_id'] = adata.obs['sample_id'].astype(str).astype('category')
         sc.external.pp.harmony_integrate(adata, 'sample_id', basis=rep, adjusted_basis='X_harmony')
         rep = 'X_harmony'
-    # The kNN graph is the same for all iterations, so it is built (and timed) once
-    start = time.time()
+    # The kNN graph is the same for all iterations, so it is built once (in fold_times.csv: 'shared')
     sc.pp.neighbors(adata, n_neighbors=15, use_rep=rep)
-    knn_time = time.time() - start
-    return adata, df, knn_time
+    return adata, df
 
 # Define recursive subclustering function
 def subcluster(adata, key, times, min_cells, resolution, random_state, purity):
@@ -116,32 +117,27 @@ def subcluster(adata, key, times, min_cells, resolution, random_state, purity):
     adata.obs[key] = pd.Categorical(labels)
 
 # Define Leiden clustering with greedy assignment function
-def leiden_with_greedy(adata, df, knn_time, iterations, output_path, log, res, subcluster_times, subcluster_min_cells, subcluster_resolution, subcluster_purity, harmony):
+def leiden_with_greedy(adata, df, iterations, output_path, log, res, subcluster_times, subcluster_min_cells, subcluster_resolution, subcluster_purity, harmony):
     resolution = f'leiden_res{str(res).replace(".", "_")}'
     # Subclustering runs are saved in a separate method folder (e.g. '<method>_subclust3', with purity '<method>_subclust3_purity0_9'),
     # Harmony runs get '_harm' appended
     suffix = f'_subclust{subcluster_times}{purity_suffix(subcluster_purity)}' if subcluster_times > 0 else ''
     if harmony:
         suffix += '_harm'
+    timer = FoldTimer(START)
     for iteration in range(iterations):
-        start = time.time()
+        start = time.perf_counter()
         # Seed per iteration, otherwise all iterations give identical clusters (scanpy default random_state=0)
         sc.tl.leiden(adata, resolution=res, key_added=resolution, random_state=iteration, flavor='igraph', n_iterations=2, directed=False)
         subcluster(adata, resolution, subcluster_times, subcluster_min_cells, subcluster_resolution, iteration, subcluster_purity)
-        # Prediction time = kNN graph + Leiden + subclustering
-        elapsed = knn_time + time.time() - start
+        # Fold time = Leiden + subclustering
+        elapsed = timer.folds[iteration] = time.perf_counter() - start
         if log == 'long':
             logging.info(f'Iteration {iteration}: Leiden clustering with resolution={res} took {elapsed/60:.2f} minutes')
         if log == 'short':
             logging.info(f'Resolution={res}: {elapsed/60:.2f} min')
         output = df.copy()
         output['cluster_label'] = adata.obs[resolution].values
-        #append time to the results
-        text_path = os.path.join(output_path, resolution + suffix, 'level3', 'fold_times.txt')
-        os.makedirs(os.path.dirname(text_path), exist_ok=True)
-        mode = 'w' if iteration == 0 else 'a'
-        with open(text_path, mode) as f:
-            f.write(f"Fold {iteration} prediction_time, {elapsed:.2f}\n")
 
         ## greedy assignement
         results = greedy_f1_score(output, 'cell_type', 'cluster_label', tie_strategy='random')
@@ -152,12 +148,13 @@ def leiden_with_greedy(adata, df, knn_time, iterations, output_path, log, res, s
         if log == 'long':
             logging.info(f"Saving predictions to {path}")
         output.to_csv(path, index=False)
+    timer.write(os.path.join(output_path, resolution + suffix, 'level3'))
 
 def main():
     if args.log != 'off':
         logging_setup(args.output_path)
-    adata, df, knn_time = preprocessing(args.input, args.split_col_name, args.exclude_markers, args.PCA, args.normalization, args.transform, args.cofactor, args.harmony)
-    leiden_with_greedy(adata, df, knn_time, args.iterations, args.output_path, args.log, args.resolution, args.subcluster_times, args.subcluster_min_cells, args.subcluster_resolution, args.subcluster_purity, args.harmony)
+    adata, df = preprocessing(args.input, args.split_col_name, args.exclude_markers, args.PCA, args.normalization, args.transform, args.cofactor, args.harmony)
+    leiden_with_greedy(adata, df, args.iterations, args.output_path, args.log, args.resolution, args.subcluster_times, args.subcluster_min_cells, args.subcluster_resolution, args.subcluster_purity, args.harmony)
 
 
 if __name__ == "__main__":

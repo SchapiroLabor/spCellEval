@@ -17,6 +17,8 @@ script_dir <- dirname(normalizePath(
 ))
 utils_dir <- normalizePath(file.path(script_dir, "..", "utils"))
 source(file.path(utils_dir, "clustering_utils.R"))
+source(file.path(utils_dir, "fold_timer.R"))
+START <- Sys.time()  # fold_times.csv: the run is timed from here, after the library() calls
 
 # Create parser
 parser <- ArgumentParser(description = "Cluster Nimbus processed data and with Phenograph, FlowSOM and FuseSOM")
@@ -82,6 +84,7 @@ if (args$remove_str != "None") {
 }
 
 #### Main ####
+fold_times <- list()  # per method folder: clustering time of each iteration
 for (iteration in 1:args$iterations) {
   #### read and clean up data ####
   # read nimbus data
@@ -108,7 +111,7 @@ for (iteration in 1:args$iterations) {
     start_time <- Sys.time()
     pheno_df <- marker_df %>% Rphenograph(k = k_val)
     end_time <- Sys.time()
-    elapsed <- round(as.numeric(difftime(end_time, start_time, units = "sec")), 2)
+    fold_times[[clustering]][as.character(iteration)] <- as.numeric(difftime(end_time, start_time, units = "secs"))
     nimbus_df[[clustering]] <- factor(membership(pheno_df[[2]]))
     
     if (args$log != "off") {
@@ -117,13 +120,6 @@ for (iteration in 1:args$iterations) {
               paste0(round(as.numeric(difftime(end_time, start_time, units = "mins")), 2), " minutes"))
     }
 
-    # Write time to txt file
-    text_path <- file.path(args$output_path, clustering, "level3", "fold_times.txt")
-    dir.create(dirname(text_path), recursive = TRUE, showWarnings = FALSE)
-    con <- file(text_path, open = if (iteration == 1) "w" else "a")
-    writeLines(sprintf("Fold %d prediction_time, %.2f", iteration, elapsed), con)
-    close(con)
-    
     greedy_assignment_save()
   }
   
@@ -131,22 +127,13 @@ for (iteration in 1:args$iterations) {
   start_time <- Sys.time()
   flowsom_df <- FlowSOM(as.matrix(marker_df), silent= FALSE, nClus = args$flow_nclus)
   end_time <- Sys.time()
-  elapsed <- round(as.numeric(difftime(end_time, start_time, units = "sec")), 2)
+  fold_times[["flowsom"]][as.character(iteration)] <- as.numeric(difftime(end_time, start_time, units = "secs"))
   
   if (args$log != "off") {
     loginfo("FlowSOM clustering (Duration: %s)",
             paste0(round(as.numeric(difftime(end_time, start_time, units = "mins")), 2), " minutes"))
   }
   
-  # Write time to txt file
-  for (cl in c("flowsom", "flowsom_meta_clusters")){
-    text_path <- file.path(args$output_path, cl, "level3", "fold_times.txt")
-    dir.create(dirname(text_path), recursive = TRUE, showWarnings = FALSE)
-    con <- file(text_path, open = if (iteration == 1) "w" else "a")
-    writeLines(sprintf("Fold %d prediction_time, %.2f", iteration, elapsed), con)
-    close(con)
-  }
-
   clustering = "flowsom"
   nimbus_df$flowsom <- GetClusters(flowsom_df)
   greedy_assignment_save()
@@ -163,13 +150,7 @@ for (iteration in 1:args$iterations) {
     start_time <- Sys.time()
     fuse_df <- marker_df %>% runFuseSOM(numClusters = fuse_clus)
     end_time <- Sys.time()
-    elapsed <- round(as.numeric(difftime(end_time, start_time, units = "sec")), 2)
-
-  text_path <- file.path(args$output_path, clustering, "level3", "fold_times.txt")
-  dir.create(dirname(text_path), recursive = TRUE, showWarnings = FALSE)
-  con <- file(text_path, open = if (iteration == 1) "w" else "a")
-  writeLines(sprintf("Fold %d prediction_time, %.2f", iteration, elapsed), con)
-  close(con)
+    fold_times[[clustering]][as.character(iteration)] <- as.numeric(difftime(end_time, start_time, units = "secs"))
     
     nimbus_df[[clustering]] <- fuse_df$clusters
     
@@ -180,6 +161,14 @@ for (iteration in 1:args$iterations) {
     
     greedy_assignment_save()
   }
+}
+
+# One fold_times.csv per method folder; each leaves out the time of the other methods clustered in this run
+# (its start is moved by that time). FlowSOM nodes and metaclusters come from the same FlowSOM run.
+for (cl in names(fold_times)) {
+  other <- sum(unlist(fold_times)) - sum(fold_times[[cl]])
+  for (folder in if (cl == "flowsom") c("flowsom", "flowsom_meta_clusters") else cl)
+    write_fold_times(fold_times[[cl]], START + other, file.path(args$output_path, folder, "level3"))
 }
 
 #exemplar run 

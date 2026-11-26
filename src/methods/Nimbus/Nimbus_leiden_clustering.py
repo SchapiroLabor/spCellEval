@@ -14,6 +14,9 @@ from anndata._core.aligned_df import ImplicitModificationWarning
 import logging
 import time
 import argparse
+from utils.fold_timer import FoldTimer
+
+START = time.perf_counter()  # fold_times.csv: the run is timed from here, after the package imports
 
 #Parse arguments from command line
 parser = argparse.ArgumentParser(description='Leiden clustering with greedy assignment and optional preprocessing after Nimbus.')
@@ -120,10 +123,8 @@ def preprocessing(nimbus_df, exclude_markers, PCA, normalization, harmony):
         adata.obs['sample_id'] = adata.obs['sample_id'].astype(str).astype('category')
         sc.external.pp.harmony_integrate(adata, 'sample_id', basis=rep, adjusted_basis='X_harmony')
         rep = 'X_harmony'
-    start = time.time()
     sc.pp.neighbors(adata, n_neighbors=15, use_rep=rep)
-    knn_time = time.time() - start
-    return adata, knn_time
+    return adata
 
 # Define recursive subclustering function
 def subcluster(adata, key, times, min_cells, resolution, random_state, purity):
@@ -147,31 +148,25 @@ def subcluster(adata, key, times, min_cells, resolution, random_state, purity):
     adata.obs[key] = pd.Categorical(labels)
 
 # Define Leiden clustering with greedy assignment function
-def leiden_with_greedy(adata, nimbus_df, knn_time, iteration, output_path, log, res, subcluster_times, subcluster_min_cells, subcluster_resolution, subcluster_purity):
+def leiden_with_greedy(adata, nimbus_df, timer, iteration, output_path, log, res, subcluster_times, subcluster_min_cells, subcluster_resolution, subcluster_purity):
     resolution = f'leiden_res{str(res).replace(".", "_")}'
     # Method folder 'nimbus_leiden_res<r>' (distinct from the Leiden-on-intensities folders);
     # subclustering runs are saved in a separate method folder (e.g. 'nimbus_leiden_res1_0_subclust3',
     # with purity 'nimbus_leiden_res1_0_subclust3_purity0_9')
     suffix = f'_subclust{subcluster_times}{purity_suffix(subcluster_purity)}' if subcluster_times > 0 else ''
     folder = f'nimbus_{resolution}{suffix}'
-    start = time.time()
+    start = time.perf_counter()
     # Seed per iteration, otherwise all iterations on the same input give identical clusters (scanpy default random_state=0)
     sc.tl.leiden(adata, resolution=res, key_added=resolution, random_state=iteration, flavor='igraph', n_iterations=2, directed=False)
     subcluster(adata, resolution, subcluster_times, subcluster_min_cells, subcluster_resolution, iteration, subcluster_purity)
-    # Prediction time = kNN graph + Leiden + subclustering
-    elapsed = knn_time + time.time() - start
+    # Fold time = Leiden + subclustering
+    elapsed = timer.folds[iteration] = time.perf_counter() - start
     if log == 'long':
         logging.info(f'Iteration {iteration}: Leiden clustering with resolution={res} took {elapsed/60:.2f} minutes')
     if log == 'short':
         logging.info(f'Resolution={res}: {elapsed/60:.2f} min')
     output = nimbus_df.copy()
     output['cluster_label'] = adata.obs[resolution].values
-    #append time to the results
-    text_path = os.path.join(output_path, folder, 'level3', 'fold_times.txt')
-    os.makedirs(os.path.dirname(text_path), exist_ok=True)
-    mode = 'w' if iteration == 0 else 'a'
-    with open(text_path, mode) as f:
-        f.write(f"Fold {iteration} prediction_time, {elapsed:.2f}\n")
 
     ## greedy assignement
     results = greedy_f1_score(output, 'cell_type', 'cluster_label', tie_strategy='random')
@@ -182,15 +177,17 @@ def leiden_with_greedy(adata, nimbus_df, knn_time, iteration, output_path, log, 
     if log == 'long':
         logging.info(f"Saving predictions to {path}")
     output.to_csv(path, index=False)
+    timer.write(os.path.join(output_path, folder, 'level3'))  # rewritten every iteration, the last one is complete
 
 def main():
     if args.log != 'off':
         logging_setup(args.output_path)
+    timer = FoldTimer(START)
     for iteration in range(args.iterations):
         # Join ground truth with nimbus output (Nimbus writes iteration_1 ... iteration_N)
         nimbus_df = join_ground_truth_with_nimbus(args.ground_truth, args.input, args.remove_str, iteration + 1)
-        adata, knn_time = preprocessing(nimbus_df, args.exclude_markers, args.PCA, args.normalization, args.harmony)
-        leiden_with_greedy(adata, nimbus_df, knn_time, iteration, args.output_path, args.log, args.resolution,
+        adata = preprocessing(nimbus_df, args.exclude_markers, args.PCA, args.normalization, args.harmony)
+        leiden_with_greedy(adata, nimbus_df, timer, iteration, args.output_path, args.log, args.resolution,
                            args.subcluster_times, args.subcluster_min_cells, args.subcluster_resolution, args.subcluster_purity)
 
 

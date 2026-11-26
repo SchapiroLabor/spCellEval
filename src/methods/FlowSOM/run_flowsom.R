@@ -14,6 +14,8 @@ script_dir <- dirname(normalizePath(
 ))
 utils_dir <- normalizePath(file.path(script_dir, "..", "utils"))
 source(file.path(utils_dir, "clustering_utils.R"))
+source(file.path(utils_dir, "fold_timer.R"))
+START <- Sys.time()  # fold_times.csv: the run is timed from here, after the library() calls
 
 #### Args ####
 parser <- ArgumentParser(description = "Cluster data with FlowSOM")
@@ -123,6 +125,7 @@ folder <- if (args$subcluster_times > 0) paste0("flowsom_meta_clusters_subclust"
 # Harmony runs get '_harm' appended (e.g. 'flowsom_meta_clusters_subclust3_harm', 'flowsom_harm')
 harm <- if (args$harmony) "_harm" else ""
 folder <- paste0(folder, harm)
+fold_times <- c()
 for (iteration in 0:(args$iterations - 1)) {
   # Seed per iteration: reproducible, but different between iterations
   set.seed(iteration)
@@ -131,18 +134,11 @@ for (iteration in 0:(args$iterations - 1)) {
   meta_labels <- subcluster(marker_df, as.character(GetMetaclusters(flowsom_df)), args$subcluster_times,
                             args$subcluster_k, df$cell_type, args$subcluster_purity)
   end_time <- Sys.time()
-  elapsed <- round(as.numeric(difftime(end_time, start_time, units = "sec")), 2)
+  fold_times[as.character(iteration)] <- as.numeric(difftime(end_time, start_time, units = "secs"))
 
   if (args$log != "off")
     loginfo("FlowSOM nClus = %d (Duration: %.2f min)", args$flow_nclus,
             as.numeric(difftime(end_time, start_time, units = "mins")))
-
-  # Times (FlowSOM + subclustering) are only recorded for the metaclusters
-  text_path <- file.path(args$output_path, folder, "level3", "fold_times.txt")
-  dir.create(dirname(text_path), recursive = TRUE, showWarnings = FALSE)
-  con <- file(text_path, open = if (iteration == 0) "w" else "a")
-  writeLines(sprintf("Fold %d prediction_time, %.2f", iteration, elapsed), con)
-  close(con)
 
   # Node clusters are never subclustered, so they are only saved in the default run
   if (args$subcluster_times == 0) {
@@ -155,3 +151,5 @@ for (iteration in 0:(args$iterations - 1)) {
   df$flowsom_meta_clusters <- factor(meta_labels)
   greedy_assignment_save(folder)
 }
+# Times (FlowSOM + subclustering) are only recorded for the metaclusters
+write_fold_times(fold_times, START, file.path(args$output_path, folder, "level3"))

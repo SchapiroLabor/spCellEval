@@ -17,7 +17,10 @@ from celllens import graph as lens_graph
 from celllens.datasets import LENS_Dataset
 from celllens.celllens import CellLENS
 from utils.greedy_f1_utils import greedy_f1_score
+from utils.fold_timer import FoldTimer
 warnings.filterwarnings('ignore')
+
+START = time.perf_counter()  # fold_times.csv: the run is timed from here, after the package imports
 
 #Parse arguments from command line
 parser = argparse.ArgumentParser(description='CellLENS (Lite or Full) with greedy assignment.')
@@ -144,13 +147,14 @@ def celllens_with_greedy(df, features_list, stitched, mode, iterations, output_p
     if log == 'long':
         logging.info(f"Using device: {device}")
     method_dir = f"{output_path}/CellLENS_{mode.capitalize()}"
+    timer = FoldTimer(START)
     for iteration in range(1, iterations + 1):
         if log == 'long':
             logging.info(f"Running iteration {iteration} of {iterations} (seed {seed + iteration})")
         set_seed(seed + iteration)
-        # Train time = initial clustering + CNN training + CNN embedding (full only) + LENS-GNN training
-        # (image cropping is left out), prediction time = clustering on the embedding
-        start = time.time()
+        # Fold time = initial clustering + CNN training + CNN embedding (full only) + LENS-GNN training
+        # + clustering on the embedding; the image cropping (once, in iteration 1) is in 'shared'
+        start = time.perf_counter()
         dataset = NativeCropDataset(df,
                                     crop_px,
                                     features_list=features_list,
@@ -167,7 +171,7 @@ def celllens_with_greedy(df, features_list, stitched, mode, iterations, output_p
                            pca_components=min(25, len(features_list) - 1),
                            cluster_res=None,
                            n_clusters=init_n_clusters)
-        init_elapsed = time.time() - start
+        init_elapsed = time.perf_counter() - start
         if log == 'long':
             logging.info(f"{len(np.unique(dataset.feature_labels))} initial clusters (target {init_n_clusters})")
         if mode == 'full' and iteration == 1:
@@ -178,7 +182,7 @@ def celllens_with_greedy(df, features_list, stitched, mode, iterations, output_p
                          cnn_model='CNN' if mode == 'full' else 'LITE',
                          cnn_latent_dim=128,
                          gnn_latent_dim=32)
-        start = time.time()
+        start = time.perf_counter()
         if mode == 'full':
             model.fit_lens_cnn(batch_size=64,
                                learning_rate=1e-4,
@@ -203,27 +207,23 @@ def celllens_with_greedy(df, features_list, stitched, mode, iterations, output_p
                                  SchedulerAlg=None,
                                  scheduler_kwargs={},
                                  verbose=True)
-        train_elapsed = init_elapsed + time.time() - start
+        train_elapsed = init_elapsed + time.perf_counter() - start
 
         #leiden clustering on the embedding; its UMAP is kept although unused: sc.tl.umap prunes weak edges of the
         #kNN graph in place, so the Leiden clustering would differ without it
-        start = time.time()
+        start = time.perf_counter()
         model.get_lens_clustering(neighbor=15,
                                   resolution=1.0,
                                   entropy_threshold=0.75,
                                   concen_threshold=1,
                                   max_breaks=3,
                                   size_lim=50)
-        pred_elapsed = time.time() - start
+        pred_elapsed = time.perf_counter() - start
+        timer.folds[iteration] = train_elapsed + pred_elapsed
         if log == 'long':
             logging.info(f"Iteration {iteration}: training took {train_elapsed/60:.2f} minutes, clustering {pred_elapsed/60:.2f} minutes")
         if log == 'short':
             logging.info(f'Fold {iteration} train_time, {train_elapsed:.2f}; prediction_time, {pred_elapsed:.2f}')
-        #append time to the results
-        os.makedirs(f'{method_dir}/level3', exist_ok=True)
-        with open(os.path.join(method_dir, 'level3', 'fold_times.txt'), 'w' if iteration == 1 else 'a') as f:
-            f.write(f"Fold {iteration} train_time, {train_elapsed:.2f}\n")
-            f.write(f"Fold {iteration} prediction_time, {pred_elapsed:.2f}\n")
 
         #save embedding (read by cluster_celllens_embedding.py for subclustering)
         os.makedirs(f'{method_dir}/it{iteration}', exist_ok=True)
@@ -241,6 +241,7 @@ def celllens_with_greedy(df, features_list, stitched, mode, iterations, output_p
         if log == 'long':
             logging.info(f"Saving predictions to {path}")
         output.to_csv(path, index=False)
+    timer.write(f'{method_dir}/level3')
 
 def main():
     if args.mode == 'full' and (args.path2img is None or args.path2crops is None or args.pixel_size is None):

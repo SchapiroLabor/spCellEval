@@ -19,6 +19,7 @@ import json
 import csv
 import pickle
 import time
+from utils.fold_timer import FoldTimer
 
 
 class ClassicMLDefault:
@@ -77,8 +78,7 @@ class ClassicMLDefault:
         self.average_recall = None
         self.best_models = []
         self.predictions = {}
-        self.train_times = []
-        self.pred_times = []
+        self.fold_times = {}  # fit + predict per fold, numbered like predictions_fold_<i>.csv
 
         print("Class initialized successfully with the following model parameters:")
         print(f"Random State: {self.random_state}")
@@ -128,8 +128,6 @@ class ClassicMLDefault:
         label_dict = dict(zip(labels["label"], labels["phenotype"]))
         all_labels = list(label_dict.keys())
 
-        train_times = []
-        pred_times = []
         print("Starting the integration of the predefined Kfolds...")
         for c, (train_file, validation_file, test_file) in enumerate(
             zip(fold_dict["train"], fold_dict["validation"], fold_dict["test"])
@@ -265,7 +263,7 @@ class ClassicMLDefault:
 
             print(f"Fold {c+1} integrated successfully")
 
-            train_start_time = time.time()
+            fold_start_time = time.perf_counter()
             if self.model_name == "xgboost":
                 if self.class_weight is not None:
                     sample_weights = compute_sample_weight(
@@ -287,15 +285,8 @@ class ClassicMLDefault:
                     )
             else:
                 self.model.fit(X_train, y_train)
-            train_end_time = time.time()
-            train_time = train_end_time - train_start_time
-
-            pred_start_time = time.time()
             y_pred_test = self.model.predict(X_test)
-            pred_end_time = time.time()
-            pred_time = pred_end_time - pred_start_time
-            self.train_times.append(train_time)
-            self.pred_times.append(pred_time)
+            self.fold_times[c + 1] = time.perf_counter() - fold_start_time
 
             if reverse_label_map:
                 print(reverse_label_map)
@@ -338,10 +329,11 @@ class ClassicMLDefault:
         print(f"Average Weighted F1 Score: {self.average_weighted_f1_score}")
 
     def save_results(
-        self, save_path: str, label_path: str, data_path: str, save_model: bool = True
+        self, save_path: str, label_path: str, data_path: str, start: float, save_model: bool = True
     ) -> None:
         """
         This function saves the results of the model and translates the labels to their respective phenotypes.
+        start is time.perf_counter() at the start of the run, for fold_times.csv.
         """
         if label_path is None:
             raise ValueError("Please provide the path to the label file.")
@@ -379,13 +371,6 @@ class ClassicMLDefault:
             json_name = "average_stratified_results.json"
         with open(os.path.join(save_path, json_name), "w") as f:
             json.dump(avg_results, f, indent=4)
-
-        with open(os.path.join(save_path, "fold_times.txt"), "w") as f:
-            for i, (elapsed_train, elapsed_pred) in enumerate(
-                zip(self.train_times, self.pred_times)
-            ):
-                f.write(f"Fold {i+1} training_time: {elapsed_train:.2f}\n")
-                f.write(f"Fold {i+1} prediction_time: {elapsed_pred:.2f}\n")
 
         labels = pd.read_csv(label_path)
         label_dict = dict(zip(labels["label"], labels["phenotype"]))
@@ -481,3 +466,7 @@ class ClassicMLDefault:
             print(f"Best models for all folds saved successfully in {models_path}.")
         else:
             print(f"Results saved successfully in {save_path}. Models not saved.")
+
+        timer = FoldTimer(start)
+        timer.folds = self.fold_times
+        timer.write(save_path)

@@ -6,6 +6,10 @@ import argparse
 import pandas as pd
 import torch
 import time
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'utils'))
+from fold_timer import FoldTimer
+
+START = time.perf_counter()  # fold_times.csv: the run is timed from here, after the package imports
 
 def run_astir(
     quant_path,
@@ -33,30 +37,23 @@ def run_astir(
         df[marker_cols] = np.log1p(df[marker_cols])
     df.to_csv(os.path.join(output_path, "quantification_astir.csv"), index=True)
 
-    train_times = []
-    inference_times = []
+    timer = FoldTimer(START)
     for n in range(n_runs):
         seed = random_seed + n
         ast = from_csv_yaml(os.path.join(output_path, "quantification_astir.csv"), marker_yaml=decision_matrix_path, random_seed=seed)
 
-        # Training time = fit_type (ends with one forward pass giving the cell type probabilities),
-        # prediction time = cell type assignment from these probabilities
-        start_time = time.time()
+        # Fold time = fit_type (ends with one forward pass giving the cell type probabilities)
+        # + cell type assignment from these probabilities
+        start_time = time.perf_counter()
         ast.fit_type(max_epochs=max_epochs, n_init=n_init, n_init_epochs=n_init_epochs, delta_loss=delta_loss, learning_rate=learning_rate, batch_size=batch_size)
-        train_times.append(time.time() - start_time)
-
-        start_time = time.time()
         cts = ast.get_celltypes()
-        inference_times.append(time.time() - start_time)
+        timer.folds[n] = time.perf_counter() - start_time
 
         df_cts = df.copy()
         df_cts['predicted_phenotype'] = cts
 
         df_cts.to_csv(os.path.join(output_path, f"predictions_{n}.csv"))
-        with open(os.path.join(output_path, "fold_times.txt"), "w") as f:
-            for i, (elapsed_train, elapsed_pred) in enumerate(zip(train_times, inference_times)):
-                f.write(f"Fold {i+1} training_time: {elapsed_train:.2f}\n")
-                f.write(f"Fold {i+1} prediction_time: {elapsed_pred:.2f}\n")
+    timer.write(output_path)
 
 def main():
     parser = argparse.ArgumentParser(description="Run ASTIR with specified parameters.")

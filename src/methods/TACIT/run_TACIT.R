@@ -9,6 +9,12 @@ library(parallelly)
 library(TACIT)
 library(argparse)
 
+script_dir <- dirname(normalizePath(
+  sub("--file=", "", commandArgs(trailingOnly = FALSE)[grep("--file=", commandArgs(trailingOnly = FALSE))])
+))
+source(file.path(script_dir, "..", "utils", "fold_timer.R"))
+START <- Sys.time()  # fold_times.csv: the run is timed from here, after the library() calls
+
 run_TACIT <- function(n, input_path, separate_col, scaling, log1p, decision_matrix_path, r, p, output_path) {
   data <- read_csv(input_path)
   
@@ -26,13 +32,12 @@ run_TACIT <- function(n, input_path, separate_col, scaling, log1p, decision_matr
     rename(true_phenotype = cell_type)
   
   TYPExMARKER <- read_csv(decision_matrix_path)
-  inference_times <- numeric(n)
+  fold_times <- c()
   for(i in 1:n) {
     start_time <- Sys.time()
     TACIT_result <- TACIT(CELLxFEATURE, TYPExMARKER, r=r, p=p)
     end_time <- Sys.time()
-    elapsed <- as.numeric(difftime(end_time, start_time, units = "secs"))
-    inference_times[i] <- elapsed
+    fold_times[as.character(i)] <- as.numeric(difftime(end_time, start_time, units = "secs"))
     
     data <- data %>%
       mutate(predicted_phenotype = TACIT_result$TACIT) %>%
@@ -44,12 +49,7 @@ run_TACIT <- function(n, input_path, separate_col, scaling, log1p, decision_matr
     output_file <- file.path(output_path, paste0("predictions_", i, ".csv"))
     write_csv(data, output_file)
   }
-  timing_file <- file.path(output_path, "fold_times.txt")
-  file_conn <- file(timing_file, "w")
-  for (i in 1:n) {
-    writeLines(paste0("Fold ", i, " inference_time: ", round(inference_times[i], 2), " seconds"), file_conn)
-  }
-  close(file_conn)
+  write_fold_times(fold_times, START, output_path)
 }
 
 main <- function() {
