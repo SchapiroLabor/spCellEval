@@ -31,8 +31,10 @@ python run_kronos2.py all \\
     --output-dir   <results>/kronos2/IMMUcan
 """
 
-import sys
 import time
+START = time.perf_counter()  # fold_times.csv: the run is timed from here, package imports included
+
+import sys
 import argparse
 from pathlib import Path
 
@@ -44,8 +46,8 @@ from tqdm import tqdm
 from scipy import ndimage
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / 'utils'))
-from benchmark_io import fill_from_config, load_config, read_markers, load_benchmark_data, read_segmentation
-from utils_foundational_models import check_cache_params, check_fold_coverage, _save_fold_times
+from benchmark_io import FoldTimer, fill_from_config, load_config, read_markers, load_benchmark_data, read_segmentation
+from utils_foundational_models import check_cache_params, check_fold_coverage
 
 
 #  FEATURE EXTRACTION
@@ -148,7 +150,7 @@ def load_features(feature_dir, meta_df):
 
 #  SUPERVISED: LogReg + Optuna
 
-def run_supervised_optuna(args, folds, feats, meta):
+def run_supervised_optuna(args, folds, feats, meta, start):
     import optuna
     from optuna.samplers import TPESampler
     from sklearn.preprocessing import StandardScaler
@@ -168,64 +170,57 @@ def run_supervised_optuna(args, folds, feats, meta):
                                   class_weight='balanced', solver='lbfgs')
 
     print(f"\nLogReg + Optuna | n_trials={args.n_trials} | folds={len(folds)}")
-    fold_times, train_times, predict_times, f1s = [], [], [], []
+    timer, f1s = FoldTimer(start), []
     for fold_idx, fold in enumerate(folds):
-        fold_start = time.time()
-        train_idx = np.where(keys.isin(fold['train']).values)[0]
-        test_idx = np.where(keys.isin(fold['test']).values)[0]
-        rng = np.random.RandomState(args.seed + fold_idx)
-        if args.max_cells_per_type is not None:
-            train_idx = np.concatenate([
-                rng.choice(idx, min(len(idx), args.max_cells_per_type), replace=False)
-                for idx in (train_idx[labels[train_idx] == c] for c in np.unique(labels[train_idx]))])
-        print(f"\n-- Fold {fold_idx} --\n  Train: {len(train_idx):,} cells | "
-              f"{len(set(meta['image_id'].values[train_idx]))} images")
+        with timer.fold(fold_idx):
+            train_idx = np.where(keys.isin(fold['train']).values)[0]
+            test_idx = np.where(keys.isin(fold['test']).values)[0]
+            rng = np.random.RandomState(args.seed + fold_idx)
+            if args.max_cells_per_type is not None:
+                train_idx = np.concatenate([
+                    rng.choice(idx, min(len(idx), args.max_cells_per_type), replace=False)
+                    for idx in (train_idx[labels[train_idx] == c] for c in np.unique(labels[train_idx]))])
+            print(f"\n-- Fold {fold_idx} --\n  Train: {len(train_idx):,} cells | "
+                  f"{len(set(meta['image_id'].values[train_idx]))} images")
 
-        train_start = time.time()
-        held_out = rng.choice(len(train_idx), max(1, int(0.2 * len(train_idx))), replace=False)
-        tune_tr = np.setdiff1d(np.arange(len(train_idx)), held_out)
-        tune_scaler = StandardScaler().fit(feats[train_idx[tune_tr]])
-        X_tr, y_tr = tune_scaler.transform(feats[train_idx[tune_tr]]), labels[train_idx[tune_tr]]
-        X_val, y_val = tune_scaler.transform(feats[train_idx[held_out]]), labels[train_idx[held_out]]
+            held_out = rng.choice(len(train_idx), max(1, int(0.2 * len(train_idx))), replace=False)
+            tune_tr = np.setdiff1d(np.arange(len(train_idx)), held_out)
+            tune_scaler = StandardScaler().fit(feats[train_idx[tune_tr]])
+            X_tr, y_tr = tune_scaler.transform(feats[train_idx[tune_tr]]), labels[train_idx[tune_tr]]
+            X_val, y_val = tune_scaler.transform(feats[train_idx[held_out]]), labels[train_idx[held_out]]
 
-        def objective(trial):
-            clf = logreg(trial.suggest_float('C', args.c_low, args.c_high, log=True)).fit(X_tr, y_tr)
-            return f1_score(y_val, clf.predict(X_val), average='macro', zero_division=0)
+            def objective(trial):
+                clf = logreg(trial.suggest_float('C', args.c_low, args.c_high, log=True)).fit(X_tr, y_tr)
+                return f1_score(y_val, clf.predict(X_val), average='macro', zero_division=0)
 
-        study = optuna.create_study(direction='maximize', sampler=TPESampler(seed=args.seed))
-        study.optimize(objective, n_trials=args.n_trials, show_progress_bar=False)
-        best_C = study.best_params['C']
-        print(f"  Best C={best_C:.2e} (Optuna, {args.n_trials} trials)")
+            study = optuna.create_study(direction='maximize', sampler=TPESampler(seed=args.seed))
+            study.optimize(objective, n_trials=args.n_trials, show_progress_bar=False)
+            best_C = study.best_params['C']
+            print(f"  Best C={best_C:.2e} (Optuna, {args.n_trials} trials)")
 
-        scaler = StandardScaler().fit(feats[train_idx])
-        clf = logreg(best_C).fit(scaler.transform(feats[train_idx]), labels[train_idx])
-        train_time = time.time() - train_start
+            scaler = StandardScaler().fit(feats[train_idx])
+            clf = logreg(best_C).fit(scaler.transform(feats[train_idx]), labels[train_idx])
 
-        predict_start = time.time()
-        X_test = scaler.transform(feats[test_idx])
-        y_pred, y_proba = clf.predict(X_test), clf.predict_proba(X_test)
-        predict_time = time.time() - predict_start
+            X_test = scaler.transform(feats[test_idx])
+            y_pred, y_proba = clf.predict(X_test), clf.predict_proba(X_test)
 
-        fold_df = pd.DataFrame({
-            'image_id': meta['image_id'].values[test_idx],
-            'cell_id': meta['cell_id'].values[test_idx],
-            'true_phenotype': labels[test_idx],
-            'fold': fold_idx,
-            'predicted_phenotype': y_pred,
-            'confidence': y_proba.max(axis=1),
-        })
-        fold_df = pd.concat([fold_df, pd.DataFrame(feats[test_idx], columns=feat_cols)], axis=1)
-        fold_df.to_csv(out_dir / f'predictions_{fold_idx}.csv', index=False)
-
-        fold_times.append(time.time() - fold_start)
-        train_times.append(train_time)
-        predict_times.append(predict_time)
-        _save_fold_times(out_dir, fold_times, train_times=train_times, predict_times=predict_times)
+            fold_df = pd.DataFrame({
+                'image_id': meta['image_id'].values[test_idx],
+                'cell_id': meta['cell_id'].values[test_idx],
+                'true_phenotype': labels[test_idx],
+                'fold': fold_idx,
+                'predicted_phenotype': y_pred,
+                'confidence': y_proba.max(axis=1),
+            })
+            fold_df = pd.concat([fold_df, pd.DataFrame(feats[test_idx], columns=feat_cols)], axis=1)
+            fold_df.to_csv(out_dir / f'predictions_{fold_idx}.csv', index=False)
 
         report = classification_report(labels[test_idx], y_pred, output_dict=True, zero_division=0)
         f1s.append(report['macro avg']['f1-score'])
         print(f"  Test: {len(test_idx):,} cells | Accuracy {report['accuracy']:.3f} | "
-              f"Macro F1 {f1s[-1]:.3f} | {fold_times[-1]:.1f}s")
+              f"Macro F1 {f1s[-1]:.3f} | {timer.folds[fold_idx]:.1f}s")
+
+    timer.write(out_dir)
 
     print(f"\nKRONOS2_supervised: Macro F1 {np.mean(f1s):.3f} +/- {np.std(f1s):.3f} | {out_dir}")
 
@@ -267,7 +262,6 @@ def build_parser():
 
 def main():
     args = build_parser().parse_args()
-    total_start = time.time()
     data_root = Path(args.dataset_path)
     cfg = load_config(args.config, data_root.name)
     fill_from_config(args, cfg)
@@ -291,9 +285,9 @@ def main():
         extract_features(args, model, marker_indices, model_markers, meta_df, img_paths, seg_paths)
     if args.mode in ('supervised', 'all'):
         feats, meta = load_features(feature_dir, meta_df)
-        run_supervised_optuna(args, folds, feats, meta)
+        run_supervised_optuna(args, folds, feats, meta, START)
 
-    print(f"run_kronos2.py complete | {(time.time() - total_start) / 3600:.2f}h")
+    print(f"run_kronos2.py complete | {(time.perf_counter() - START) / 3600:.2f}h")
 
 
 if __name__ == '__main__':

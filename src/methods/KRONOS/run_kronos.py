@@ -38,9 +38,11 @@ python run_kronos.py all \\
     --device       cuda:0
 """
 
+import time
+START = time.perf_counter()  # fold_times.csv: the run is timed from here, package imports included
+
 import argparse
 import sys
-import time
 from pathlib import Path
 
 import numpy as np
@@ -264,7 +266,6 @@ def build_parser():
 
 def main():
     args = build_parser().parse_args()
-    total_start = time.time()
 
     data_root = Path(args.dataset_path)
     args.dataset = data_root.name
@@ -301,14 +302,16 @@ def main():
         all_feats_arr, metadata_all = extract_features(
             args, model, all_images, keep_idx, ids, means, stds, meta_df, img_paths, seg_paths)
 
+    head_start = time.perf_counter()
     if args.mode in ('supervised', 'all'):
-        run_supervised(args, folds, all_feats_arr, metadata_all, method_name='KRONOS_supervised',
+        run_supervised(args, folds, all_feats_arr, metadata_all, method_name='KRONOS_supervised', start=START,
                        embedding_columns=False)
-    if args.mode in ('leiden', 'all'):
+    if args.mode in ('leiden', 'all'):  # timed without the supervised head before it
         run_leiden(args, folds, all_feats_arr, metadata_all, method_name='KRONOS_leiden',
+                   start=START + time.perf_counter() - head_start,
                    embedding_columns=False)
 
-    total_time = time.time() - total_start
+    total_time = time.perf_counter() - START
     print(f"\n{'=' * 60}\nrun_kronos.py complete | total: {total_time:.1f}s ({total_time / 3600:.2f}h)\n{'=' * 60}\n")
 
 

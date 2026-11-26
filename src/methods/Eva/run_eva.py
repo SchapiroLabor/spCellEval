@@ -34,10 +34,12 @@ python run_eva.py all \\
     --output-dir   <results_dir>/eva/IMMUcan
 """
 
+import time
+START = time.perf_counter()  # fold_times.csv: the run is timed from here, package imports included
+
 import argparse
 import os
 import sys
-import time
 from itertools import islice
 from pathlib import Path
 
@@ -302,7 +304,6 @@ def build_parser():
 
 def main():
     args = build_parser().parse_args()
-    total_start = time.time()
 
     # Eva's loader changes the working directory, so resolve user paths first.
     data_root = Path(args.dataset_path).resolve()
@@ -329,13 +330,15 @@ def main():
         all_feats_arr, metadata_all = extract_features(
             args, model, all_images, clean_indices, biomarkers, meta_df, img_paths, seg_paths)
 
+    head_start = time.perf_counter()
     if args.mode in ('supervised', 'all'):
-        run_supervised(args, folds, all_feats_arr, metadata_all, method_name='EVA_supervised')
-    if args.mode in ('leiden', 'all'):
-        run_leiden(args, folds, all_feats_arr, metadata_all, method_name='EVA_leiden')
+        run_supervised(args, folds, all_feats_arr, metadata_all, method_name='EVA_supervised', start=START)
+    if args.mode in ('leiden', 'all'):  # timed without the supervised head before it
+        run_leiden(args, folds, all_feats_arr, metadata_all, method_name='EVA_leiden',
+                   start=START + time.perf_counter() - head_start)
 
     print(f"\n{'=' * 60}\nrun_eva.py complete | dataset={args.dataset} | "
-          f"total: {time.time() - total_start:.1f}s\n{'=' * 60}\n")
+          f"total: {time.perf_counter() - START:.1f}s\n{'=' * 60}\n")
 
 
 if __name__ == '__main__':

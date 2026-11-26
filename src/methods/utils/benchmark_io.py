@@ -21,9 +21,12 @@ read_image(img_path, channel_indices=None)
 read_segmentation(seg_path)
 load_cell_folds(folds_dir, include_validation=False)
 load_benchmark_data(data_root, folds_dir, exclude_labels=(), include_validation=False)
+FoldTimer(start)                     -> <method>/level3/fold_times.csv
 """
 
 import json
+import time
+from contextlib import contextmanager
 from pathlib import Path
 
 import numpy as np
@@ -186,3 +189,29 @@ def load_benchmark_data(data_root, folds_dir, exclude_labels=(), include_validat
             seg_paths[img_id] = seg_path
     print(f"Found {len(img_paths)} images, {len(seg_paths)} segmentation maps")
     return meta_df, folds, img_paths, seg_paths
+
+
+class FoldTimer:
+    """Wall-clock run time of a method, written to <method>/level3/fold_times.csv (fold, time_s).
+
+    start: time.perf_counter() taken on the script's first line, so package imports are included.
+    Each fold is timed with `with timer.fold(i):`. Everything else from start to write() is the
+    'shared' row: imports, data loading, one-off steps all folds reuse (e.g. embedding every cell)
+    and writing outputs. 'total' = shared + the folds. Steps skipped because of a cache are not timed,
+    so timing runs start from an empty output directory.
+    """
+
+    def __init__(self, start):
+        self.start, self.folds = start, {}
+
+    @contextmanager
+    def fold(self, i):
+        t = time.perf_counter()
+        yield
+        self.folds[i] = time.perf_counter() - t
+
+    def write(self, out_dir):
+        total = time.perf_counter() - self.start
+        rows = [('shared', total - sum(self.folds.values())), *sorted(self.folds.items()), ('total', total)]
+        pd.DataFrame(rows, columns=['fold', 'time_s']).to_csv(
+            Path(out_dir) / 'fold_times.csv', index=False, float_format='%.2f')
