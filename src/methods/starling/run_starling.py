@@ -16,6 +16,9 @@ import scanpy.external as sce
 from sklearn.cluster import KMeans
 from sklearn.mixture import GaussianMixture
 from utils.greedy_f1_utils import greedy_f1_score, cluster_purity, purity_suffix
+from utils.fold_timer import FoldTimer
+
+START = time.perf_counter()  # fold_times.csv: the run is timed from here, after the package imports
 
 # k of starling's PG initial clustering (scanpy phenograph default), default k for PG subclustering
 PG_K = 30
@@ -96,12 +99,10 @@ def run_starling(
         method_name += purity_suffix(subcluster_purity)
     method_dir = os.path.join(output_path, method_name)
     os.makedirs(os.path.join(method_dir, "level3"), exist_ok=True)
-    train_times = []
-    inference_times = []
+    timer = FoldTimer(START)
     for n in range(n_runs):
+        fold_start = time.perf_counter()
         seed_everything(seed + n)
-        # Training time = initial clustering (+ subclustering) + starling training, prediction time = cell assignment
-        train_start = time.time()
         adata_st = utility.init_clustering(initial_clustering, adata, k=k_cluster)
         if subcluster_times > 0:
             labels = subcluster_labels(np.asarray(adata_st.X), adata_st.obs["init_label"].to_numpy(),
@@ -128,13 +129,7 @@ def run_starling(
             logger=[log_tb],
         )
 
-        train_end = time.time()
-        elapsed_train = train_end - train_start
-        train_times.append(elapsed_train)
-
-        pred_start = time.time()
         result = st.result()
-        inference_times.append(time.time() - pred_start)
 
         intensities = result.to_df()
         obs = result.obs
@@ -154,11 +149,9 @@ def run_starling(
 
         del st, adata_st, df_result, result
         torch.cuda.empty_cache()
+        timer.folds[n] = time.perf_counter() - fold_start
 
-    with open(os.path.join(method_dir, "level3", "fold_times.txt"), "w") as f:
-        for i, (elapsed_train, elapsed_pred) in enumerate(zip(train_times, inference_times)):
-            f.write(f"Fold {i} training_time: {elapsed_train:.2f}\n")
-            f.write(f"Fold {i} prediction_time: {elapsed_pred:.2f}\n")
+    timer.write(os.path.join(method_dir, "level3"))
 
 
 def main():

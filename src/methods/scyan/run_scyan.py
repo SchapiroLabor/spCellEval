@@ -11,7 +11,12 @@ import matplotlib.pyplot as plt
 import random
 import argparse
 import os
+import sys
 import time
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'utils'))
+from fold_timer import FoldTimer
+
+START = time.perf_counter()  # fold_times.csv: the run is timed from here, after the package imports
 
 
 def run_scyan(
@@ -69,10 +74,9 @@ def run_scyan(
     if log1p:
         data[X_cols] = np.log1p(data[X_cols])
     print(f"Starting SCyan with {n_runs} runs")
-    train_times = []
-    inference_times = []
+    timer = FoldTimer(START)
     for n in range(n_runs):
-        start_train = time.time()
+        fold_start = time.perf_counter()
         adata = ad.AnnData(
             X=data[X_cols], obs=data[obs_cols], var=pd.DataFrame(index=X_cols)
         )
@@ -83,14 +87,7 @@ def run_scyan(
         else:
             model = scyan.Scyan(adata, table, prior_std=prior_std, temperature=temperature)
         model.fit(patience=patience, accelerator=accelerator)
-        end_train = time.time()
-        start_inference = time.time()
         model.predict()
-        end_inference = time.time()
-        elapsed_train = end_train - start_train
-        elapsed_inference = end_inference - start_inference
-        train_times.append(elapsed_train)
-        inference_times.append(elapsed_inference)
 
         adata.obs["scyan_pop"] = adata.obs["scyan_pop"].astype(str)
         adata.obs["scyan_pop"] = adata.obs["scyan_pop"].fillna("undefined")
@@ -112,12 +109,8 @@ def run_scyan(
         )
 
         df.to_csv(os.path.join(output_path, f"predictions_{n}.csv"), index=False)
-        with open(os.path.join(output_path, "fold_times.txt"), "w") as f:
-            for i, (elapsed_train, elapsed_pred) in enumerate(
-                zip(train_times, inference_times)
-            ):
-                f.write(f"Fold {i+1} training_time: {elapsed_train:.2f}\n")
-                f.write(f"Fold {i+1} prediction_time: {elapsed_pred:.2f}\n")
+        timer.folds[n] = time.perf_counter() - fold_start
+    timer.write(output_path)
 
 
 def main():

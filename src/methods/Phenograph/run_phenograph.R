@@ -17,6 +17,7 @@ script_dir <- dirname(normalizePath(
 ))
 utils_dir <- normalizePath(file.path(script_dir, "..", "utils"))
 source(file.path(utils_dir, "clustering_utils.R"))
+start <- Sys.time()  # fold_times.csv: the run is timed from here, after the library() calls
 
 #### Args ####
 parser <- ArgumentParser(description = "Cluster data with PhenoGraph")
@@ -113,6 +114,7 @@ if (args$subcluster_times > 0 && sub_k != k_val) folder <- paste0(folder, "_k", 
 if (args$subcluster_times > 0) folder <- paste0(folder, purity_suffix(args$subcluster_purity))
 # Harmony runs get '_harm' appended (e.g. 'phenograph_30_subclust3_harm')
 if (args$harmony) folder <- paste0(folder, "_harm")
+fold_times <- c()
 for (iteration in 0:(args$iterations - 1)) {
   # Seed per iteration: reproducible, but different between iterations
   set.seed(iteration)
@@ -121,7 +123,6 @@ for (iteration in 0:(args$iterations - 1)) {
   labels <- subcluster(marker_df, as.character(membership(pheno_df[[2]])),
                        args$subcluster_times, sub_k, df$cell_type, args$subcluster_purity)
   end_time <- Sys.time()
-  elapsed <- round(as.numeric(difftime(end_time, start_time, units = "sec")), 2)
 
   df[[clustering]] <- factor(labels)
 
@@ -129,11 +130,7 @@ for (iteration in 0:(args$iterations - 1)) {
     loginfo("Rphenograph k = %d (Duration: %.2f min)", k_val,
             as.numeric(difftime(end_time, start_time, units = "mins")))
 
-  text_path <- file.path(args$output_path, folder, "level3", "fold_times.txt")
-  dir.create(dirname(text_path), recursive = TRUE, showWarnings = FALSE)
-  con <- file(text_path, open = if (iteration == 0) "w" else "a")
-  writeLines(sprintf("Fold %d prediction_time, %.2f", iteration, elapsed), con)
-  close(con)
-
   greedy_assignment_save(folder)
+  fold_times[as.character(iteration)] <- as.numeric(difftime(Sys.time(), start_time, units = "secs"))
 }
+write_fold_times(fold_times, start, file.path(args$output_path, folder, "level3"))

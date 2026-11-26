@@ -41,8 +41,9 @@ from torch_geometric.nn import SAGEConv
 from tqdm import tqdm
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from utils.benchmark_io import (FoldTimer, fill_from_config, load_benchmark_data, load_config,  # noqa: E402
-                                read_image, read_markers, read_segmentation)
+from utils.benchmark_io import (fill_from_config, load_benchmark_data, load_config, read_image,  # noqa: E402
+                                read_markers, read_segmentation)
+from utils.fold_timer import FoldTimer  # noqa: E402
 
 START = time.perf_counter()  # fold_times.csv: the run is timed from here, after the package imports
 

@@ -1,5 +1,5 @@
 # Shared utilities for R clustering methods.
-# Sourced by run_phenograph.R, run_flowsom.R, run_fusesom.R.
+# Sourced by run_phenograph.R, run_flowsom.R, run_fusesom.R, run_TACIT.R, Nimbus_R_clustering.R.
 
 # Optional transformation of the markers (applied after normalization), as in the Leiden script
 transform_markers <- function(marker_df, transform, cofactor) {
@@ -18,6 +18,16 @@ embed_markers <- function(marker_df, meta_df, pca, harmony) {
     # sample_id as factor, so numeric sample ids are treated as batch labels
     x <- harmony::RunHarmony(x, data.frame(sample_id = factor(meta_df$sample_id)), "sample_id", verbose = FALSE)
   x
+}
+
+# fold_times.csv (fold, time_s) as written by src/methods/utils/fold_timer.py: fold_times are the seconds of
+# each fold (named by fold), 'shared' is the rest of the run since start (after the library() calls)
+write_fold_times <- function(fold_times, start, dir) {
+  total <- as.numeric(difftime(Sys.time(), start, units = "secs"))
+  times <- c(shared = total - sum(fold_times), fold_times, total = total)
+  dir.create(dir, recursive = TRUE, showWarnings = FALSE)
+  write.csv(data.frame(fold = names(times), time_s = sprintf("%.2f", times)),
+            file.path(dir, "fold_times.csv"), row.names = FALSE, quote = FALSE)
 }
 
 granularity <- c("level1" = "level_1_cell_type", "level2" = "level_2_cell_type", "level3" = "cell_type")

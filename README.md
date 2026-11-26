@@ -73,7 +73,7 @@ results/
 ├── Dataset1/
 │   ├── method1/
 │   │    ├──predictions_*.csv
-│   │    └──fold_times.txt
+│   │    └──fold_times.csv
 │   ├── method2/
 │   ...
 ├── Dataset2/

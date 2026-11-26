@@ -14,6 +14,7 @@ script_dir <- dirname(normalizePath(
 ))
 utils_dir <- normalizePath(file.path(script_dir, "..", "utils"))
 source(file.path(utils_dir, "clustering_utils.R"))
+start <- Sys.time()  # fold_times.csv: the run is timed from here, after the library() calls
 
 #### Args ####
 parser <- ArgumentParser(description = "Cluster data with FuseSOM")
@@ -117,6 +118,7 @@ folder <- if (args$subcluster_times > 0) paste0(clustering, "_subclust", args$su
                                                 purity_suffix(args$subcluster_purity)) else clustering
 # Harmony runs get '_harm' appended (e.g. 'FuseSOM_10_subclust3_harm')
 if (args$harmony) folder <- paste0(folder, "_harm")
+fold_times <- c()
 for (iteration in 0:(args$iterations - 1)) {
   # Seed per iteration: reproducible, but different between iterations
   set.seed(iteration)
@@ -125,18 +127,13 @@ for (iteration in 0:(args$iterations - 1)) {
   labels <- subcluster(marker_df, fuse_df$clusters, args$subcluster_times, args$subcluster_k,
                        df$cell_type, args$subcluster_purity)
   end_time <- Sys.time()
-  elapsed <- round(as.numeric(difftime(end_time, start_time, units = "sec")), 2)
 
   if (args$log != "off")
     loginfo("FuseSOM numClusters = %d (Duration: %.2f min)", fuse_clus,
             as.numeric(difftime(end_time, start_time, units = "mins")))
 
-  text_path <- file.path(args$output_path, folder, "level3", "fold_times.txt")
-  dir.create(dirname(text_path), recursive = TRUE, showWarnings = FALSE)
-  con <- file(text_path, open = if (iteration == 0) "w" else "a")
-  writeLines(sprintf("Fold %d prediction_time, %.2f", iteration, elapsed), con)
-  close(con)
-
   df[[clustering]] <- factor(labels)
   greedy_assignment_save(folder)
+  fold_times[as.character(iteration)] <- as.numeric(difftime(Sys.time(), start_time, units = "secs"))
 }
+write_fold_times(fold_times, start, file.path(args$output_path, folder, "level3"))

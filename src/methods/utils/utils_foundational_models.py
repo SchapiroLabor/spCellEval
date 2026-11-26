@@ -25,7 +25,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from benchmark_io import FoldTimer
+from fold_timer import FoldTimer
 
 
 #  Embedding I/O 
