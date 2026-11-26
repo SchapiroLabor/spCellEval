@@ -13,18 +13,19 @@ save_embeddings(output_dir, all_feats_arr, metadata_all)
 load_embeddings(output_dir)
 check_cache_params(cache_dir, params)
 check_fold_coverage(folds, available_keys, splits=('train', 'test'))
-run_supervised(args, folds, all_feats_arr, metadata_all, method_name)
-run_leiden(args, folds, all_feats_arr, metadata_all, method_name)
+run_supervised(args, folds, all_feats_arr, metadata_all, method_name, start)
+run_leiden(args, folds, all_feats_arr, metadata_all, method_name, start)
 greedy_f1_score(df, true_label_col, predicted_cluster_col, tie_strategy)
 """
 
 import sys
 import json
-import time
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
+
+from benchmark_io import FoldTimer
 
 
 #  Embedding I/O 
@@ -187,14 +188,14 @@ def check_fold_coverage(folds, available_keys, splits=('train', 'test')):
 
 #  Supervised: Logistic Regression
 
-def run_supervised(args, folds, all_feats_arr, metadata_all, method_name, embedding_columns=True):
+def run_supervised(args, folds, all_feats_arr, metadata_all, method_name, start, embedding_columns=True):
     """
     Cross-validation with a logistic-regression head on the frozen embeddings
     (StandardScaler + LogisticRegression), the protocol shared by all FM methods.
 
     Saves to spCellEval folder structure:
         {output_dir}/{method_name}/level3/predictions_{fold}.csv
-        {output_dir}/{method_name}/level3/fold_times.txt
+        {output_dir}/{method_name}/level3/fold_times.csv
 
     CSV columns: image_id, cell_id, true_phenotype, fold, predicted_phenotype,
                  confidence, emb_0 ... emb_N (emb_* only if embedding_columns)
@@ -206,6 +207,7 @@ def run_supervised(args, folds, all_feats_arr, metadata_all, method_name, embedd
     all_feats_arr : (N_cells, D) numpy array
     metadata_all  : pd.DataFrame with image_id, cell_id, label (row-aligned)
     method_name   : output folder name
+    start         : time.perf_counter() at the script's start (FoldTimer)
     embedding_columns : write the emb_* columns; the full embeddings are always
                         in {output_dir}/embeddings/all_cell_features.npy
     """
@@ -225,41 +227,33 @@ def run_supervised(args, folds, all_feats_arr, metadata_all, method_name, embedd
                           index=metadata_all.index)
     check_fold_coverage(folds, cell_keys)
 
-    fold_times, train_times, predict_times, fold_reports = [], [], [], {}
+    timer, fold_reports = FoldTimer(start), {}
     for fold_idx, fold in enumerate(folds):
-        fold_start = time.time()
         print(f"\n── Fold {fold_idx} ──────────────────────")
-        train_mask = cell_keys.isin(fold['train']).values
-        test_mask  = cell_keys.isin(fold['test']).values
-        print(f"  Train: {train_mask.sum():,} cells | "
-              f"{metadata_all.loc[train_mask, 'image_id'].nunique()} images")
+        with timer.fold(fold_idx):
+            train_mask = cell_keys.isin(fold['train']).values
+            test_mask  = cell_keys.isin(fold['test']).values
+            print(f"  Train: {train_mask.sum():,} cells | "
+                  f"{metadata_all.loc[train_mask, 'image_id'].nunique()} images")
 
-        train_start = time.time()
-        scaler = StandardScaler()
-        clf = LogisticRegression(C=args.logreg_c, max_iter=2000, random_state=42,
-                                 class_weight='balanced', solver='lbfgs')
-        clf.fit(scaler.fit_transform(all_feats_arr[train_mask]),
-                metadata_all.loc[train_mask, 'label'].values)
-        train_time = time.time() - train_start
+            scaler = StandardScaler()
+            clf = LogisticRegression(C=args.logreg_c, max_iter=2000, random_state=42,
+                                     class_weight='balanced', solver='lbfgs')
+            clf.fit(scaler.fit_transform(all_feats_arr[train_mask]),
+                    metadata_all.loc[train_mask, 'label'].values)
 
-        predict_start = time.time()
-        X_test  = scaler.transform(all_feats_arr[test_mask])
-        y_pred  = clf.predict(X_test)
-        y_proba = clf.predict_proba(X_test)
-        predict_time = time.time() - predict_start
+            X_test  = scaler.transform(all_feats_arr[test_mask])
+            y_pred  = clf.predict(X_test)
+            y_proba = clf.predict_proba(X_test)
 
-        fold_df = metadata_all.loc[test_mask, ['image_id', 'cell_id', 'label']].rename(
-            columns={'label': 'true_phenotype'}).reset_index(drop=True)
-        fold_df['fold']                = fold_idx
-        fold_df['predicted_phenotype'] = y_pred
-        fold_df['confidence']          = y_proba.max(axis=1)
-        if embedding_columns:
-            fold_df = pd.concat([fold_df, pd.DataFrame(all_feats_arr[test_mask], columns=feat_cols)], axis=1)
-        fold_df.to_csv(out_dir / f"predictions_{fold_idx}.csv", index=False)
-
-        fold_times.append(time.time() - fold_start)
-        train_times.append(train_time)
-        predict_times.append(predict_time)
+            fold_df = metadata_all.loc[test_mask, ['image_id', 'cell_id', 'label']].rename(
+                columns={'label': 'true_phenotype'}).reset_index(drop=True)
+            fold_df['fold']                = fold_idx
+            fold_df['predicted_phenotype'] = y_pred
+            fold_df['confidence']          = y_proba.max(axis=1)
+            if embedding_columns:
+                fold_df = pd.concat([fold_df, pd.DataFrame(all_feats_arr[test_mask], columns=feat_cols)], axis=1)
+            fold_df.to_csv(out_dir / f"predictions_{fold_idx}.csv", index=False)
 
         report = classification_report(fold_df['true_phenotype'], fold_df['predicted_phenotype'],
                                        output_dict=True, zero_division=0)
@@ -267,10 +261,9 @@ def run_supervised(args, folds, all_feats_arr, metadata_all, method_name, embedd
         print(f"  Test:     {len(fold_df):,} cells | {fold_df['image_id'].nunique()} images")
         print(f"  Accuracy: {report['accuracy']:.3f} | "
               f"Macro F1: {report['macro avg']['f1-score']:.3f}")
-        print(f"  Time:     {fold_times[-1]:.1f}s (train={train_time:.1f}s, predict={predict_time:.1f}s)")
+        print(f"  Time:     {timer.folds[fold_idx]:.1f}s")
 
-    _save_fold_times(out_dir, fold_times, prefix='fold',
-                     train_times=train_times, predict_times=predict_times)
+    timer.write(out_dir)
 
     accs = [r['accuracy']                 for r in fold_reports.values()]
     f1s  = [r['macro avg']['f1-score']    for r in fold_reports.values()]
@@ -284,13 +277,13 @@ def run_supervised(args, folds, all_feats_arr, metadata_all, method_name, embedd
 
 #  Leiden + Greedy F1 
 
-def run_leiden(args, folds, all_feats_arr, metadata_all, method_name, embedding_columns=True):
+def run_leiden(args, folds, all_feats_arr, metadata_all, method_name, start, embedding_columns=True):
     """
     Leiden clustering on all cell embeddings + greedy F1 majority assignment.
 
     Saves to spCellEval folder structure:
         {output_dir}/{method_name}/level3/predictions_{fold}.csv
-        {output_dir}/{method_name}/level3/fold_times.txt
+        {output_dir}/{method_name}/level3/fold_times.csv
 
     CSV columns: image_id, cell_id, fold, true_phenotype, predicted_phenotype,
                  leiden_cluster, emb_0 ... emb_767 (emb_* only if embedding_columns)
@@ -305,6 +298,7 @@ def run_leiden(args, folds, all_feats_arr, metadata_all, method_name, embedding_
     all_feats_arr : (N_cells, D) numpy array
     metadata_all  : pd.DataFrame with image_id, cell_id, label (row-aligned)
     method_name   : output folder name
+    start         : time.perf_counter() at the script's start (FoldTimer)
     embedding_columns : write the emb_* columns; the full embeddings are always
                         in {output_dir}/embeddings/all_cell_features.npy
     """
@@ -324,8 +318,6 @@ def run_leiden(args, folds, all_feats_arr, metadata_all, method_name, embedding_
           f"n_neighbors={args.leiden_n_neighbors} | "
           f"subsample={args.leiden_subsample}")
     print("=" * 60)
-
-    leiden_start = time.time()
 
     adata = sc.AnnData(X=all_feats_arr)
     adata.obs['true_label'] = pd.Categorical(metadata_all['label'].values)
@@ -405,67 +397,33 @@ def run_leiden(args, folds, all_feats_arr, metadata_all, method_name, embedding_
         for c in all_leiden
     ]
 
-    leiden_cluster_time = time.time() - leiden_start
-    fold_times = []
-
+    timer = FoldTimer(start)  # the clustering above is done once for all folds -> 'shared'
     cell_keys = pd.Series(list(zip(metadata_all['image_id'], metadata_all['cell_id'])),
                           index=metadata_all.index)
 
     # Save per-fold predictions
     for fold_idx, fold in enumerate(folds):
-        fold_start = time.time()
-        fold_mask  = cell_keys.isin(fold['test']).values
+        with timer.fold(fold_idx):
+            fold_mask  = cell_keys.isin(fold['test']).values
 
-        fold_meta    = metadata_all[fold_mask].reset_index(drop=True)
-        test_indices = metadata_all[fold_mask].index.values
+            fold_meta    = metadata_all[fold_mask].reset_index(drop=True)
+            test_indices = metadata_all[fold_mask].index.values
 
-        base_df = fold_meta[['image_id', 'cell_id', 'label',
-                             'leiden_cluster', 'leiden_predicted']].rename(columns={
-            'label':            'true_phenotype',
-            'leiden_predicted': 'predicted_phenotype',
-        }).reset_index(drop=True)
-        base_df['fold'] = fold_idx
+            base_df = fold_meta[['image_id', 'cell_id', 'label',
+                                 'leiden_cluster', 'leiden_predicted']].rename(columns={
+                'label':            'true_phenotype',
+                'leiden_predicted': 'predicted_phenotype',
+            }).reset_index(drop=True)
+            base_df['fold'] = fold_idx
 
-        out_df = base_df
-        if embedding_columns:
-            out_df = pd.concat([base_df, pd.DataFrame(all_feats_arr[test_indices], columns=feat_cols)], axis=1)
-        out_df.to_csv(out_dir / f"predictions_{fold_idx}.csv", index=False)
-
-        fold_time = time.time() - fold_start
-        fold_times.append(fold_time)
+            out_df = base_df
+            if embedding_columns:
+                out_df = pd.concat([base_df, pd.DataFrame(all_feats_arr[test_indices], columns=feat_cols)], axis=1)
+            out_df.to_csv(out_dir / f"predictions_{fold_idx}.csv", index=False)
         print(f"  Fold {fold_idx}: {len(out_df):,} cells → "
-              f"predictions_{fold_idx}.csv ({fold_time:.1f}s)")
+              f"predictions_{fold_idx}.csv ({timer.folds[fold_idx]:.1f}s)")
 
-    # Save fold_times.txt
-    _save_fold_times(out_dir, fold_times,
-                     prefix='fold_assignment',
-                     extra={'leiden_clustering': leiden_cluster_time})
+    timer.write(out_dir)
 
     print(f"\n{method_name} complete | output: {out_dir}")
     return greedy
-
-#  Output Helpers 
-
-def _save_fold_times(out_dir, fold_times, prefix='fold', extra=None,
-                     train_times=None, predict_times=None):
-    """
-    Save fold timing to fold_times.txt in spCellEval format.
-    If train_times/predict_times are given (same length as fold_times), each
-    fold line also reports the train/predict split, plus totals for each.
-    """
-    with open(Path(out_dir) / 'fold_times.txt', 'w') as f:
-        if extra:
-            for key, val in extra.items():
-                f.write(f"{key}: {val:.2f}s\n")
-        for i, t in enumerate(fold_times):
-            if train_times is not None and predict_times is not None:
-                f.write(f"{prefix}_{i}: {t:.2f}s "
-                       f"(train={train_times[i]:.2f}s, predict={predict_times[i]:.2f}s)\n")
-            else:
-                f.write(f"{prefix}_{i}: {t:.2f}s\n")
-        f.write(f"total: {sum(fold_times) + sum((extra or {}).values()):.2f}s\n")
-        if train_times is not None:
-            f.write(f"total_train: {sum(train_times):.2f}s\n")
-        if predict_times is not None:
-            f.write(f"total_predict: {sum(predict_times):.2f}s\n")
-        f.write(f"mean_fold: {np.mean(fold_times):.2f}s\n")

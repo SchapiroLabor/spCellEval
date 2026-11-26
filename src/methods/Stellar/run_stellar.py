@@ -13,7 +13,7 @@ graph; the last epoch is evaluated. Expression features are z-scored with the
 training split's statistics.
 
 Output (<output-dir>/stellar_supervised/):
-    level3/predictions_<fold>.csv, level3/fold_times.txt
+    level3/predictions_<fold>.csv, level3/fold_times.csv
     models/model_fold<fold>.pth, learning_curves/fold_<fold>.csv, fold_metrics_summary.csv
 
 Usage:
@@ -41,8 +41,10 @@ from torch_geometric.nn import SAGEConv
 from tqdm import tqdm
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from utils.benchmark_io import (fill_from_config, load_benchmark_data, load_config, read_image,  # noqa: E402
-                                read_markers, read_segmentation)
+from utils.benchmark_io import (FoldTimer, fill_from_config, load_benchmark_data, load_config,  # noqa: E402
+                                read_image, read_markers, read_segmentation)
+
+START = time.perf_counter()  # fold_times.csv: the run is timed from here, after the package imports
 
 
 #  MODEL
@@ -175,19 +177,15 @@ def run_fold(fold_idx, train, test, categories, args, out_dir):
     class_weights = (counts.sum() / (len(categories) * counts.clamp(min=1))).to(device)
 
     curve = []
-    t_train = time.time()
     for epoch in range(args.epochs):
         loss, acc = train_one_epoch(model, loader, optimizer, device, class_weights)
         curve.append({"epoch": epoch + 1, "loss": loss, "train_acc": acc})
         if epoch == 0 or (epoch + 1) % 10 == 0:
             print(f"  Epoch {epoch + 1:3d}/{args.epochs}  loss={loss:.4f}  train_acc={acc:.4f}")
-    train_time = time.time() - t_train
     (out_dir / "learning_curves").mkdir(parents=True, exist_ok=True)
     pd.DataFrame(curve).to_csv(out_dir / "learning_curves" / f"fold_{fold_idx}.csv", index=False)
 
-    t_pred = time.time()
     pred_codes, probs = run_inference(model, test_graphs, device)
-    predict_time = time.time() - t_pred
     true_labels = test["cells"]["label"].to_numpy()
     pred_labels = categories[pred_codes]
 
@@ -207,8 +205,7 @@ def run_fold(fold_idx, train, test, categories, args, out_dir):
     }).to_csv(out_dir / "level3" / f"predictions_{fold_idx}.csv", index=False)
     (out_dir / "models").mkdir(parents=True, exist_ok=True)
     torch.save(model.state_dict(), out_dir / "models" / f"model_fold{fold_idx}.pth")
-    return {"fold": fold_idx, "accuracy": acc, "macro_f1": macro_f1, "wf1": wf1,
-            "train_time_s": train_time, "predict_time_s": predict_time}
+    return {"fold": fold_idx, "accuracy": acc, "macro_f1": macro_f1, "wf1": wf1}
 
 
 def save_summary(metrics, out_dir, dataset):
@@ -218,14 +215,6 @@ def save_summary(metrics, out_dir, dataset):
     if len(df) > 1:
         print(f"\n  Mean MacroF1 : {df['macro_f1'].mean():.4f} ± {df['macro_f1'].std():.4f}")
     df.to_csv(out_dir / "fold_metrics_summary.csv", index=False)
-    with open(out_dir / "level3" / "fold_times.txt", "w") as f:
-        for r in df.itertuples():
-            f.write(f"fold_{r.fold}: {r.total_time_s:.2f}s (train={r.train_time_s:.2f}s, "
-                    f"predict={r.predict_time_s:.2f}s)\n")
-        f.write(f"total: {df['total_time_s'].sum():.2f}s\n")
-        f.write(f"total_train: {df['train_time_s'].sum():.2f}s\n")
-        f.write(f"total_predict: {df['predict_time_s'].sum():.2f}s\n")
-        f.write(f"mean_fold: {df['total_time_s'].mean():.2f}s\n")
 
 
 #  MAIN
@@ -290,15 +279,14 @@ def main():
     print(f"Classes ({len(categories)}): {categories.tolist()}")
 
     cell_keys = pd.Series(list(zip(meta["image_id"], meta["cell_id"])), index=meta.index)
-    metrics = []
+    timer, metrics = FoldTimer(START), []
     for fi in ([args.fold] if args.fold is not None else range(len(folds))):
-        t0 = time.time()
-        train, mean, std = build_split(meta[cell_keys.isin(folds[fi]["train"])], features, cat_to_idx)
-        test, _, _ = build_split(meta[cell_keys.isin(folds[fi]["test"])], features, cat_to_idx, mean, std)
-        m = run_fold(fi, train, test, categories, args, out_dir)
-        m["total_time_s"] = time.time() - t0
-        metrics.append(m)
+        with timer.fold(fi):
+            train, mean, std = build_split(meta[cell_keys.isin(folds[fi]["train"])], features, cat_to_idx)
+            test, _, _ = build_split(meta[cell_keys.isin(folds[fi]["test"])], features, cat_to_idx, mean, std)
+            metrics.append(run_fold(fi, train, test, categories, args, out_dir))
     save_summary(metrics, out_dir, data_root.name)
+    timer.write(out_dir / "level3")
 
 
 if __name__ == "__main__":

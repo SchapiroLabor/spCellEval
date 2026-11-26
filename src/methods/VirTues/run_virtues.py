@@ -44,6 +44,8 @@ from utils_foundational_models import (
     save_embeddings, load_embeddings, check_cache_params, run_supervised, run_leiden,
 )
 
+START = time.perf_counter()  # fold_times.csv: the run is timed from here, after the package imports
+
 
 #  MARKERS
 
@@ -296,7 +298,6 @@ def build_parser():
 
 def main():
     args = build_parser().parse_args()
-    total_start = time.time()
 
     data_root       = Path(args.dataset_path).resolve()
     virtues_dir     = Path(args.virtues_dir).resolve()
@@ -340,12 +341,14 @@ def main():
             marker_indices, meta_df, img_paths, seg_paths,
         )
 
+    head_start = time.perf_counter()
     if args.mode in ('supervised', 'all'):
-        run_supervised(args, folds, all_feats_arr, metadata_all, method_name='VIRTUES_supervised')
-    if args.mode in ('leiden', 'all'):
-        run_leiden(args, folds, all_feats_arr, metadata_all, method_name='VIRTUES_leiden')
+        run_supervised(args, folds, all_feats_arr, metadata_all, method_name='VIRTUES_supervised', start=START)
+    if args.mode in ('leiden', 'all'):  # timed without the supervised head before it
+        run_leiden(args, folds, all_feats_arr, metadata_all, method_name='VIRTUES_leiden',
+                   start=START + time.perf_counter() - head_start)
 
-    total_time = time.time() - total_start
+    total_time = time.perf_counter() - START
     print(f"\n{'='*60}")
     print(f"run_virtues.py complete | total: {total_time:.1f}s ({total_time/3600:.2f}h)")
     print(f"{'='*60}\n")
