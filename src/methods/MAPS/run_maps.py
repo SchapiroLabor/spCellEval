@@ -1,5 +1,7 @@
 # imports
 import os
+import sys
+import time
 import numpy as np
 import pandas as pd
 from maps.cell_phenotyping import Trainer
@@ -9,6 +11,10 @@ import json
 import argparse
 import seaborn as sns
 import matplotlib.pyplot as plt
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'utils'))
+from fold_timer import FoldTimer
+
+START = time.perf_counter()  # fold_times.csv: the run is timed from here, after the package imports
 
 def get_args():
     """
@@ -49,11 +55,9 @@ def main(args):
         os.makedirs(args.results_dir)
 
     # Loop through each fold number
+    timer = FoldTimer(START)
     for fold_number in fold_numbers:
-        
-        #get the time to calculate the time taken for each fold
-        import time
-        start_time = time.time()
+        fold_start = time.perf_counter()
         
         # Print the current fold numb
         print(f"Processing fold {fold_number}...")
@@ -94,23 +98,8 @@ def main(args):
         model = Trainer(results_dir = args.results_dir, num_features= num_features, num_classes=num_classes, batch_size=batch_size, max_epochs=max_epochs, min_epochs=min_epochs, patience=patience, verbose=verbose)
         model.fit(train_data, val_data)
 
-        #get the time taken for each fold
-        end_time = time.time()
-        elapsed_time = end_time - start_time
-        #append time to the results (new file at the first fold)
-        with open(os.path.join(args.results_dir, 'fold_times.txt'), 'w' if fold_number == fold_numbers[0] else 'a') as f:
-            f.write(f"Fold {fold_number} train_time: {elapsed_time:.2f} seconds\n")
-
-        #get infernce time
-        start_inference_time = time.time()
         # Make predictions on the test data
         pred_labels, pred_probs = model.predict(test_data)
-
-        end_inference_time = time.time()
-        inference_time = end_inference_time - start_inference_time
-        #append inference time to the results
-        with open(os.path.join(args.results_dir, 'fold_times.txt'), 'a') as f:
-            f.write(f"Fold {fold_number} inference_time: {inference_time:.2f} seconds\n")
 
         
         Y_test = test_data["encoded_phenotype"]
@@ -172,6 +161,7 @@ def main(args):
         with open(f"{args.results_dir}/classification_report_{fold_number}.txt", "w") as f:
             f.write(cr)
         print("Fold-{fold_number} results saved successfully!")    
+        timer.folds[fold_number] = time.perf_counter() - fold_start
 
     # Calculate the average metrics
     avg_accuracy = np.mean(fold_accuracies)
@@ -199,6 +189,7 @@ def main(args):
     with open(os.path.join(args.results_dir, 'average_maps_results.json'), 'w') as f:
         json.dump(avg_results, f, indent=4)
     print("Average results saved successfully!") 
+    timer.write(args.results_dir)
 
 
 if __name__ == '__main__':

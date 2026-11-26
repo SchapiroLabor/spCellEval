@@ -2,6 +2,7 @@ import deepcell_types
 import pandas as pd
 import numpy as np
 import os
+import sys
 import gc
 from pathlib import Path
 import tifffile as tiff
@@ -10,6 +11,10 @@ import argparse
 import random
 import torch
 import json
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'utils'))
+from fold_timer import FoldTimer
+
+START = time.perf_counter()  # fold_times.csv: the run is timed from here, after the package imports
 
 def set_seed(seed: int):
     random.seed(seed)
@@ -58,12 +63,12 @@ def run_deepcelltypes(
     if strip_extensions:
         master_quant["sample_id"] = master_quant["sample_id"].apply(stem_all)
 
-    inference_times = []
+    timer = FoldTimer(START)
 
     for n in range(n_runs):
+        fold_start = time.perf_counter()
         set_seed(seed + n)
         quant = master_quant.copy()
-        start = time.time()
         prediction_results_list = []
         reformatting_logged = False
 
@@ -112,10 +117,6 @@ def run_deepcelltypes(
             torch.cuda.empty_cache()
             gc.collect()
 
-        end = time.time()
-        elapsed_time = end - start
-        inference_times.append(elapsed_time)
-
         combined_predictions = pd.concat(prediction_results_list, ignore_index=True)
 
         combined_predictions["batch_id"] = combined_predictions["batch_id"].astype(str)
@@ -162,13 +163,12 @@ def run_deepcelltypes(
         final_quant_table.to_csv(
             os.path.join(output_dir, f"predictions_{n}.csv"), index=False
         )
+        timer.folds[n] = time.perf_counter() - fold_start
         print(
-            f"Run {n+1}/{n_runs} completed in {elapsed_time:.2f} seconds. Predictions saved to {output_dir}."
+            f"Run {n+1}/{n_runs} completed in {timer.folds[n]:.2f} seconds. Predictions saved to {output_dir}."
         )
 
-    with open(os.path.join(output_dir, "fold_times.txt"), "w") as f:
-        for i, elapsed in enumerate(inference_times):
-            f.write(f"Fold {i+1} inference_time: {elapsed:.2f}\n")
+    timer.write(output_dir)
 
 
 def main():

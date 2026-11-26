@@ -44,7 +44,8 @@ from tqdm import tqdm
 from scipy import ndimage
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / 'utils'))
-from benchmark_io import FoldTimer, fill_from_config, load_config, read_markers, load_benchmark_data, read_segmentation
+from benchmark_io import fill_from_config, load_config, read_markers, load_benchmark_data, read_segmentation
+from fold_timer import FoldTimer
 from utils_foundational_models import check_cache_params, check_fold_coverage
 
 START = time.perf_counter()  # fold_times.csv: the run is timed from here, after the package imports

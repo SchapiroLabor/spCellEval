@@ -19,6 +19,7 @@ import json
 import csv
 import pickle
 import time
+from utils.fold_timer import FoldTimer
 
 
 class ClassicMLDefault:
@@ -77,8 +78,7 @@ class ClassicMLDefault:
         self.average_recall = None
         self.best_models = []
         self.predictions = {}
-        self.train_times = []
-        self.pred_times = []
+        self.timer = FoldTimer(time.perf_counter())  # per dataset, from here (after the package imports)
 
         print("Class initialized successfully with the following model parameters:")
         print(f"Random State: {self.random_state}")
@@ -128,12 +128,11 @@ class ClassicMLDefault:
         label_dict = dict(zip(labels["label"], labels["phenotype"]))
         all_labels = list(label_dict.keys())
 
-        train_times = []
-        pred_times = []
         print("Starting the integration of the predefined Kfolds...")
         for c, (train_file, validation_file, test_file) in enumerate(
             zip(fold_dict["train"], fold_dict["validation"], fold_dict["test"])
         ):
+            fold_start = time.perf_counter()
             if self.model_name == "logistic_regression":
                 self.model = LogisticRegression(
                     n_jobs=self.model.n_jobs,
@@ -265,7 +264,6 @@ class ClassicMLDefault:
 
             print(f"Fold {c+1} integrated successfully")
 
-            train_start_time = time.time()
             if self.model_name == "xgboost":
                 if self.class_weight is not None:
                     sample_weights = compute_sample_weight(
@@ -287,15 +285,8 @@ class ClassicMLDefault:
                     )
             else:
                 self.model.fit(X_train, y_train)
-            train_end_time = time.time()
-            train_time = train_end_time - train_start_time
 
-            pred_start_time = time.time()
             y_pred_test = self.model.predict(X_test)
-            pred_end_time = time.time()
-            pred_time = pred_end_time - pred_start_time
-            self.train_times.append(train_time)
-            self.pred_times.append(pred_time)
 
             if reverse_label_map:
                 print(reverse_label_map)
@@ -326,6 +317,7 @@ class ClassicMLDefault:
             print(f"classification report: {cr}")
 
             del X_train, X_val, y_train, y_val, X_test, y_test
+            self.timer.folds[c + 1] = time.perf_counter() - fold_start
 
         print("Calculating average results...")
         self.average_accuracy = np.mean(self.fold_accuracies)
@@ -379,13 +371,6 @@ class ClassicMLDefault:
             json_name = "average_stratified_results.json"
         with open(os.path.join(save_path, json_name), "w") as f:
             json.dump(avg_results, f, indent=4)
-
-        with open(os.path.join(save_path, "fold_times.txt"), "w") as f:
-            for i, (elapsed_train, elapsed_pred) in enumerate(
-                zip(self.train_times, self.pred_times)
-            ):
-                f.write(f"Fold {i+1} training_time: {elapsed_train:.2f}\n")
-                f.write(f"Fold {i+1} prediction_time: {elapsed_pred:.2f}\n")
 
         labels = pd.read_csv(label_path)
         label_dict = dict(zip(labels["label"], labels["phenotype"]))
@@ -481,3 +466,4 @@ class ClassicMLDefault:
             print(f"Best models for all folds saved successfully in {models_path}.")
         else:
             print(f"Results saved successfully in {save_path}. Models not saved.")
+        self.timer.write(save_path)

@@ -2,10 +2,15 @@ import pandas as pd
 import numpy as np
 from sklearn.metrics import classification_report
 import os
+import sys
 import tribus
 from visualization import z_score
 import argparse
 import time
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'utils'))
+from fold_timer import FoldTimer
+
+START = time.perf_counter()  # fold_times.csv: the run is timed from here, after the package imports
 
 
 def run_tribus(dataset_path, seed, n_runs, seed_stability_mode, granularity_level, columns_to_use, remove_cell_types,scaling,log1p, decision_matrix_path, normalization, tuning, sigma, learning_rate,
@@ -45,18 +50,15 @@ def run_tribus(dataset_path, seed, n_runs, seed_stability_mode, granularity_leve
         normalization = z_score
     else:
         normalization = None
-    fold_times = []
+    timer = FoldTimer(START)
     for i in range(n_runs):
-        start_time_loop = time.perf_counter()
+        fold_start = time.perf_counter()
         if seed_stability_mode:
             current_seed = seed + i
         else:
             current_seed = seed
         labels,_ = tribus.run_tribus(sample_data[cols], logic, depth=depth, normalization=normalization, tuning=tuning, sigma=sigma, learning_rate=learning_rate,
                                     clustering_threshold=clustering_threshold, undefined_threshold=undefined_threshold, other_threshold=other_threshold, random_state=current_seed)
-        end_time_loop = time.perf_counter()
-        elapsed_time_loop = end_time_loop - start_time_loop
-        fold_times.append(elapsed_time_loop)
         result_data = sample_data.join(labels)
         if remove_result_cell_types is not None:
             remove_result_cell_types = [cell_type.strip() for cell_type in remove_result_cell_types.split(',')]
@@ -64,9 +66,8 @@ def run_tribus(dataset_path, seed, n_runs, seed_stability_mode, granularity_leve
         result_data.loc[result_data["final_label"].str.contains('other|undefined', case=False, na=False), "final_label"] = 'undefined'
         result_data.rename(columns={"final_label": 'predicted_phenotype', target_col: 'true_phenotype'}, inplace=True)
         result_data.to_csv(os.path.join(output_path, f'predictions_{i}.csv'))
-    with open(os.path.join(output_path, "fold_times.txt"), "w") as f:
-        for i, elapsed in enumerate(fold_times):
-            f.write(f"Fold {i+1} inference_time: {elapsed:.2f}\n")
+        timer.folds[i] = time.perf_counter() - fold_start
+    timer.write(output_path)
 
 def main():
     parser = argparse.ArgumentParser(description="Run Tribus on datasets")
