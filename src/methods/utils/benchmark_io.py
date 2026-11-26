@@ -194,9 +194,9 @@ def load_benchmark_data(data_root, folds_dir, exclude_labels=(), include_validat
 class FoldTimer:
     """Wall-clock run time of a method, written to <method>/level3/fold_times.csv (fold, time_s).
 
-    start: time.perf_counter() taken on the script's first line, so package imports are included.
+    start: time.perf_counter() taken right after the script's package imports (not timed).
     Each fold is timed with `with timer.fold(i):`. Everything else from start to write() is the
-    'shared' row: imports, data loading, one-off steps all folds reuse (e.g. embedding every cell)
+    'shared' row: data loading, one-off steps all folds reuse (e.g. embedding every cell)
     and writing outputs. 'total' = shared + the folds. Steps skipped because of a cache are not timed,
     so timing runs start from an empty output directory.
     """

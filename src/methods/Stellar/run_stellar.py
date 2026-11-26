@@ -22,11 +22,9 @@ Usage:
     python run_stellar.py ... --fold 0 --epochs 2 --device cpu
 """
 
-import time
-START = time.perf_counter()  # fold_times.csv: the run is timed from here, package imports included
-
 import argparse
 import sys
+import time
 from pathlib import Path
 
 import numpy as np
@@ -45,6 +43,8 @@ from tqdm import tqdm
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from utils.benchmark_io import (FoldTimer, fill_from_config, load_benchmark_data, load_config,  # noqa: E402
                                 read_image, read_markers, read_segmentation)
+
+START = time.perf_counter()  # fold_times.csv: the run is timed from here, after the package imports
 
 
 #  MODEL

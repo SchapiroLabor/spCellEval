@@ -31,10 +31,8 @@ python run_kronos2.py all \\
     --output-dir   <results>/kronos2/IMMUcan
 """
 
-import time
-START = time.perf_counter()  # fold_times.csv: the run is timed from here, package imports included
-
 import sys
+import time
 import argparse
 from pathlib import Path
 
@@ -48,6 +46,8 @@ from scipy import ndimage
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / 'utils'))
 from benchmark_io import FoldTimer, fill_from_config, load_config, read_markers, load_benchmark_data, read_segmentation
 from utils_foundational_models import check_cache_params, check_fold_coverage
+
+START = time.perf_counter()  # fold_times.csv: the run is timed from here, after the package imports
 
 
 #  FEATURE EXTRACTION

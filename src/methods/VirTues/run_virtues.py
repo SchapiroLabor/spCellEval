@@ -23,11 +23,9 @@ python src/methods/VirTues/run_virtues.py all \\
     --output-dir   <results>/IMMUcan/virtues_sp32
 """
 
-import time
-START = time.perf_counter()  # fold_times.csv: the run is timed from here, package imports included
-
 import os
 import sys
+import time
 import argparse
 from pathlib import Path
 
@@ -45,6 +43,8 @@ from benchmark_io import (
 from utils_foundational_models import (
     save_embeddings, load_embeddings, check_cache_params, run_supervised, run_leiden,
 )
+
+START = time.perf_counter()  # fold_times.csv: the run is timed from here, after the package imports
 
 
 #  MARKERS

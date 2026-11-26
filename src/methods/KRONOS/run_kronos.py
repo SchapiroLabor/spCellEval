@@ -38,11 +38,9 @@ python run_kronos.py all \\
     --device       cuda:0
 """
 
-import time
-START = time.perf_counter()  # fold_times.csv: the run is timed from here, package imports included
-
 import argparse
 import sys
+import time
 from pathlib import Path
 
 import numpy as np
@@ -58,6 +56,8 @@ from benchmark_io import (
 from utils_foundational_models import (
     save_embeddings, load_embeddings, check_cache_params, run_supervised, run_leiden,
 )
+
+START = time.perf_counter()  # fold_times.csv: the run is timed from here, after the package imports
 
 VIT_PATCH = 16
 CHECKPOINT = 'hf_hub:MahmoodLab/kronos'

@@ -34,12 +34,10 @@ python run_eva.py all \\
     --output-dir   <results_dir>/eva/IMMUcan
 """
 
-import time
-START = time.perf_counter()  # fold_times.csv: the run is timed from here, package imports included
-
 import argparse
 import os
 import sys
+import time
 from itertools import islice
 from pathlib import Path
 
@@ -56,6 +54,8 @@ from benchmark_io import (
 from utils_foundational_models import (
     check_cache_params, load_embeddings, run_leiden, run_supervised, save_embeddings,
 )
+
+START = time.perf_counter()  # fold_times.csv: the run is timed from here, after the package imports
 
 EVA_REPO_ID = 'yandrewl/Eva'
 EVA_PATCH = 224   # Eva's fixed input size
