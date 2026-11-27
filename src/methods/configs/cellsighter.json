@@ -1,0 +1,29 @@
+{
+  "method": "cellsighter",
+  "defaults": {
+    "epoch_max": 30,
+    "n_runs": 10,
+    "lr": 0.001,
+    "batch_size": 256,
+    "num_workers": 8,
+    "sample_batch": true,
+    "hierarchy_match": null,
+    "aug": true,
+    "to_pad": true,
+    "folds_dir": "quantification/processed/kfolds_StratifiedGroupKFold_level3",
+    "include_validation": true,
+    "exclude_labels": []
+  },
+  "datasets": {
+    "IMMUcan": {
+      "crop_input_size": 30,
+      "crop_size": 60,
+      "exclude_markers": []
+    },
+    "cHL_2_MIBI": {
+      "crop_input_size": 40,
+      "crop_size": 80,
+      "exclude_markers": []
+    }
+  }
+}

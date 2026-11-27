@@ -1,28 +1,35 @@
 #!/usr/bin/env python3
 """
-run_cellsighter.py  —  dataset-agnostic CellSighter orchestration
-==================================================================
-Runs CellSighter cross-validation for any dataset described in the single
-per-method config, selected with --dataset. Stays dataset-agnostic: no dataset
-constants live in this file (Lukas' request — all specifics in the config).
+run_cellsighter.py — CellSighter (KerenLab/CellSighter) on the shared benchmark data and folds
+=============================================================================================
 
-    python run_cellsighter.py --dataset immucan \
-        --config src/methods/configs/cellsighter.json
+Runs the authors' train.py and eval.py unchanged from a CellSighter checkout
+(--cellsighter-dir), as in Amitay et al., Nat Commun 2023: an ensemble of
+n_runs ResNet50s per fold, each trained for epoch_max epochs on raw images with
+the authors' augmentations and class-balanced sampling; the class probabilities
+of the ensemble are averaged and the maximum gives the prediction.
 
-    python run_cellsighter.py --dataset chl \
-        --config src/methods/configs/cellsighter.json --fold 0 --n_runs 1
+The Helix folds are grouped by image, so each fold maps onto CellSighter's image
+lists: train_set = the fold's training (+ validation) images, evaluated on the
+fold's test images. The validation cells of the Helix folds lie in the training
+images, and CellSighter reads one label file per image, so all labelled cells of
+the training images are trained on. Labels are the processed cell_type of every cell.
 
-Pipeline per fold k:
-  1. train_set = all prepared images NOT in fold k; val_set = images in fold k.
-  2. write a CellSighter config.json into <work>/fold{k}/run{r}/.
-  3. train_wrapper.py  -> weights.pth   (internal val split + early stopping)
-  4. eval.py           -> val_results.csv on the held-out fold images
-  5. (n_runs>1) average class probabilities across the ensemble runs.
-  6. write predictions_{k}.csv in spCellEval format
-     (sample_id, cell_id, label, prediction[, prob_*]).
+Modes
+-----
+prepare   Write the authors' data layout to <output-dir>/CellTypes (once per dataset).
+train     Train ensemble member --run of fold --fold and evaluate it on the fold's test images
+          (one GPU; run several in parallel).
+predict   Average the members of each fold into CELLSIGHTER_supervised/level3/predictions_<fold>.csv.
 
-Assumes prepare_dataset.py has already produced <output_root>/CellTypes/... .
-Run from the CellSighter repo dir (so train_wrapper.py/eval.py imports resolve).
+Usage
+-----
+python src/methods/CellSighter/run_cellsighter.py {prepare,train,predict} \\
+    --dataset-path    <data>/IMMUcan \\
+    --config          src/methods/configs/cellsighter.json \\
+    --cellsighter-dir <KerenLab/CellSighter checkout> \\
+    --output-dir      <results>/IMMUcan/cellsighter \\
+    [--fold 0 --run 0 --device cuda:0]
 """
 
 import argparse
@@ -36,143 +43,160 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-HERE = Path(__file__).resolve().parent     # the CellSighter repo dir
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / 'utils'))
+from benchmark_io import (  # noqa: E402
+    fill_from_config, load_benchmark_data, load_config, read_image, read_markers, read_segmentation,
+)
+
+# config keys passed through to the authors' config.json
+CELLSIGHTER_KEYS = ['crop_input_size', 'crop_size', 'epoch_max', 'lr', 'batch_size', 'num_workers',
+                    'sample_batch', 'to_pad', 'hierarchy_match', 'aug']
 
 
-def load_config(config_path: str, dataset: str) -> dict:
-    with open(config_path) as f:
-        cfg = json.load(f)
-    if dataset not in cfg["datasets"]:
-        raise ValueError(f"Dataset '{dataset}' not in {config_path}. "
-                         f"Available: {list(cfg['datasets'])}")
-    merged = dict(cfg.get("defaults", {}))
-    merged.update(cfg["datasets"][dataset])
-    merged["method"] = cfg.get("method", "cellsighter")
-    merged["dataset"] = dataset
-    return merged
+def image_sets(folds, fold):
+    """Image ids of a fold's training and test cells (the Helix folds are grouped by image)."""
+    train, test = ({img for img, _ in folds[fold][split]} for split in ('train', 'test'))
+    if train & test:
+        raise ValueError(f"fold {fold}: images in both train and test: {sorted(train & test)}")
+    return sorted(train), sorted(test)
 
 
-def write_cellsighter_config(base: Path, cfg: dict, root_dir: Path,
-                             channels_path: Path, train_set, val_set,
-                             num_classes: int, weight_to_eval: str = "") -> None:
-    """Write the config.json that upstream train_wrapper.py / eval.py consume."""
-    cs_cfg = {
-        "crop_input_size": cfg["crop_input_size"],
-        "crop_size": cfg["crop_size"],
-        "root_dir": str(root_dir),
-        "train_set": list(train_set),
-        "val_set": list(val_set),
-        "num_classes": num_classes,
-        "epoch_max": cfg["epoch_max"],
-        "lr": cfg["lr"],
-        "blacklist": [],                       # channel exclusion already applied in prepare
-        "batch_size": cfg["batch_size"],
-        "num_workers": cfg["num_workers"],
-        "channels_path": str(channels_path),
-        "weight_to_eval": weight_to_eval,
-        "sample_batch": cfg["sample_batch"],
-        "to_pad": cfg["to_pad"],
-        "hierarchy_match": cfg["hierarchy_match"],
-        "aug": cfg["aug"],
-        "size_data": cfg["size_data"],
-        "device": cfg.get("device", "cuda"),
-        "early_stopping_patience": cfg["early_stopping_patience"],
-        "internal_val_fraction": cfg["internal_val_fraction"],
-    }
-    if cs_cfg["size_data"] is None:
-        cs_cfg.pop("size_data")
-    base.mkdir(parents=True, exist_ok=True)
-    with open(base / "config.json", "w") as f:
-        json.dump(cs_cfg, f, indent=2)
+def prepare(args, cfg, meta_df, img_paths, seg_paths):
+    """Images (H, W, C), masks and per-cell label files in the layout CellSighter's loader reads."""
+    root = Path(args.output_dir) / 'CellTypes'
+    for sub in ('data/images', 'cells', 'cells2labels'):
+        (root / sub).mkdir(parents=True, exist_ok=True)
+    markers = read_markers(Path(args.dataset_path))
+    keep = [i for i, m in enumerate(markers) if m not in set(cfg.get('exclude_markers', []))]
+    (root / 'channels.txt').write_text('\n'.join(markers[i] for i in keep) + '\n')
+    classes = sorted(meta_df['label'].unique())
+    (root / 'label_map.json').write_text(json.dumps(classes, indent=1))
+    label_id = {c: i for i, c in enumerate(classes)}
+
+    for img_id, cells in meta_df.groupby('image_id'):
+        seg = read_segmentation(seg_paths[img_id])
+        labels = np.full(int(seg.max()) + 1, -1)  # indexed by cell id; -1 = not scored
+        labels[cells['cell_id'].to_numpy()] = cells['label'].map(label_id).to_numpy()
+        img = read_image(img_paths[img_id], keep).transpose(1, 2, 0)  # float32, raw intensities
+        np.savez(root / 'data' / 'images' / f'{img_id}.npz', data=img)
+        np.savez(root / 'cells' / f'{img_id}.npz', data=seg)
+        (root / 'cells2labels' / f'{img_id}.txt').write_text('\n'.join(map(str, labels)) + '\n')
+    print(f"Prepared {meta_df['image_id'].nunique()} images, {len(keep)} channels, "
+          f"{len(classes)} classes -> {root}")
 
 
-def run_step(script: str, base: Path):
-    """Invoke upstream train_wrapper.py / eval.py with the repo dir as cwd."""
-    cmd = [sys.executable, str(HERE / script), "--base_path", str(base)]
-    print(f"  $ {' '.join(cmd)}")
-    subprocess.run(cmd, cwd=str(HERE), check=True)
+def run_authors_script(script, run_dir, cfg_json, args):
+    """Write config.json and run the authors' train.py / eval.py on it (they use device 'cuda')."""
+    (run_dir / 'config.json').write_text(json.dumps(cfg_json, indent=1))
+    env = dict(os.environ, CUDA_VISIBLE_DEVICES=args.device.removeprefix('cuda:'))
+    subprocess.run([sys.executable, script, '--base_path', str(run_dir)],
+                   cwd=args.cellsighter_dir, env=env, check=True)
 
 
-def read_val_results(path: Path) -> pd.DataFrame:
-    """Parse upstream val_results.csv -> tidy frame with per-class prob matrix."""
-    df = pd.read_csv(path)
-    probs = np.array([ast.literal_eval(p) for p in df["prob_list"]])
-    out = pd.DataFrame({
-        "sample_id": df["image_id"],
-        "cell_id": df["cell_id"].astype(int),
-        "label": df["label"].astype(int),
-    })
-    return out, probs
+def authors_config(args, cfg, train_set, val_set, weights=''):
+    root = Path(args.output_dir)
+    classes = json.loads((root / 'CellTypes' / 'label_map.json').read_text())
+    return {**{k: cfg[k] for k in CELLSIGHTER_KEYS}, 'root_dir': str(root), 'train_set': train_set,
+            'val_set': val_set, 'num_classes': len(classes), 'blacklist': [],
+            'channels_path': str(root / 'CellTypes' / 'channels.txt'), 'weight_to_eval': weights}
+
+
+def evaluate(args, cfg, folds, fold, run_dir):
+    """The authors' eval.py with the run's last weights on the fold's test images -> val_results.csv."""
+    train_set, test_set = image_sets(folds, fold)
+    weights = run_dir / f"weights_{cfg['epoch_max'] - 1}_count.pth"
+    run_authors_script('eval.py', run_dir, authors_config(args, cfg, train_set, test_set, str(weights)), args)
+
+
+def train(args, cfg, folds):
+    train_set, _ = image_sets(folds, args.fold)
+    # The authors' train.py scores val_set every 10 epochs (monitoring only; it needs a non-empty set).
+    # By default that is the training images themselves; --holdout-images N instead holds out N
+    # whole training images (to choose epoch_max). The fold's test images are never loaded here.
+    if args.holdout_images:
+        rng = np.random.default_rng(args.fold)
+        held_out = sorted(rng.choice(train_set, args.holdout_images, replace=False))
+        train_set, monitor = sorted(set(train_set) - set(held_out)), held_out
+    else:
+        monitor = train_set
+    stage = 'pilot' if args.holdout_images else 'runs'
+    run_dir = Path(args.output_dir) / stage / f'fold{args.fold}' / f'run{args.run}'
+    run_dir.mkdir(parents=True, exist_ok=True)
+    run_authors_script('train.py', run_dir, authors_config(args, cfg, train_set, monitor), args)
+    last = run_dir / f"weights_{cfg['epoch_max'] - 1}_count.pth"
+    for w in run_dir.glob('weights_*_count.pth'):
+        if w != last:
+            w.unlink()  # ResNet50 checkpoints of every epoch; only the last one is evaluated
+    if not args.holdout_images:
+        evaluate(args, cfg, folds, args.fold, run_dir)
+    print(f"fold {args.fold} run {args.run}: {len(train_set)} training images -> {run_dir}")
+
+
+def predict(args, cfg, folds, meta_df):
+    classes = json.loads((Path(args.output_dir) / 'CellTypes' / 'label_map.json').read_text())
+    out_dir = Path(args.output_dir) / 'CELLSIGHTER_supervised' / 'level3'
+    out_dir.mkdir(parents=True, exist_ok=True)
+    last = f"weights_{cfg['epoch_max'] - 1}_count.pth"
+    for fold in range(len(folds)) if args.fold is None else [args.fold]:
+        runs = sorted((Path(args.output_dir) / 'runs' / f'fold{fold}').glob(f'run*/{last}'))
+        if len(runs) != cfg['n_runs']:
+            raise FileNotFoundError(f"fold {fold}: {len(runs)} of {cfg['n_runs']} trained runs found")
+        test = meta_df[[(i, c) in folds[fold]['test'] for i, c in zip(meta_df['image_id'], meta_df['cell_id'])]]
+        keys = pd.MultiIndex.from_frame(test[['image_id', 'cell_id']])
+        p = 0
+        for weights in runs:  # the authors' ensemble: mean of the members' class probabilities
+            if not (weights.parent / 'val_results.csv').exists():
+                evaluate(args, cfg, folds, fold, weights.parent)
+            res = pd.read_csv(weights.parent / 'val_results.csv', dtype={'image_id': str})
+            res = res.set_index(['image_id', 'cell_id'])['prob_list'].map(ast.literal_eval)
+            p = p + np.stack(res.loc[keys].to_numpy()) / len(runs)  # KeyError if a test cell is missing
+        test.rename(columns={'label': 'true_phenotype'}).assign(
+            fold=fold, predicted_phenotype=np.array(classes)[p.argmax(1)], confidence=p.max(1),
+        ).to_csv(out_dir / f'predictions_{fold}.csv', index=False)
+        print(f"fold {fold}: {len(runs)} runs, {len(test):,} test cells -> {out_dir}/predictions_{fold}.csv")
+
+
+def build_parser():
+    parser = argparse.ArgumentParser(prog='run_cellsighter.py', description='CellSighter benchmark pipeline',
+                                     formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    parser.add_argument('mode', choices=['prepare', 'train', 'predict'])
+    parser.add_argument('--dataset-path', required=True,
+                        help='Dataset directory (markers.txt, quantification/, raw_images/, segmentation/)')
+    parser.add_argument('--config', required=True, help='Path to cellsighter.json')
+    parser.add_argument('--output-dir', required=True)
+    parser.add_argument('--cellsighter-dir', default=None, help='KerenLab/CellSighter checkout (train, predict)')
+    parser.add_argument('--folds-dir', default=None,
+                        help='k-fold directory, absolute or relative to --dataset-path')
+    parser.add_argument('--include-validation', action=argparse.BooleanOptionalAction, default=None,
+                        help="Train on the folds' validation images too")
+    parser.add_argument('--fold', type=int, default=None, help='train: required; predict: default all folds')
+    parser.add_argument('--run', type=int, default=None, help='train: ensemble member, 0 .. n_runs-1')
+    parser.add_argument('--device', default='cuda:0')
+    parser.add_argument('--epoch-max', type=int, default=None)
+    parser.add_argument('--holdout-images', type=int, default=0,
+                        help='train: hold out N training images and monitor them (choosing epoch_max)')
+    return parser
 
 
 def main():
-    ap = argparse.ArgumentParser(description="Dataset-agnostic CellSighter runner")
-    ap.add_argument("--dataset", required=True)
-    ap.add_argument("--config", required=True)
-    ap.add_argument("--fold", type=int, default=None, help="run a single fold (default: all)")
-    ap.add_argument("--n_runs", type=int, default=None, help="ensemble size (default: config)")
-    ap.add_argument("--results_dir", default=None, help="where predictions_{k}.csv go")
-    args = ap.parse_args()
+    args = build_parser().parse_args()
+    data_root = Path(args.dataset_path).resolve()
+    args.output_dir = str(Path(args.output_dir).resolve())
+    cfg = load_config(args.config, data_root.name)
+    fill_from_config(args, cfg)
+    cfg['epoch_max'] = args.epoch_max
+    meta_df, folds, img_paths, seg_paths = load_benchmark_data(
+        data_root, data_root / args.folds_dir, cfg.get('exclude_labels', []), args.include_validation)
 
-    cfg = load_config(args.config, args.dataset)
-    n_runs = args.n_runs or cfg.get("n_runs", 1)
-
-    data_root = Path(cfg["output_root"])
-    ct = data_root / "CellTypes"
-    channels_path = ct / "channels.txt"
-    with open(ct / "folds.json") as f:
-        folds = json.load(f)
-    with open(ct / "label_map.json") as f:
-        label_map = json.load(f)              # {class_name: int}
-    int2str = {v: k for k, v in label_map.items()}
-    # output dim must exceed the largest label id (ids may be non-contiguous)
-    num_classes = max(label_map.values()) + 1
-
-    all_images = sorted({sid for v in folds.values() for sid in v})
-    results_dir = Path(args.results_dir or (data_root / "results"))
-    results_dir.mkdir(parents=True, exist_ok=True)
-
-    fold_keys = [str(args.fold)] if args.fold is not None else sorted(folds, key=lambda k: int(k))
-
-    for k in fold_keys:
-        test_imgs = list(folds[k])
-        train_imgs = [s for s in all_images if s not in set(test_imgs)]
-        print(f"\n=== fold {k}: {len(train_imgs)} train imgs / {len(test_imgs)} test imgs ===")
-
-        ensemble_probs, base_df = None, None
-        for r in range(n_runs):
-            base = results_dir / f"fold{k}" / f"run{r}"
-            # train
-            write_cellsighter_config(base, cfg, data_root, channels_path,
-                                     train_imgs, test_imgs, num_classes)
-            run_step("train_wrapper.py", base)
-            # eval with the best checkpoint
-            write_cellsighter_config(base, cfg, data_root, channels_path,
-                                     train_imgs, test_imgs, num_classes,
-                                     weight_to_eval=str(base / "weights.pth"))
-            run_step("eval.py", base)
-
-            df_r, probs_r = read_val_results(base / "val_results.csv")
-            if ensemble_probs is None:
-                base_df, ensemble_probs = df_r, probs_r
-            else:
-                # align by (sample_id, cell_id) then accumulate
-                key = ["sample_id", "cell_id"]
-                order = base_df.merge(df_r.reset_index(), on=key, how="left")["index"].values
-                ensemble_probs = ensemble_probs + probs_r[order]
-
-        ensemble_probs = ensemble_probs / n_runs
-        pred_int = ensemble_probs.argmax(1)
-        out = base_df.copy()
-        out["prediction"] = [int2str.get(int(p), str(p)) for p in pred_int]
-        out["label_name"] = [int2str.get(int(l), str(l)) for l in out["label"]]
-        out["confidence"] = ensemble_probs.max(1)
-        out_path = results_dir / f"predictions_{k}.csv"
-        out.to_csv(out_path, index=False)
-        print(f"  -> wrote {out_path}  ({len(out)} cells)")
-
-    print("\nAll folds done.")
+    if args.mode == 'prepare':
+        prepare(args, cfg, meta_df, img_paths, seg_paths)
+    elif args.mode == 'train':
+        if args.fold is None or args.run is None:
+            raise ValueError("train needs --fold and --run")
+        train(args, cfg, folds)
+    else:
+        predict(args, cfg, folds, meta_df)
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     main()
